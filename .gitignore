@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Logs y archivos temporales
+*.log
+error_log.txt
+startup_error.txt
+py_error.txt
+py_out.txt
+screen_test.png
+
+# Archivos Claude residuales
+claude --resume*.txt
+
+# Config local (ruta de máquina específica — cada usuario configura la suya)
+config.json
+
+# Datos de negocio (no van al repo — son sensibles)
+Reportes/
+Ventas/
+
+# Assets grandes que no son código
+dist/
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

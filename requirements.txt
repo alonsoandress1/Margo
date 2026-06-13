@@ -1,0 +1,26 @@
+# Margo · Nelí — Sistema de Gestión de Restaurante
+# Python 3.12+
+
+# ── Desktop nativo (app_qt.py) ────────────────────────────────────────────────
+PyQt6>=6.7.0
+PyQt6-WebEngine>=6.7.0
+
+# ── Charts (embebidos via QWebEngineView) ─────────────────────────────────────
+plotly>=5.18.0
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+pandas>=2.0.0
+numpy>=1.26.0
+
+# ── Excel ─────────────────────────────────────────────────────────────────────
+xlrd==1.2.0          # único soporte .xls legado
+openpyxl>=3.1.0      # .xlsx + export
+
+# ── Empaquetado como .exe ─────────────────────────────────────────────────────
+# pyinstaller>=6.0.0   (instalar manualmente para build)
+
+# ── Legacy: Streamlit (app.py — mantener como backup) ────────────────────────
+streamlit>=1.35.0
+pywebview>=5.0.0
+requests>=2.31.0
+rich>=13.0.0

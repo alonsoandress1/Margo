@@ -1,0 +1,2714 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "fecha": "2026-06-09",
+    "nota": "Cantidades estimadas por porción. Validar con jefe de cocina.",
+    "unidades": "g para sólidos, ml para líquidos",
+    "categorias": [
+      "Proteínas del mar",
+      "Mariscos",
+      "Carnes",
+      "Aves",
+      "Verduras",
+      "Frutas",
+      "Lácteos",
+      "Huevos",
+      "Pasta y cereales",
+      "Repostería",
+      "Helados",
+      "Aceites y condimentos"
+    ],
+    "temperaturas": [
+      "refrigerado",
+      "congelado",
+      "ambiente"
+    ],
+    "lead_time_dias": "días hábiles de anticipación para el pedido"
+  },
+  "VECARFON002": {
+    "nombre": "Atún Risotto",
+    "ingredientes": [
+      {
+        "nombre": "Atún fresco",
+        "cantidad": 160,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Arroz arborio",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON004": {
+    "nombre": "Caldillo de Congrio",
+    "ingredientes": [
+      {
+        "nombre": "Congrio colorado",
+        "cantidad": 150,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON010": {
+    "nombre": "Filete Salteado Fritas",
+    "ingredientes": [
+      {
+        "nombre": "Filete de res",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON012": {
+    "nombre": "Merluza Austral",
+    "ingredientes": [
+      {
+        "nombre": "Merluza austral",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON015": {
+    "nombre": "Picante Arroz",
+    "ingredientes": [
+      {
+        "nombre": "Camarones frescos",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Arroz blanco",
+        "cantidad": 150,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 80,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON016": {
+    "nombre": "Picante Fettuccini",
+    "ingredientes": [
+      {
+        "nombre": "Camarones frescos",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Fettuccini seco",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 80,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON017": {
+    "nombre": "Plateada Pastelera",
+    "ingredientes": [
+      {
+        "nombre": "Plateada (p/mechar)",
+        "cantidad": 230,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      }
+    ]
+  },
+  "VECARFON020": {
+    "nombre": "Salmon Cancato",
+    "ingredientes": [
+      {
+        "nombre": "Salmón fresco",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON021": {
+    "nombre": "Sorrentin Mechada",
+    "ingredientes": [
+      {
+        "nombre": "Sorrentinos frescos",
+        "cantidad": 200,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Plateada (p/mechar)",
+        "cantidad": 90,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON022": {
+    "nombre": "Sorrentin Zapallo",
+    "ingredientes": [
+      {
+        "nombre": "Sorrentinos frescos",
+        "cantidad": 200,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 60,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON027": {
+    "nombre": "Rollos Zucchini",
+    "ingredientes": [
+      {
+        "nombre": "Queso ricotta",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON048": {
+    "nombre": "Lasagna Ragout",
+    "ingredientes": [
+      {
+        "nombre": "Láminas lasagna",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Carne molida",
+        "cantidad": 110,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Leche",
+        "cantidad": 80,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Harina de trigo",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON054": {
+    "nombre": "Pulpo Mote",
+    "ingredientes": [
+      {
+        "nombre": "Pulpo",
+        "cantidad": 130,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Mote cocido",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 15,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARFON055": {
+    "nombre": "Risotto Funghi Vegetariano",
+    "ingredientes": [
+      {
+        "nombre": "Arroz arborio",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON058": {
+    "nombre": "Crema de Zapallo",
+    "ingredientes": [
+      {
+        "nombre": "Crema",
+        "cantidad": 50,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON059": {
+    "nombre": "Sopa de Cebolla",
+    "ingredientes": [
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Queso gruyere",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Pan baguette",
+        "cantidad": 40,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARFON061": {
+    "nombre": "Chupe de salmón ahumado",
+    "ingredientes": [
+      {
+        "nombre": "Salmón ahumado",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 100,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Leche",
+        "cantidad": 60,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON062": {
+    "nombre": "Sorrentinos de pulpo y salmón",
+    "ingredientes": [
+      {
+        "nombre": "Sorrentinos frescos",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Pulpo",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Salmón fresco",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 60,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON066": {
+    "nombre": "Lomo Liso con Risotto Funghi",
+    "ingredientes": [
+      {
+        "nombre": "Lomo liso",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Arroz arborio",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON067": {
+    "nombre": "Carne Desmechada con Ñoquis",
+    "ingredientes": [
+      {
+        "nombre": "Plateada (p/mechar)",
+        "cantidad": 110,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Ñoquis frescos",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON068": {
+    "nombre": "Paila de Carne Mechada",
+    "ingredientes": [
+      {
+        "nombre": "Plateada (p/mechar)",
+        "cantidad": 150,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      }
+    ]
+  },
+  "VECARFON085": {
+    "nombre": "Rigatoni con Ragout de Filete",
+    "ingredientes": [
+      {
+        "nombre": "Rigatoni seco",
+        "cantidad": 180,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Filete de res",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARFON088": {
+    "nombre": "Hojaldre de Carne Desmechada",
+    "ingredientes": [
+      {
+        "nombre": "Plateada (p/mechar)",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Masa hojaldre",
+        "cantidad": 120,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARFON089": {
+    "nombre": "Crema de Tomate y Albahaca",
+    "ingredientes": [
+      {
+        "nombre": "Crema",
+        "cantidad": 50,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARENT002": {
+    "nombre": "Carpaccio Filete Res",
+    "ingredientes": [
+      {
+        "nombre": "Filete de res",
+        "cantidad": 70,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 15,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 10,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARENT003": {
+    "nombre": "Ceviche Margo",
+    "ingredientes": [
+      {
+        "nombre": "Pescado blanco (corvina/reineta)",
+        "cantidad": 110,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 50,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARENT004": {
+    "nombre": "Emp Frita Mechada",
+    "ingredientes": [
+      {
+        "nombre": "Plateada (p/mechar)",
+        "cantidad": 65,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Masa para empanadas",
+        "cantidad": 50,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENT008": {
+    "nombre": "Tartar Atún",
+    "ingredientes": [
+      {
+        "nombre": "Atún fresco",
+        "cantidad": 90,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Palta",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Salsa de soya",
+        "cantidad": 10,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENT027": {
+    "nombre": "Tartaro Res",
+    "ingredientes": [
+      {
+        "nombre": "Filete de res",
+        "cantidad": 90,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Huevos",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Huevos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Mostaza Dijon",
+        "cantidad": 10,
+        "unidad": "g",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      },
+      {
+        "nombre": "Alcaparras",
+        "cantidad": 10,
+        "unidad": "g",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENT034": {
+    "nombre": "Brocheta Langostino",
+    "ingredientes": [
+      {
+        "nombre": "Langostinos",
+        "cantidad": 110,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 15,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARENT035": {
+    "nombre": "Emp Pulpo Camaron",
+    "ingredientes": [
+      {
+        "nombre": "Pulpo",
+        "cantidad": 55,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Camarones frescos",
+        "cantidad": 55,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Masa para empanadas",
+        "cantidad": 50,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENT036": {
+    "nombre": "Tiradito de Salmón",
+    "ingredientes": [
+      {
+        "nombre": "Salmón fresco",
+        "cantidad": 90,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 10,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENT041": {
+    "nombre": "Tiradito de Locos",
+    "ingredientes": [
+      {
+        "nombre": "Locos",
+        "cantidad": 90.0,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado",
+          "Martes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARENT045": {
+    "nombre": "Croquetas de Risotto",
+    "ingredientes": [
+      {
+        "nombre": "Arroz arborio",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Pan rallado",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Huevos",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Huevos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 25,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENS002": {
+    "nombre": "Ens Caprese",
+    "ingredientes": [
+      {
+        "nombre": "Mozzarella fresca",
+        "cantidad": 90,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 15,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENS003": {
+    "nombre": "Ens Atún Mango",
+    "ingredientes": [
+      {
+        "nombre": "Atún fresco",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Mango",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 15,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      },
+      {
+        "nombre": "Limón",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARENS004": {
+    "nombre": "Ens Cam  Apanado",
+    "ingredientes": [
+      {
+        "nombre": "Camarones frescos",
+        "cantidad": 90,
+        "unidad": "g",
+        "categoria": "Mariscos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Pan rallado",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 20,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENS006": {
+    "nombre": "Ens Salmon Q.Cabra",
+    "ingredientes": [
+      {
+        "nombre": "Salmón ahumado",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Proteínas del mar",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Queso de cabra",
+        "cantidad": 45,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 15,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENS009": {
+    "nombre": "Ens Verduras Asadas",
+    "ingredientes": [
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 20,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARENS023": {
+    "nombre": "Ens Pera Queso Azul",
+    "ingredientes": [
+      {
+        "nombre": "Pera",
+        "cantidad": 110,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Queso azul",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Nueces",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS003": {
+    "nombre": "Cheesecake Limón",
+    "ingredientes": [
+      {
+        "nombre": "Queso crema",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Limón (jugo)",
+        "cantidad": 35,
+        "unidad": "ml",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Galletas digestivas",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Azúcar",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS004": {
+    "nombre": "Copa Helado 2 Sabores",
+    "ingredientes": [
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 130,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS005": {
+    "nombre": "Crumble de Manzana",
+    "ingredientes": [
+      {
+        "nombre": "Manzana",
+        "cantidad": 160,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Harina de trigo",
+        "cantidad": 50,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Azúcar",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Avena",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS006": {
+    "nombre": "Discos de Chocolate",
+    "ingredientes": [
+      {
+        "nombre": "Chocolate amargo",
+        "cantidad": 80,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARPOS007": {
+    "nombre": "Flan de Caluga",
+    "ingredientes": [
+      {
+        "nombre": "Leche",
+        "cantidad": 150,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Huevos",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Huevos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Calugas / Toffee",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARPOS011": {
+    "nombre": "Volcán de Chocolate",
+    "ingredientes": [
+      {
+        "nombre": "Chocolate amargo",
+        "cantidad": 65,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 45,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Huevos",
+        "cantidad": 90,
+        "unidad": "g",
+        "categoria": "Huevos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Azúcar",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Harina de trigo",
+        "cantidad": 20,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS013": {
+    "nombre": "Brownie Choc Vegano",
+    "ingredientes": [
+      {
+        "nombre": "Chocolate amargo",
+        "cantidad": 70,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      },
+      {
+        "nombre": "Azúcar",
+        "cantidad": 40,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Harina de trigo",
+        "cantidad": 40,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS015": {
+    "nombre": "Cheesecake Berries",
+    "ingredientes": [
+      {
+        "nombre": "Queso crema",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Berries mix",
+        "cantidad": 55,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Galletas digestivas",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Azúcar",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS024": {
+    "nombre": "Brownie Nutella",
+    "ingredientes": [
+      {
+        "nombre": "Chocolate amargo",
+        "cantidad": 50,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Nutella",
+        "cantidad": 35,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Mantequilla",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Huevos",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Huevos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Azúcar",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Repostería",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 40,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS029": {
+    "nombre": "Vainilla",
+    "ingredientes": [
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 120,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS030": {
+    "nombre": "Dulce de Leche",
+    "ingredientes": [
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 120,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS031": {
+    "nombre": "Nutella",
+    "ingredientes": [
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 120,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS032": {
+    "nombre": "Frutilla / Menta",
+    "ingredientes": [
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 120,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Frutillas",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Frutas",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARPOS034": {
+    "nombre": "Maracuya",
+    "ingredientes": [
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 120,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARPOS035": {
+    "nombre": "Copa Helado Niños",
+    "ingredientes": [
+      {
+        "nombre": "Helado surtido",
+        "cantidad": 100,
+        "unidad": "g",
+        "categoria": "Helados",
+        "temperatura": "congelado",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARNIN001": {
+    "nombre": "Fettuccini Pomodoro",
+    "ingredientes": [
+      {
+        "nombre": "Fettuccini seco",
+        "cantidad": 150,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 10,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARNIN002": {
+    "nombre": "Fetuccini Salsa Jamon",
+    "ingredientes": [
+      {
+        "nombre": "Fettuccini seco",
+        "cantidad": 150,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Jamón",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Aves",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Crema",
+        "cantidad": 50,
+        "unidad": "ml",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  },
+  "VECARNIN004": {
+    "nombre": "Hamburguesa Niños",
+    "ingredientes": [
+      {
+        "nombre": "Carne molida",
+        "cantidad": 110,
+        "unidad": "g",
+        "categoria": "Carnes",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Pan hamburguesa",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      }
+    ]
+  },
+  "VECARNIN005": {
+    "nombre": "Pollo Apanado al Plato",
+    "ingredientes": [
+      {
+        "nombre": "Pechuga de pollo",
+        "cantidad": 130,
+        "unidad": "g",
+        "categoria": "Aves",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Pan rallado",
+        "cantidad": 30,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Huevos",
+        "cantidad": 40,
+        "unidad": "g",
+        "categoria": "Huevos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 25,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARNIN006": {
+    "nombre": "Porcion Papas Fritas",
+    "ingredientes": [
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARNIN007": {
+    "nombre": "Quesadillas Jamon Queso",
+    "ingredientes": [
+      {
+        "nombre": "Jamón",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Aves",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Queso mantecoso",
+        "cantidad": 50,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      },
+      {
+        "nombre": "Tortillas de harina",
+        "cantidad": 60,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal",
+        "cantidad": 10,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARNIN015": {
+    "nombre": "Canasto Pollo Papas Fritas",
+    "ingredientes": [
+      {
+        "nombre": "Pechuga de pollo",
+        "cantidad": 110,
+        "unidad": "g",
+        "categoria": "Aves",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Miércoles",
+          "Viernes"
+        ]
+      },
+      {
+        "nombre": "Pan rallado",
+        "cantidad": 25,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Aceite vegetal fritura",
+        "cantidad": 30,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      }
+    ]
+  },
+  "VECARNIN016": {
+    "nombre": "Fettuccini Oliva",
+    "ingredientes": [
+      {
+        "nombre": "Fettuccini seco",
+        "cantidad": 150,
+        "unidad": "g",
+        "categoria": "Pasta y cereales",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes",
+          "Jueves"
+        ]
+      },
+      {
+        "nombre": "Aceite de oliva",
+        "cantidad": 25,
+        "unidad": "ml",
+        "categoria": "Aceites y condimentos",
+        "temperatura": "ambiente",
+        "dias_despacho": [
+          "Lunes"
+        ]
+      },
+      {
+        "nombre": "Parmesano rallado",
+        "cantidad": 15,
+        "unidad": "g",
+        "categoria": "Lácteos",
+        "temperatura": "refrigerado",
+        "dias_despacho": [
+          "Lunes",
+          "Martes",
+          "Miércoles",
+          "Jueves",
+          "Viernes",
+          "Sábado"
+        ]
+      }
+    ]
+  }
+}
