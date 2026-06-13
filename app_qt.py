@@ -1151,14 +1151,19 @@ class AppState(QObject):
         self.ventas_df    = None
         self._recetas_raw : dict = {}
         self.recetas      : dict = {}
+        self.load_errors  : list = []
 
     def reload(self):
-        self.history     = core.load_history(self.folder)
-        self.model       = core.build_model(self.history)
-        self.df          = core.build_df(self.history)
-        self.name_to_sku = core.build_name_to_sku(self.history)
-        self.ventas_df   = core.load_ventas_df()
-        self._recetas_raw, self.recetas = core.load_recetas()
+        self.load_errors = []
+        try:
+            self.history     = core.load_history(self.folder, self.load_errors)
+            self.model       = core.build_model(self.history)
+            self.df          = core.build_df(self.history)
+            self.name_to_sku = core.build_name_to_sku(self.history)
+            self.ventas_df   = core.load_ventas_df()
+            self._recetas_raw, self.recetas = core.load_recetas()
+        except Exception as e:
+            self.load_errors.append(f"Error crítico al cargar datos: {e}")
         self.changed.emit()
 
 # ── Web view base ──────────────────────────────────────────────────────────────
@@ -1359,7 +1364,11 @@ class NavRail(QWidget):
             self._on_reload()
 
     def _on_reload(self):
-        self.state.reload()
+        try:
+            self.state.reload()
+        except Exception as e:
+            QMessageBox.critical(self, "Error al recargar",
+                f"No se pudo recargar los datos.\n\n{e}")
 
     def set_active(self, idx: int):
         if idx in self._btns:
@@ -1367,14 +1376,17 @@ class NavRail(QWidget):
 
     def _refresh_stats(self):
         h = self.state.history
+        errs = self.state.load_errors
         if not h:
             self.lbl_stats.setText("Sin datos cargados")
         else:
             ds = sorted(h)
             n_p = sum(1 for d in h if core.day_type(d) == 'Dom-Promo')
-            self.lbl_stats.setText(
-                f"{len(h)} días  ·  {n_p} promo\n"
-                f"{ds[0].strftime('%d/%m/%y')} - {ds[-1].strftime('%d/%m/%y')}")
+            txt = (f"{len(h)} días  ·  {n_p} promo\n"
+                   f"{ds[0].strftime('%d/%m/%y')} - {ds[-1].strftime('%d/%m/%y')}")
+            if errs:
+                txt += f"\n⚠ {len(errs)} archivo(s) con problemas"
+            self.lbl_stats.setText(txt)
 
         vdf = self.state.ventas_df
         if vdf is not None and not vdf.empty:
@@ -2746,7 +2758,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(_root)
         self.setStyleSheet(QSS)
 
-        if not self.state.history:
+        if self.state.load_errors and not self.state.history:
+            detail = "\n".join(f"  • {e}" for e in self.state.load_errors[:8])
+            QMessageBox.warning(self, "Sin datos",
+                "No se pudieron cargar archivos de informe.\n\n"
+                f"{detail}\n\n"
+                "Selecciona la carpeta correcta en el panel lateral.")
+        elif not self.state.history:
             QMessageBox.warning(self, "Sin datos",
                 "No se encontraron archivos de informe.\n"
                 "Selecciona la carpeta correcta en el panel lateral.")

@@ -233,25 +233,28 @@ def parse_report(path):
                 except (ValueError, TypeError):
                     pass
                 break
-    if path.endswith('.xlsx'):
-        if not HAS_OPENPYXL:
-            return result
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        for row in wb.active.iter_rows(min_row=22, values_only=True):
-            if len(row) > 9:
-                handle_row(row[0], row[1], row[9])
-        wb.close()
-    else:
-        if not HAS_XLRD:
-            return result
-        wb = xlrd.open_workbook(path)
-        ws = wb.sheet_by_index(0)
-        if ws.ncols > 9:
-            for r in range(22, ws.nrows):
-                handle_row(ws.cell_value(r, 0), ws.cell_value(r, 1), ws.cell_value(r, 9))
+    try:
+        if path.endswith('.xlsx'):
+            if not HAS_OPENPYXL:
+                return result
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            for row in wb.active.iter_rows(min_row=22, values_only=True):
+                if len(row) > 9:
+                    handle_row(row[0], row[1], row[9])
+            wb.close()
+        else:
+            if not HAS_XLRD:
+                return result
+            wb = xlrd.open_workbook(path)
+            ws = wb.sheet_by_index(0)
+            if ws.ncols > 9:
+                for r in range(22, ws.nrows):
+                    handle_row(ws.cell_value(r, 0), ws.cell_value(r, 1), ws.cell_value(r, 9))
+    except Exception:
+        return {}
     return result
 
-def load_history(folder: str) -> dict:
+def load_history(folder: str, errors: list | None = None) -> dict:
     history = {}
     if not os.path.isdir(folder):
         return history
@@ -265,12 +268,16 @@ def load_history(folder: str) -> dict:
             d, m, y = raw.split('-')
             date = datetime(int(y), int(m), int(d))
         except ValueError:
+            if errors is not None:
+                errors.append(f"Nombre inválido: {fname}")
             continue
         if date in EXCLUDED:
             continue
         data = parse_report(os.path.join(folder, fname))
         if data:
             history[date] = data
+        elif errors is not None:
+            errors.append(f"Sin datos reconocibles: {fname}")
     return history
 
 def build_model(history):
