@@ -1847,7 +1847,7 @@ class TabProduccion(QWidget):
         # Charts: variabilidad + forecast bars — categoría elegida en el combo Qt
         sel_cat  = self._cat_combo.currentText() or 'Fondo'
         fig_var  = core.chart_variability(s.model, sel_cat)
-        fig_bars = core.chart_forecast_bars(totals, dish_stats, sel_cat)
+        fig_bars = core.chart_forecast_bars(totals, dish_stats, sel_cat, horizon=s.horizon)
 
         analisis_tabs = _stabs([
             ('COBERTURA',    'cob', cov_table),

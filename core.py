@@ -478,7 +478,7 @@ def day_card_html(d, dt, ff, pf, max_ff, is_fallback=False, idx=0):
 
 # ── Chart builders (devuelven go.Figure) ──────────────────────────────────────
 
-def chart_forecast_bars(totals, dish_stats, cat='Fondo', top_n=20):
+def chart_forecast_bars(totals, dish_stats, cat='Fondo', top_n=20, horizon=1):
     items = sorted(
         [(n, c, q, dish_stats.get((n, c), {'mu': q, 'sigma': 0}))
          for (n, c), q in totals.items() if c == cat and q >= 1],
@@ -491,21 +491,22 @@ def chart_forecast_bars(totals, dish_stats, cat='Fondo', top_n=20):
     total  = [round(x[2])          for x in items]
     color  = CAT_HEX.get(cat, GOLD)
     rgb    = f'{int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)}'
+    dias_lbl = f"{horizon} día{'s' if horizon != 1 else ''}"
     fig    = go.Figure()
-    fig.add_trace(go.Bar(name='Promedio (μ)', y=names, x=mu_v, orientation='h',
+    fig.add_trace(go.Bar(name='Base acumulada', y=names, x=mu_v, orientation='h',
         marker=dict(color=f'rgba({rgb},.45)', cornerradius=4),
-        hovertemplate='<b>%{y}</b><br>μ: %{x}<extra></extra>'))
-    fig.add_trace(go.Bar(name='Buffer (σ)', y=names, x=sig_v, orientation='h',
+        hovertemplate=f'<b>%{{y}}</b><br>Base ({dias_lbl}): %{{x}} uds<extra></extra>'))
+    fig.add_trace(go.Bar(name='Buffer de seguridad', y=names, x=sig_v, orientation='h',
         marker=dict(color='rgba(110,231,183,.65)', cornerradius=4),
-        hovertemplate='<b>%{y}</b><br>σ: +%{x}<extra></extra>'))
+        hovertemplate=f'<b>%{{y}}</b><br>Buffer ({dias_lbl}): +%{{x}} uds<extra></extra>'))
     for name, tot in zip(names, total):
         fig.add_annotation(x=tot, y=name, text=f'<b>{tot}</b>', showarrow=False,
             xanchor='left', xshift=8, font=dict(size=11, color=color))
     layout = {**PLOTLY_BASE}
     layout.update(barmode='stack', height=max(380, len(names)*32),
-        title=dict(text=f'Forecast — {cat}s', **PLOTLY_BASE['title']),
+        title=dict(text=f'Forecast — {cat} · {dias_lbl}', **PLOTLY_BASE['title']),
         yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed'},
-        xaxis={**PLOTLY_BASE['xaxis'], 'title': 'Unidades'})
+        xaxis={**PLOTLY_BASE['xaxis'], 'title': f'Unidades totales a producir ({dias_lbl})'})
     fig.update_layout(**layout)
     return fig
 
@@ -556,30 +557,61 @@ def chart_trend(df, dishes):
     return fig
 
 def chart_variability(model, cat='Fondo', top_n=18):
-    rows = []
+    # Agrega ponderando por n (observaciones por tipo de día)
+    accum: dict = {}   # dish → {sum_mean_n, sum_std_n, sum_n}
     for dt, dishes in model.items():
         for (name, c), stats in dishes.items():
-            if c == cat and stats['std'] is not None:
-                rows.append({'dish': name, 'mean': stats['mean'], 'std': stats['std'],
-                             'cv': stats['std']/stats['mean'] if stats['mean'] > 0 else 0})
-    if not rows: return go.Figure()
+            if c != cat:
+                continue
+            n = stats.get('n', 1)
+            if name not in accum:
+                accum[name] = {'mean_n': 0.0, 'std_n': 0.0, 'n': 0}
+            accum[name]['mean_n'] += stats['mean'] * n
+            accum[name]['n']      += n
+            if stats['std'] is not None:
+                accum[name]['std_n'] += stats['std'] * n
+
+    if not accum:
+        return go.Figure()
+
+    rows = []
+    for name, a in accum.items():
+        if a['n'] == 0:
+            continue
+        mean_w = a['mean_n'] / a['n']
+        std_w  = a['std_n']  / a['n']   # None si todos tenían 1 obs → std_n=0
+        cv     = std_w / mean_w if mean_w > 0 and std_w > 0 else 0
+        rows.append({'dish': name, 'mean': mean_w, 'std': std_w, 'cv': cv})
+
+    if not rows:
+        return go.Figure()
+
     df_v = pd.DataFrame(rows)
-    top  = df_v.groupby('dish')['mean'].mean().sort_values(ascending=False).head(top_n).index
-    agg  = (df_v[df_v['dish'].isin(top)].groupby('dish')
-            .agg(mean_avg=('mean','mean'), std_avg=('std','mean'), cv=('cv','mean'))
-            .reset_index().sort_values('mean_avg', ascending=False))
+    top  = df_v.nlargest(top_n, 'mean')['dish']
+    agg  = df_v[df_v['dish'].isin(top)].sort_values('mean', ascending=False)
+
+    has_std = agg['std'].gt(0).any()
+    error_x = dict(type='data', array=agg['std'].tolist(),
+                   color='rgba(110,231,183,.6)', thickness=1.5, width=6) if has_std else None
+    hover = ('<b>%{y}</b><br>Promedio: %{x:.1f}'
+             + (' ± %{error_x.array:.1f}' if has_std else '') + '<extra></extra>')
+
     fig = go.Figure()
-    fig.add_trace(go.Bar(y=agg['dish'], x=agg['mean_avg'], name='Media', orientation='h',
-        error_x=dict(type='data', array=agg['std_avg'], color='rgba(110,231,183,.6)',
-                     thickness=1.5, width=6),
-        marker=dict(color=[f'rgba(201,169,122,{max(.3,1-row.cv*.8):.2f})' for _,row in agg.iterrows()],
-                    cornerradius=4),
-        hovertemplate='<b>%{y}</b><br>Media: %{x:.1f} ± %{error_x.array:.1f}<extra></extra>'))
+    fig.add_trace(go.Bar(
+        y=agg['dish'], x=agg['mean'], name='Promedio', orientation='h',
+        error_x=error_x,
+        marker=dict(
+            color=[f'rgba(201,169,122,{max(.25, 1 - row.cv * .8):.2f})' for _, row in agg.iterrows()],
+            cornerradius=4),
+        hovertemplate=hover))
+
+    subtitle = ' (promedio ponderado por observaciones)'
     layout = {**PLOTLY_BASE}
-    layout.update(title=dict(text='Variabilidad por Plato', **PLOTLY_BASE['title']),
-        height=max(380, len(agg)*30), showlegend=False,
+    layout.update(
+        title=dict(text=f'Variabilidad — {cat}{subtitle}', **PLOTLY_BASE['title']),
+        height=max(380, len(agg) * 30), showlegend=False,
         yaxis=dict(**PLOTLY_BASE['yaxis'], autorange='reversed'),
-        xaxis=dict(**PLOTLY_BASE['xaxis'], title='Unidades promedio'))
+        xaxis=dict(**PLOTLY_BASE['xaxis'], title='Unidades promedio por día'))
     fig.update_layout(**layout)
     return fig
 
