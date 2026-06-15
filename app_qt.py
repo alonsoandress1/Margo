@@ -15,6 +15,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots as _msp
 
+
 # ── PyQt6 ──────────────────────────────────────────────────────────────────────
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
@@ -443,8 +444,8 @@ if getattr(sys, 'frozen', False):
 else:
     _ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
-_PLOTLY_FILE  = "plotly-2.26.0.min.js"
-_PLOTLY_CDN   = "https://cdn.plot.ly/plotly-2.26.0.min.js"
+_PLOTLY_FILE  = "plotly-3.0.1.min.js"   # Plotly Python 6.x requiere JS 3.x
+_PLOTLY_CDN   = "https://cdn.plot.ly/plotly-3.0.1.min.js"
 _PLOTLY_LOCAL = os.path.join(_ASSETS_DIR, _PLOTLY_FILE)
 
 # Base URL que apunta a assets/ para que el browser encuentre plotly.min.js
@@ -3440,7 +3441,7 @@ class TabCostos(QWidget):
 
         return f"""<!DOCTYPE html><html><head>
         <meta charset="utf-8">
-        <script src="plotly-2.26.0.min.js"></script>
+        <script src="{_PLOTLY_FILE}"></script>
         <style>
           * {{ box-sizing:border-box; margin:0; padding:0 }}
           body {{ background:#09080C; color:#F2EAE0; font-family:'Segoe UI',sans-serif;
