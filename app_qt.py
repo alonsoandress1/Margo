@@ -1313,11 +1313,21 @@ class NavRail(QWidget):
         lay.addWidget(date_lbl)
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
+        self.date_edit.setMinimumDate(QDate.currentDate())
         self.date_edit.setDate(QDate.fromString(
             self.state.start_date.strftime('%Y-%m-%d'), 'yyyy-MM-dd'))
         self.date_edit.dateChanged.connect(self._on_date)
         self.date_edit.setFixedHeight(28)
         lay.addWidget(self.date_edit)
+
+        # Atajos de fecha — el uso más frecuente es hoy o mañana
+        _date_row = QHBoxLayout(); _date_row.setSpacing(4)
+        _btn_hoy = QPushButton("Hoy"); _btn_hoy.setObjectName("navSmallBtn"); _btn_hoy.setFixedHeight(22)
+        _btn_man = QPushButton("Mañana"); _btn_man.setObjectName("navSmallBtn"); _btn_man.setFixedHeight(22)
+        _btn_hoy.clicked.connect(lambda: self.date_edit.setDate(QDate.currentDate()))
+        _btn_man.clicked.connect(lambda: self.date_edit.setDate(QDate.currentDate().addDays(1)))
+        _date_row.addWidget(_btn_hoy); _date_row.addWidget(_btn_man); _date_row.addStretch()
+        lay.addLayout(_date_row)
         lay.addSpacing(5)
 
         hor_row = QHBoxLayout(); hor_row.setSpacing(6)
@@ -1413,9 +1423,11 @@ class NavRail(QWidget):
 
         vdf = self.state.ventas_df
         if vdf is not None and not vdf.empty:
+            _anio_act = datetime.now().year
+            _anio_ant = _anio_act - 1
             vm  = vdf.groupby(['año','mes'])['bruto'].sum().reset_index()
-            v25 = vm[vm['año']==2025].set_index('mes')['bruto']
-            v26 = vm[vm['año']==2026].set_index('mes')['bruto']
+            v25 = vm[vm['año']==_anio_ant].set_index('mes')['bruto']
+            v26 = vm[vm['año']==_anio_act].set_index('mes')['bruto']
             common = sorted(set(v25.index) & set(v26.index))
             if len(common) >= 3:
                 ult3 = common[-3:]
@@ -1499,8 +1511,17 @@ class TabProduccion(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self, "Guardar pronóstico Excel", default, "Excel (*.xlsx)")
         if path:
-            with open(path, 'wb') as f:
-                f.write(data)
+            try:
+                with open(path, 'wb') as f:
+                    f.write(data)
+                QMessageBox.information(self, "Exportado",
+                    f"Archivo guardado correctamente:\n{path}")
+            except PermissionError:
+                QMessageBox.warning(self, "Error al exportar",
+                    "No se pudo guardar el archivo.\n"
+                    "Asegúrate de que no esté abierto en Excel.")
+            except Exception as e:
+                QMessageBox.warning(self, "Error al exportar", str(e))
 
     def refresh(self):
         s = self.state
@@ -1744,7 +1765,21 @@ class TabCompras(WebTab):
                           f'{icon} {cat}{cat_costo_html}</div>{rows_html}')
             compras_sections.append((f'{icon} {cat.upper()}', slug, panel_html))
 
-        body = f'<h2>Lista de Compras</h2>{kpi_strip}{_stabs(compras_sections)}'
+        # Banner si hay platos del pronóstico sin receta configurada
+        n_en_forecast   = sum(1 for (dname, _) in totals)
+        n_sin_receta    = sum(1 for (dname, _) in totals
+                              if not (s.name_to_sku.get(dname) and
+                                      s.name_to_sku.get(dname) in s.recetas))
+        banner = ''
+        if n_sin_receta:
+            banner = (f'<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);'
+                      f'border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:12px;'
+                      f'color:rgba(251,191,36,.9)">'
+                      f'⚠ <b>{n_sin_receta} de {n_en_forecast} platos</b> del pronóstico no tienen '
+                      f'receta configurada y están excluidos de esta lista. '
+                      f'El costo estimado es <b>parcial</b>.</div>')
+
+        body = f'<h2>Lista de Compras</h2>{banner}{kpi_strip}{_stabs(compras_sections)}'
         self.render(_page(body))
 
 
@@ -2425,7 +2460,7 @@ class IngredienteRow(QFrame):
         self.precio_unit = QDoubleSpinBox()
         self.precio_unit.setRange(0, 999999)
         self.precio_unit.setDecimals(0)
-        self.precio_unit.setSingleStep(10)
+        self.precio_unit.setSingleStep(100)
         self.precio_unit.setValue(float(d.get('precio_unitario', 0) or 0))
         self.precio_unit.setFixedWidth(90)
         self.precio_unit.setPrefix("$")
@@ -2812,7 +2847,20 @@ class TabRecetas(QWidget):
 
     def _save(self):
         if self._current_sku is None: return
-        ings = [d for r in self._ing_rows for d in (r.get_data(),) if d['nombre']]
+
+        all_data  = [r.get_data() for r in self._ing_rows]
+        ings      = [d for d in all_data if d['nombre']]
+        n_vacios  = len(all_data) - len(ings)
+        if n_vacios:
+            reply = QMessageBox.question(
+                self, "Ingredientes sin nombre",
+                f"{n_vacios} fila{'s' if n_vacios>1 else ''} sin nombre "
+                f"{'serán descartadas' if n_vacios>1 else 'será descartada'} al guardar.\n"
+                "¿Continuar de todas formas?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if reply != QMessageBox.StandardButton.Save:
+                return
 
         s = self.state
         s._recetas_raw[self._current_sku] = {
@@ -2831,6 +2879,7 @@ class TabRecetas(QWidget):
             self._btn_del.setVisible(True)
             self._update_dish_item_badge(self._current_sku, True)
             self._reload()
+            self.state.changed.emit()   # actualiza TabCostos y TabCompras en tiempo real
             # Si el filtro activo excluye el plato guardado, resetear editor
             if self.dish_list.currentRow() < 0:
                 self._current_sku = None
