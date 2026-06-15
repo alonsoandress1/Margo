@@ -439,8 +439,10 @@ def prod_table_html(items, dish_stats, color, dish_coverage=None):
             <div class="bar-fill" style="width:{pct}%;background:{color}"></div>
           </div></td></tr>"""
     return f"""<div class="prod-wrap"><table class="prod-table">
-      <thead><tr><th>Plato</th><th class="r">μ</th>
-        <th class="r">σ</th><th class="r" style="color:{color}">Total</th>
+      <thead><tr><th>Plato</th>
+        <th class="r" title="Promedio histórico">Base</th>
+        <th class="r" title="Buffer de seguridad estadístico">Buffer</th>
+        <th class="r" style="color:{color}" title="Cantidad total a producir">Producir</th>
         <th class="bh"></th></tr></thead>
       <tbody>{rows}</tbody></table></div>"""
 

@@ -1323,18 +1323,33 @@ class NavRail(QWidget):
         sec_p = QLabel("PARÁMETROS"); sec_p.setObjectName("navSection")
         lay.addWidget(sec_p)
 
+        # k_factor oculto por defecto — evita cambios accidentales por usuarios no técnicos
+        self._avanz_btn = QPushButton("⚙ Avanzado")
+        self._avanz_btn.setObjectName("navSmallBtn")
+        self._avanz_btn.setFixedHeight(22)
+        self._avanz_btn.setCheckable(True)
+        self._avanz_btn.setChecked(False)
+        lay.addWidget(self._avanz_btn)
+
+        self._avanz_panel = QWidget()
+        avanz_lay = QVBoxLayout(self._avanz_panel)
+        avanz_lay.setContentsMargins(0, 4, 0, 0)
+        avanz_lay.setSpacing(3)
         k_row = QHBoxLayout(); k_row.setSpacing(6)
         k_l = QLabel("Buffer k"); k_l.setObjectName("navMeta")
         k_row.addWidget(k_l); k_row.addStretch()
         self.k_val_lbl = QLabel(f"{self.state.k_factor:.1f}σ")
         self.k_val_lbl.setObjectName("navMetaGold")
         k_row.addWidget(self.k_val_lbl)
-        lay.addLayout(k_row)
+        avanz_lay.addLayout(k_row)
         self.k_slider = QSlider(Qt.Orientation.Horizontal)
         self.k_slider.setRange(5, 25)
         self.k_slider.setValue(int(self.state.k_factor * 10))
         self.k_slider.valueChanged.connect(self._on_k)
-        lay.addWidget(self.k_slider)
+        avanz_lay.addWidget(self.k_slider)
+        self._avanz_panel.setVisible(False)
+        self._avanz_btn.toggled.connect(self._avanz_panel.setVisible)
+        lay.addWidget(self._avanz_panel)
         lay.addSpacing(5)
 
         date_lbl = QLabel("Inicio pronóstico"); date_lbl.setObjectName("navMeta")
@@ -1542,7 +1557,18 @@ class TabProduccion(QWidget):
         self._cat_combo.setVisible(False)
         self._cat_combo.currentTextChanged.connect(self._on_analisis_cat)
 
+        # Selector de categoría del Plan — persiste qué categoría ve el chef
+        self._cat_combo_plan = QComboBox()
+        self._cat_combo_plan.addItem("Todas las categorías", "")
+        for _c in core.CAT_ORDER:
+            self._cat_combo_plan.addItem(_c, _c)
+        self._cat_combo_plan.setFixedHeight(30)
+        self._cat_combo_plan.setVisible(True)
+        self._cat_combo_plan.currentIndexChanged.connect(lambda _: self.refresh())
+
         tl.addStretch()
+        tl.addWidget(self._cat_combo_plan)
+        tl.addSpacing(8)
         tl.addWidget(self._cat_combo)
         tl.addSpacing(8)
         tl.addWidget(self._btn_pdf)
@@ -1556,6 +1582,7 @@ class TabProduccion(QWidget):
         def _on_sub_change(i):
             self._btn_export.setVisible(i == 0)
             self._btn_pdf.setVisible(i == 0)
+            self._cat_combo_plan.setVisible(i == 0)
             self._cat_combo.setVisible(i == 1)
         self.sub.currentChanged.connect(_on_sub_change)
 
@@ -1641,9 +1668,12 @@ class TabProduccion(QWidget):
             cards_html += core.day_card_html(d, dt, ff, pf, max_ff, fb, idx)
         cards_html += '</div>'
 
-        # Tabs por categoría (usa _stabs con color por categoría)
+        # Tabs por categoría — respeta el filtro del combo del toolbar
+        sel_plan_cat = self._cat_combo_plan.currentData() or ""
         cat_sections = []
         for cat in core.CAT_ORDER:
+            if sel_plan_cat and cat != sel_plan_cat:
+                continue
             items = {k: v for k, v in totals.items() if k[1] == cat and v >= 1}
             if not items:
                 continue
@@ -1656,13 +1686,14 @@ class TabProduccion(QWidget):
             cat_sections.append((cat.upper(), sl, content, color))
 
         n_dias_lbl = f"{s.horizon} día" + ("s" if s.horizon > 1 else "")
+        cat_lbl    = f" — {sel_plan_cat}" if sel_plan_cat else ""
         body = f"""
         <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:4px">
-          <h2 style="margin:0">Plan de Producción</h2>
+          <h2 style="margin:0">Plan de Producción{cat_lbl}</h2>
           <span style="font-size:18px;color:#C9A97A;font-family:'Palatino Linotype',Georgia,serif">
             {core.fecha_es(start)}</span>
           <span style="font-size:12px;color:rgba(255,255,255,.3)">
-            {n_dias_lbl} · μ+{s.k_factor:.1f}σ · {len(s.history)} días en modelo</span>
+            {n_dias_lbl} · {len(s.history)} días en modelo</span>
         </div>
         {cards_html}
         {_stabs(cat_sections)}
@@ -1849,11 +1880,17 @@ class TabCompras(WebTab):
                     if costo_i else
                     '<span class="ing-costo" style="color:rgba(255,255,255,.2)">—</span>')
 
+                prov = d.get('proveedor', '')
+                prov_html = (f'<span style="font-size:10px;color:rgba(255,255,255,.3);'
+                             f'flex:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+                             f'{prov}</span>' if prov else
+                             '<span style="flex:1.5"></span>')
                 rows_html += (
                     f'<div class="ing-row">'
                     f'<span class="ing-name">{d["nombre"]}</span>'
                     f'<span class="ing-qty">{qty_txt}</span>'
                     f'<span class="ing-unit">{d.get("unidad","g")}</span>'
+                    f'{prov_html}'
                     f'{costo_i_html}'
                     f'<span class="ing-urgency" style="background:{urg_bg};color:{urg_clr}">'
                     f'{urg_txt}</span></div>')
@@ -1882,12 +1919,51 @@ class TabCompras(WebTab):
 
 # ── Tab: VENTAS ────────────────────────────────────────────────────────────────
 
-class TabVentas(WebTab):
+class TabVentas(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        toolbar = QWidget(); toolbar.setObjectName("prodToolbar")
+        tl = QHBoxLayout(toolbar); tl.setContentsMargins(14, 6, 14, 6)
+        self._btn_exp_ventas = QPushButton("⬇  Exportar ventas Excel")
+        self._btn_exp_ventas.setFixedHeight(30)
+        self._btn_exp_ventas.clicked.connect(self._export_ventas)
+        tl.addStretch(); tl.addWidget(self._btn_exp_ventas)
+        lay.addWidget(toolbar)
+
+        self._web = WebTab()
+        lay.addWidget(self._web, 1)
         state.changed.connect(self.refresh)
         self.refresh()
+
+    def render(self, html: str):
+        self._web.render(html)
+
+    def _export_ventas(self):
+        vdf = self.state.ventas_df
+        if vdf is None or vdf.empty:
+            QMessageBox.warning(self, "Sin datos", "No hay datos de ventas cargados.")
+            return
+        try:
+            import io, openpyxl
+            buf = io.BytesIO()
+            vdf.to_excel(buf, index=False, engine='openpyxl')
+            default = f"Ventas_{datetime.now().strftime('%Y')}.xlsx"
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar ventas", default, "Excel (*.xlsx)")
+            if path:
+                with open(path, 'wb') as f:
+                    f.write(buf.getvalue())
+                QMessageBox.information(self, "Exportado",
+                    f"Archivo guardado correctamente:\n{path}")
+        except ImportError:
+            QMessageBox.warning(self, "Exportar", "openpyxl no está instalado.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error al exportar", str(e))
 
     def refresh(self):
         vdf = self.state.ventas_df
@@ -2655,13 +2731,20 @@ class IngredienteRow(QFrame):
         row1.addWidget(btn_del)
         lay.addLayout(row1)
 
-        # ── Fila 2: días de despacho ──────────────────────────────────────────
+        # ── Fila 2: proveedor + días de despacho ─────────────────────────────
         row2 = QHBoxLayout()
         row2.setSpacing(4)
         lbl_d = QLabel("DESPACHO")
         lbl_d.setObjectName("subtle")
         lbl_d.setFixedWidth(68)
         row2.addWidget(lbl_d)
+
+        self.proveedor = QLineEdit(d.get('proveedor', ''))
+        self.proveedor.setPlaceholderText('Proveedor')
+        self.proveedor.setFixedWidth(140)
+        self.proveedor.setStyleSheet("font-size:11px;")
+        row2.addWidget(self.proveedor)
+        row2.addSpacing(8)
 
         dias_activos = set(d.get('dias_despacho', []))
         self._dia_checks: dict[str, QCheckBox] = {}
@@ -2693,6 +2776,7 @@ class IngredienteRow(QFrame):
             'categoria':       self.categoria.currentText(),
             'temperatura':     self.temperatura.currentText(),
             'precio_unitario': self.precio_unit.value(),
+            'proveedor':       self.proveedor.text().strip(),
             'dias_despacho':   [d for d, cb in self._dia_checks.items() if cb.isChecked()],
         }
 
@@ -3202,6 +3286,8 @@ class TabCostos(QWidget):
                   padding:24px; overflow-x:hidden }}
           h2 {{ font-family:'Palatino Linotype',Georgia,serif; color:#C9A97A;
                 font-size:18px; font-weight:400; letter-spacing:.04em; margin-bottom:16px }}
+          h3 {{ font-size:13px; font-weight:600; color:rgba(255,255,255,.5);
+                letter-spacing:.08em; text-transform:uppercase; margin:28px 0 12px }}
           .kpi-strip {{ display:flex; gap:16px; margin-bottom:24px }}
           .kpi {{ background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.07);
                   border-radius:12px; padding:14px 20px; flex:1 }}
@@ -3221,6 +3307,9 @@ class TabCostos(QWidget):
         </style></head><body>
         <h2>Análisis de Costos</h2>
         {kpis_html}
+        <h3>Matriz Menú Engineering</h3>
+        <div id="chart"></div>
+        <h3>Detalle por plato</h3>
         <table>
           <thead><tr>
             <th>PLATO</th>
@@ -3232,8 +3321,6 @@ class TabCostos(QWidget):
           </tr></thead>
           <tbody>{table_rows}</tbody>
         </table>
-        <h2>Matriz Menú Engineering</h2>
-        <div id="chart"></div>
         <script>
           var data = {chart_data};
           var layout = {chart_layout};
