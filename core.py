@@ -71,36 +71,50 @@ CAT_HEX = {
     "Barra":    "#A78BFA",
 }
 
+# Colores de tipografía específicos para charts Plotly
+# TEXT/MUTED son near-white y se ven blancos en fondo oscuro.
+# Usamos la paleta gold para que el texto sea visiblemente cálido.
+_CH_TITLE  = "#E0C090"                  # títulos principales — gold claro
+_CH_LEGEND = "rgba(201,169,122,0.90)"   # leyenda — gold
+_CH_TICK   = "rgba(201,169,122,0.70)"   # tick labels ejes — gold medio
+_CH_AXIS   = "rgba(201,169,122,0.55)"   # títulos de ejes — gold suave
+_CH_FONT   = "rgba(201,169,122,0.85)"   # fuente global chart — gold base
+_SANS      = "'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif"
+_SERIF     = "'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif"
+
 PLOTLY_BASE = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(16,12,9,0.45)",
-    font=dict(family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif", color=TEXT, size=12),
+    font=dict(family=_SANS, color=_CH_FONT, size=12),
     margin=dict(l=16, r=16, t=48, b=16),
     xaxis=dict(gridcolor="rgba(250,235,200,0.04)", linecolor="rgba(250,235,200,0.07)",
-               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11, color=MUTED)),
+               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11, color=_CH_TICK)),
     yaxis=dict(gridcolor="rgba(250,235,200,0.04)", linecolor="rgba(250,235,200,0.07)",
-               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11, color=MUTED)),
+               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11, color=_CH_TICK)),
     hoverlabel=dict(bgcolor=BG_3, bordercolor="rgba(201,169,122,0.45)",
-                    font=dict(family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif", color=TEXT, size=12)),
-    title=dict(font=dict(family="'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif",
-                         size=20, color=TEXT), x=0, xref="paper", pad=dict(b=12)),
+                    font=dict(family=_SANS, color=TEXT, size=12)),
+    title=dict(font=dict(family=_SERIF, size=20, color=_CH_TITLE),
+               x=0, xref="paper", pad=dict(b=12)),
     legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=BORDER,
-                borderwidth=1, font=dict(size=11, color=TEXT)),
+                borderwidth=1, font=dict(size=11, color=_CH_LEGEND)),
     colorway=[GOLD, "#7EB8F7", "#5CE8D4", "#F7A8D0", "#C4B5FD", "#E0C090", "#A5D6A7"],
 )
 
 def _theme(fig: "go.Figure") -> "go.Figure":
-    """Plotly JS 3.x no hereda layout.font.color a axis-title ni subplot ticks.
-    Llámalo justo antes de retornar cualquier go.Figure para forzar paleta cálida."""
+    """Fuerza paleta gold en TODOS los elementos de texto de Plotly.
+    Plotly JS 3.x no hereda layout.font.color a axis-title/tick/legend."""
     fig.update_xaxes(
-        title_font=dict(color=MUTED, size=11, family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif"),
-        tickfont=dict(color=MUTED, size=11),
+        title_font=dict(color=_CH_AXIS, size=11, family=_SANS),
+        tickfont=dict(color=_CH_TICK, size=11),
     )
     fig.update_yaxes(
-        title_font=dict(color=MUTED, size=11, family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif"),
-        tickfont=dict(color=MUTED, size=11),
+        title_font=dict(color=_CH_AXIS, size=11, family=_SANS),
+        tickfont=dict(color=_CH_TICK, size=11),
     )
-    fig.update_layout(font_color=TEXT, legend_font_color=TEXT)
+    fig.update_layout(
+        font=dict(color=_CH_FONT, family=_SANS, size=12),
+        legend_font_color=_CH_LEGEND,
+    )
     return fig
 
 # ── Utility helpers ────────────────────────────────────────────────────────────
