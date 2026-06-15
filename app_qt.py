@@ -2312,7 +2312,7 @@ _CAT_OPTS_ED = [
     "Pasta y cereales", "Repostería", "Helados", "Aceites y condimentos",
 ]
 _TEMP_OPTS = ["refrigerado", "congelado", "ambiente"]
-_UNID_OPTS = ["g", "kg", "ml", "l", "u", "oz"]
+_UNID_OPTS = ["g", "kg", "ml", "l", "u", "oz", "porción", "cdta", "Tbsp"]
 _DIAS_OPTS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
 _ING_STYLE = """
@@ -2399,6 +2399,17 @@ class IngredienteRow(QFrame):
             cb.setStyleSheet("font-size:11px; color:rgba(255,255,255,.65);")
             self._dia_checks[dia] = cb
             row2.addWidget(cb)
+        btn_all = QPushButton("Todos")
+        btn_all.setFixedHeight(20)
+        btn_all.setStyleSheet("font-size:10px;padding:0 6px;")
+        btn_all.clicked.connect(lambda: [cb.setChecked(True) for cb in self._dia_checks.values()])
+        btn_none = QPushButton("Ninguno")
+        btn_none.setFixedHeight(20)
+        btn_none.setStyleSheet("font-size:10px;padding:0 6px;")
+        btn_none.clicked.connect(lambda: [cb.setChecked(False) for cb in self._dia_checks.values()])
+        row2.addSpacing(6)
+        row2.addWidget(btn_all)
+        row2.addWidget(btn_none)
         row2.addStretch()
         lay.addLayout(row2)
 
@@ -2445,6 +2456,13 @@ class TabRecetas(QWidget):
         self._lbl_prog.setTextFormat(Qt.TextFormat.RichText)
         left_lay.addWidget(self._lbl_prog)
 
+        # Buscador
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Buscar plato...")
+        self._search.setFixedHeight(28)
+        self._search.textChanged.connect(self._reload)
+        left_lay.addWidget(self._search)
+
         # Filtro por categoría
         self._cat_filter = QComboBox()
         self._cat_filter.addItem("Todas las categorías", "")
@@ -2452,6 +2470,12 @@ class TabRecetas(QWidget):
             self._cat_filter.addItem(cat, cat)
         self._cat_filter.currentIndexChanged.connect(self._reload)
         left_lay.addWidget(self._cat_filter)
+
+        # Pendientes primero
+        self._chk_pending = QCheckBox("Pendientes primero")
+        self._chk_pending.setStyleSheet("font-size:11px;color:rgba(255,255,255,.55);")
+        self._chk_pending.stateChanged.connect(self._reload)
+        left_lay.addWidget(self._chk_pending)
 
         self.dish_list = QListWidget()
         self.dish_list.setObjectName("recetasList")
@@ -2570,19 +2594,17 @@ class TabRecetas(QWidget):
             self.dish_list.blockSignals(False)
             return
 
-        # Deduplicate and sort by category then name
+        # Deduplicate
         seen: dict = {}
         for data in s.history.values():
             for (code, name, cat) in data:
-                key = (code, name, cat)
-                if key not in seen:
-                    seen[key] = True
+                if (code, name, cat) not in seen:
+                    seen[(code, name, cat)] = True
 
         n_total = len(seen)
-        n_conf  = sum(1 for (code,name,cat) in seen
+        n_conf  = sum(1 for (code, name, cat) in seen
                       if s.name_to_sku.get(name, code) in s.recetas)
         pct     = round(n_conf / n_total * 100) if n_total else 0
-        bar_w   = pct
 
         self._lbl_prog.setText(
             f'<div style="margin-bottom:8px">'
@@ -2591,26 +2613,39 @@ class TabRecetas(QWidget):
             f'<span style="font-size:18px;color:rgba(255,255,255,.45)">{n_total-n_conf}</span>'
             f'<span style="font-size:11px;color:rgba(255,255,255,.4)"> sin receta</span></div>'
             f'<div style="height:5px;background:rgba(255,255,255,.07);border-radius:3px">'
-            f'<div style="height:5px;width:{bar_w}%;background:#C9A97A;border-radius:3px"></div></div>'
+            f'<div style="height:5px;width:{pct}%;background:#C9A97A;border-radius:3px"></div></div>'
             f'<div style="font-size:10px;color:rgba(255,255,255,.3);margin-top:3px">{pct}% configurado</div>')
 
-        # Filtro activo en el combo
-        active_cat = self._cat_filter.currentData()
+        active_cat    = self._cat_filter.currentData()
+        search_txt    = self._search.text().strip().lower()
+        pending_first = self._chk_pending.isChecked()
 
-        for cat in core.CAT_ORDER:
+        # Construir lista filtrada
+        items = []
+        for (code, name, cat) in seen:
             if active_cat and cat != active_cat:
                 continue
-            for (code, name, cat2) in sorted(seen, key=lambda x: (x[2], x[1])):
-                if cat2 != cat: continue
-                sku = s.name_to_sku.get(name, code)
-                has = sku in s.recetas
-                item = QListWidgetItem()
-                item.setText(f"{'✓' if has else '○'}  {name}")
-                item.setForeground(QColor('#C9A97A') if has else QColor(255, 255, 255, 120))
-                item.setData(Qt.ItemDataRole.UserRole, (code, name, cat2))
-                self.dish_list.addItem(item)
+            if search_txt and search_txt not in name.lower():
+                continue
+            sku = s.name_to_sku.get(name, code)
+            has = sku in s.recetas
+            items.append((cat, name, code, sku, has))
 
-        # Category stats
+        # Orden: por categoría (CAT_ORDER), luego pendientes/conf, luego nombre
+        cat_rank = {c: i for i, c in enumerate(core.CAT_ORDER)}
+        if pending_first:
+            items.sort(key=lambda x: (cat_rank.get(x[0], 99), x[4], x[1]))
+        else:
+            items.sort(key=lambda x: (cat_rank.get(x[0], 99), x[1]))
+
+        for cat, name, code, sku, has in items:
+            item = QListWidgetItem()
+            item.setText(f"{'✓' if has else '○'}  {name}")
+            item.setForeground(QColor('#C9A97A') if has else QColor(255, 255, 255, 120))
+            item.setData(Qt.ItemDataRole.UserRole, (code, name, cat))
+            self.dish_list.addItem(item)
+
+        # Category stats (usa seen completo, no filtrado)
         by_cat: dict[str, list] = {}
         for (code, name, cat) in seen:
             sku = s.name_to_sku.get(name, code)
@@ -2621,7 +2656,7 @@ class TabRecetas(QWidget):
         for cat in core.CAT_ORDER:
             if cat not in by_cat: continue
             ok, tot = by_cat[cat]
-            clr = '#A5D6A7' if ok==tot else ('#FBBF24' if ok>=tot/2 else '#F87171')
+            clr = '#A5D6A7' if ok == tot else ('#FBBF24' if ok >= tot / 2 else '#F87171')
             cat_html += (f'<div style="display:flex;justify-content:space-between;'
                          f'font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">'
                          f'<span style="color:rgba(255,255,255,.55)">{cat}</span>'
@@ -2630,6 +2665,18 @@ class TabRecetas(QWidget):
         self._lbl_cat.setText(cat_html)
 
         self.dish_list.blockSignals(False)
+
+        # Restaurar selección sin disparar _on_select
+        if self._current_sku:
+            for i in range(self.dish_list.count()):
+                item = self.dish_list.item(i)
+                if item:
+                    code, name, cat = item.data(Qt.ItemDataRole.UserRole)
+                    if s.name_to_sku.get(name, code) == self._current_sku:
+                        self.dish_list.blockSignals(True)
+                        self.dish_list.setCurrentRow(i)
+                        self.dish_list.blockSignals(False)
+                        break
 
     def _on_select(self, idx: int):
         if idx < 0: return
@@ -2708,6 +2755,14 @@ class TabRecetas(QWidget):
 
     def _delete_recipe(self):
         if self._current_sku is None: return
+        reply = QMessageBox.question(
+            self, "Borrar receta",
+            f"¿Eliminar la receta de «{self._current_name}»?\n"
+            "Este plato quedará excluido de la lista de compras.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         s = self.state
         s._recetas_raw.pop(self._current_sku, None)
         s.recetas.pop(self._current_sku, None)
