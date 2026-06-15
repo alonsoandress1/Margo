@@ -493,11 +493,11 @@ def _page(body: str, extra_css: str = "", include_plotly: bool = True) -> str:
   --b2: rgba(250,235,200,.11);
   --b3: rgba(250,235,200,.20);
 
-  /* Texto crema — no blanco frío */
-  --t1: #F2EAE0;
-  --t2: rgba(242,234,224,.64);
-  --t3: rgba(242,234,224,.32);
-  --t4: rgba(242,234,224,.14);
+  /* Texto warm-gold — coherente con la paleta del restaurante */
+  --t1: rgba(220,195,155,.92);
+  --t2: rgba(201,169,122,.65);
+  --t3: rgba(201,169,122,.38);
+  --t4: rgba(201,169,122,.16);
 
   /* Elevación — sistema de sombras */
   --shadow-xs: 0 2px 6px rgba(0,0,0,.32);
@@ -857,20 +857,21 @@ h2 em {{
   padding: 8px 16px;
   border-bottom: 1px solid rgba(250,235,200,0.026);
 }}
-.td-name {{ color: var(--t1); }}
+.td-name {{ color: rgba(201,169,122,.82); }}
 .td-name.r1 {{ color: var(--gold); font-weight: 500; }}
 .td-name.r2 {{ color: rgba(201,169,122,.72); }}
-.td-name.r3 {{ color: rgba(201,169,122,.50); }}
-.td-name.dim {{ color: var(--t3); }}
+.td-name.r3 {{ color: rgba(201,169,122,.55); }}
+.td-name.dim {{ color: rgba(201,169,122,.30); }}
 .td-num {{
   text-align: right;
   font-family: var(--mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  color: rgba(201,169,122,.65);
 }}
-.td-mu    {{ color: var(--t2); }}
+.td-mu    {{ color: rgba(201,169,122,.48); }}
 .td-buf   {{ color: rgba(124,201,154,.75); }}
-.td-total {{ font-weight: 500; }}
+.td-total {{ font-weight: 500; color: rgba(201,169,122,.88); }}
 .td-bar   {{ width: 28%; padding: 7px 14px; }}
 .bar-track {{
   height: 3px;
