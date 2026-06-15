@@ -2079,13 +2079,15 @@ class TabVentas(QWidget):
             self.render(_page('<h2>Ventas</h2><p style="color:var(--t3)">No se encontraron archivos en Ventas/</p>'))
             return
 
+        _Y  = datetime.now().year        # año actual
+        _Yp = _Y - 1                     # año anterior
         vm  = vdf.groupby(['año','mes'])['bruto'].sum().reset_index().rename(columns={'bruto':'total'})
         vc  = vdf.groupby(['año','mes','categoria'])['bruto'].sum().reset_index()
         vq  = vdf.groupby(['año','mes','categoria'])['cantidad'].sum().reset_index()
         vd  = vdf.groupby(['año','mes'])['descuento'].sum().reset_index()
 
-        v25 = vm[vm['año']==2025].set_index('mes')['total']
-        v26 = vm[vm['año']==2026].set_index('mes')['total']
+        v25 = vm[vm['año']==_Yp].set_index('mes')['total']
+        v26 = vm[vm['año']==_Y ].set_index('mes')['total']
         common = sorted(set(v25.index) & set(v26.index))
         if not common:
             self.render(_page('<h2>Ventas</h2><p style="color:var(--t3)">No hay meses comparables.</p>'))
@@ -2113,12 +2115,12 @@ class TabVentas(QWidget):
   <!-- KPI principal — ancho 2/3 -->
   <div class="kpi" style="display:flex;flex-direction:column;justify-content:space-between;padding:24px 28px">
     <div>
-      <div class="kpi-label">INGRESOS 2026</div>
+      <div class="kpi-label">INGRESOS {_Y}</div>
       <div class="kpi-value" style="color:#C9A97A;font-size:42px;margin:8px 0 4px">
         {core._fmt_clp(tot26)}</div>
       <div class="kpi-sub" style="font-size:12px">
         Ene–{MN[max(common)]} &nbsp;·&nbsp; {len(common)} meses comparados<br>
-        2025: {core._fmt_clp(tot25)} &nbsp;
+        {_Yp}: {core._fmt_clp(tot25)} &nbsp;
         <span style="color:{acol};font-weight:600">{arr} {abs(delta):.1f}%</span>
       </div>
     </div>
@@ -2167,9 +2169,9 @@ class TabVentas(QWidget):
         # Gráfico barras mensual
         fig_main = go.Figure()
         all25 = sorted(v25.index); all26 = sorted(v26.index)
-        fig_main.add_trace(go.Bar(name='2025', x=[MN[m] for m in all25],
+        fig_main.add_trace(go.Bar(name=str(_Yp), x=[MN[m] for m in all25],
             y=[v25[m]/1e6 for m in all25], marker_color='rgba(201,169,122,0.30)'))
-        fig_main.add_trace(go.Bar(name='2026', x=[MN[m] for m in all26],
+        fig_main.add_trace(go.Bar(name=str(_Y), x=[MN[m] for m in all26],
             y=[v26[m]/1e6 for m in all26], marker_color='#C9A97A'))
         fig_main.add_trace(go.Scatter(name='YoY %', x=[MN[m] for m in common],
             y=[yoy[m] for m in common], yaxis='y2', mode='lines+markers+text',
@@ -2179,7 +2181,7 @@ class TabVentas(QWidget):
             textfont=dict(size=10)))
         main_layout = {**core.PLOTLY_BASE}
         main_layout.update(barmode='group', bargap=0.25, height=380,
-            title=dict(text='Ventas Mensuales — 2025 vs 2026', **core.PLOTLY_BASE['title']),
+            title=dict(text=f'Ventas Mensuales — {_Yp} vs {_Y}', **core.PLOTLY_BASE['title']),
             yaxis=dict(**core.PLOTLY_BASE['yaxis'], ticksuffix='M', tickformat=',.0f'),
             yaxis2=dict(overlaying='y', side='right', tickformat='+.0f', ticksuffix='%',
                         showgrid=False, zeroline=True,
@@ -2203,10 +2205,10 @@ class TabVentas(QWidget):
         for m in sorted(set(v25.index)-set(common)):
             tbl_rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.4)">{MN[m]}</td>'
                          f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.3)">{core._fmt_clp(v25[m])}</td>'
-                         f'<td colspan="2" style="padding:7px 10px;color:rgba(255,255,255,.2)">sin dato 2026</td></tr>')
+                         f'<td colspan="2" style="padding:7px 10px;color:rgba(255,255,255,.2)">sin dato {_Y}</td></tr>')
 
         tbl_html = (f'<table class="ventas-tbl"><thead><tr>'
-                    f'<th style="text-align:left">MES</th><th>2025</th><th>2026</th><th>VAR.</th>'
+                    f'<th style="text-align:left">MES</th><th>{_Yp}</th><th>{_Y}</th><th>VAR.</th>'
                     f'</tr></thead><tbody>{tbl_rows}</tbody></table>')
 
         # Categorías mes a mes (2×2)
@@ -2221,13 +2223,13 @@ class TabVentas(QWidget):
         for ci, (cat, clr) in enumerate(zip(CATS_ANA, CAT_CLRS)):
             row, col = ci//2+1, ci%2+1
             show_leg = (ci == 0)
-            d25 = core._mv_cat(vc, 'bruto', cat, 2025, todos25)
-            d26 = core._mv_cat(vc, 'bruto', cat, 2026, todos26)
-            fig_mm.add_trace(go.Bar(name='2025', x=[MN[m] for m in todos25],
+            d25 = core._mv_cat(vc, 'bruto', cat, _Yp, todos25)
+            d26 = core._mv_cat(vc, 'bruto', cat, _Y,  todos26)
+            fig_mm.add_trace(go.Bar(name=str(_Yp), x=[MN[m] for m in todos25],
                 y=[d25.get(m,0)/1e6 for m in todos25],
                 marker_color='rgba(201,169,122,0.28)', showlegend=show_leg),
                 row=row, col=col, secondary_y=False)
-            fig_mm.add_trace(go.Bar(name='2026', x=[MN[m] for m in todos26],
+            fig_mm.add_trace(go.Bar(name=str(_Y),  x=[MN[m] for m in todos26],
                 y=[d26.get(m,0)/1e6 for m in todos26],
                 marker_color=clr, opacity=0.85, showlegend=show_leg),
                 row=row, col=col, secondary_y=False)
@@ -2250,7 +2252,7 @@ class TabVentas(QWidget):
                      if k not in ('xaxis','yaxis','title','margin','legend')}
         mm_layout.update(barmode='group', bargap=0.22, height=580,
             margin=dict(l=16, r=48, t=56, b=16),
-            title=dict(text='Categorías mes a mes — 2025 vs 2026',
+            title=dict(text=f'Categorías mes a mes — {_Yp} vs {_Y}',
                 **core.PLOTLY_BASE['title']),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.04))
         for ax in ['yaxis2','yaxis4','yaxis6','yaxis8']:
@@ -2271,11 +2273,11 @@ class TabVentas(QWidget):
         cx26, cy26, acc = [], [], 0
         for m in sorted(v26.index):
             acc += v26[m]; cx26.append(MN[m]); cy26.append(acc/1e6)
-        fig_acum.add_trace(go.Scatter(x=cx25, y=cy25, name='Acum. 2025',
+        fig_acum.add_trace(go.Scatter(x=cx25, y=cy25, name=f'Acum. {_Yp}',
             mode='lines+markers',
             line=dict(color='rgba(201,169,122,.4)', width=2, dash='dot'),
             marker=dict(size=6), fill='tozeroy', fillcolor='rgba(201,169,122,.04)'))
-        fig_acum.add_trace(go.Scatter(x=cx26, y=cy26, name='Acum. 2026',
+        fig_acum.add_trace(go.Scatter(x=cx26, y=cy26, name=f'Acum. {_Y}',
             mode='lines+markers', line=dict(color='#C9A97A', width=2.5),
             marker=dict(size=7, color='#C9A97A'),
             fill='tozeroy', fillcolor='rgba(201,169,122,.10)'))
@@ -2287,22 +2289,22 @@ class TabVentas(QWidget):
         fig_acum.update_layout(**acum_layout)
 
         # ── Donut mix por categoría ────────────────────────────────────────────
-        vals25 = core._cat_totals(vc, CATS_ANA, 2025, common)
-        vals26 = core._cat_totals(vc, CATS_ANA, 2026, common)
+        vals25 = core._cat_totals(vc, CATS_ANA, _Yp, common)
+        vals26 = core._cat_totals(vc, CATS_ANA, _Y,  common)
         fig_mix = go.Figure()
         fig_mix.add_trace(go.Pie(
-            labels=CATS_ANA, values=vals25, name='2025',
+            labels=CATS_ANA, values=vals25, name=str(_Yp),
             domain=dict(x=[0, 0.46]), hole=0.55, marker_colors=CAT_CLRS,
             textinfo='none',
-            hovertemplate='%{label}<br>2025: <b>%{value:,.0f}</b> (%{percent})<extra></extra>'))
+            hovertemplate=f'%{{label}}<br>{_Yp}: <b>%{{value:,.0f}}</b> (%{{percent}})<extra></extra>'))
         fig_mix.add_trace(go.Pie(
-            labels=CATS_ANA, values=vals26, name='2026',
+            labels=CATS_ANA, values=vals26, name=str(_Y),
             domain=dict(x=[0.54, 1.0]), hole=0.55, marker_colors=CAT_CLRS,
             textinfo='none',
-            hovertemplate='%{label}<br>2026: <b>%{value:,.0f}</b> (%{percent})<extra></extra>'))
-        fig_mix.add_annotation(text='2025', x=0.23, y=0.5, showarrow=False,
+            hovertemplate=f'%{{label}}<br>{_Y}: <b>%{{value:,.0f}}</b> (%{{percent}})<extra></extra>'))
+        fig_mix.add_annotation(text=str(_Yp), x=0.23, y=0.5, showarrow=False,
             font=dict(size=13, color=core.MUTED))
-        fig_mix.add_annotation(text='2026', x=0.77, y=0.5, showarrow=False,
+        fig_mix.add_annotation(text=str(_Y),  x=0.77, y=0.5, showarrow=False,
             font=dict(size=13, color=core.GOLD))
         mix_layout = {**core.PLOTLY_BASE}
         mix_layout.update(title=dict(text='Mix por categoría', **core.PLOTLY_BASE['title']),
@@ -2315,10 +2317,10 @@ class TabVentas(QWidget):
         # ── Variación por categoría ────────────────────────────────────────────
         cat_rows = []
         for cat, clr in zip(CATS_ANA, CAT_CLRS):
-            r25 = core._csum(vc,  common, 2025, cat, 'bruto')
-            r26 = core._csum(vc,  common, 2026, cat, 'bruto')
-            q25 = core._csum(vq,  common, 2025, cat, 'cantidad')
-            q26 = core._csum(vq,  common, 2026, cat, 'cantidad')
+            r25 = core._csum(vc,  common, _Yp, cat, 'bruto')
+            r26 = core._csum(vc,  common, _Y,  cat, 'bruto')
+            q25 = core._csum(vq,  common, _Yp, cat, 'cantidad')
+            q26 = core._csum(vq,  common, _Y,  cat, 'cantidad')
             rv  = (r26-r25)/r25*100 if r25 else 0
             qv  = (q26-q25)/q25*100 if q25 else 0
             a25 = r25/q25 if q25 else 0
@@ -2383,14 +2385,14 @@ class TabVentas(QWidget):
         tbl_cat = (
             f'<div style="overflow-x:auto"><table class="ventas-tbl"><thead><tr>'
             f'<th style="{th_s};text-align:left">CATEGORÍA</th>'
-            f'<th style="{th_s};text-align:right">ING. 2025</th>'
-            f'<th style="{th_s};text-align:right">ING. 2026</th>'
+            f'<th style="{th_s};text-align:right">ING. {_Yp}</th>'
+            f'<th style="{th_s};text-align:right">ING. {_Y}</th>'
             f'<th style="{th_s};text-align:center">VAR.</th>'
-            f'<th style="{th_s};text-align:right">UNID. 2025</th>'
-            f'<th style="{th_s};text-align:right">UNID. 2026</th>'
+            f'<th style="{th_s};text-align:right">UNID. {_Yp}</th>'
+            f'<th style="{th_s};text-align:right">UNID. {_Y}</th>'
             f'<th style="{th_s};text-align:center">VAR.</th>'
-            f'<th style="{th_s};text-align:right">P.PROM 2025</th>'
-            f'<th style="{th_s};text-align:right">P.PROM 2026</th>'
+            f'<th style="{th_s};text-align:right">P.PROM {_Yp}</th>'
+            f'<th style="{th_s};text-align:right">P.PROM {_Y}</th>'
             f'<th style="{th_s};text-align:center">VAR.</th>'
             f'</tr></thead><tbody>{tbl_cat_rows}</tbody></table></div>')
 
@@ -2398,8 +2400,8 @@ class TabVentas(QWidget):
         ult3       = sorted(common)[-3:]
         tend3      = sum(yoy[m] for m in ult3) / max(1, len(ult3))
         n_pos      = sum(1 for v in yoy.values() if v >= 0)
-        desc25     = float(vd[(vd['año']==2025) & (vd['mes'].isin(common))]['descuento'].sum())
-        desc26     = float(vd[(vd['año']==2026) & (vd['mes'].isin(common))]['descuento'].sum())
+        desc25     = float(vd[(vd['año']==_Yp) & (vd['mes'].isin(common))]['descuento'].sum())
+        desc26     = float(vd[(vd['año']==_Y)  & (vd['mes'].isin(common))]['descuento'].sum())
         dpct25     = desc25/tot25*100 if tot25 else 0
         dpct26     = desc26/tot26*100 if tot26 else 0
         worst_cat  = min(cat_rows, key=lambda x: x['rv'])
@@ -2426,7 +2428,7 @@ class TabVentas(QWidget):
                 f'Últimos {len(ult3)} meses: {"crecimiento" if tend3>=0 else "caída"} '
                 f'promedio de {abs(tend3):.1f}%', tc) +
             _dc('MESES EN VERDE',
-                f'{n_pos} de {len(common)} meses superan a 2025', gc) +
+                f'{n_pos} de {len(common)} meses superan a {_Yp}', gc) +
             _dc('CATEGORÍA MÁS AFECTADA',
                 f'{worst_cat["cat"]}: ingresos {worst_cat["rv"]:+.1f}%, '
                 f'unidades {worst_cat["qv"]:+.1f}%', '#F7A8D0') +
@@ -2434,15 +2436,15 @@ class TabVentas(QWidget):
                 f'{best_cat["cat"]}: ingresos {best_cat["rv"]:+.1f}%, '
                 f'unidades {best_cat["qv"]:+.1f}%', '#5CE8D4') +
             _dc('DESCUENTOS SOBRE VENTAS',
-                f'{dpct25:.1f}% (2025) vs {dpct26:.1f}% (2026)', core.GOLD)
+                f'{dpct25:.1f}% ({_Yp}) vs {dpct26:.1f}% ({_Y})', core.GOLD)
         )
         if proy_anual:
-            diag_html += _dc('PROYECCIÓN ANUAL 2026',
+            diag_html += _dc(f'PROYECCIÓN ANUAL {_Y}',
                 f'~{core._fmt_clp(proy_anual)} si se mantiene el ritmo actual',
                 core.GOLD_2)
 
         # ── AMEX placeholder / datos ───────────────────────────────────────────
-        amex_meses = sorted(vdf[(vdf['año']==2026) & (vdf['mes']>=6)]['mes'].unique())
+        amex_meses = sorted(vdf[(vdf['año']==_Y) & (vdf['mes']>=6)]['mes'].unique())
         if not amex_meses:
             amex_html = (
                 '<div style="background:rgba(201,169,122,0.06);'
@@ -2457,11 +2459,11 @@ class TabVentas(QWidget):
                 '<b style="color:rgba(201,169,122,.7)">Jun26.xls</b> '
                 'a la carpeta Ventas/</div></div></div>')
         else:
-            amex_data = vdf[(vdf['año']==2026) & (vdf['mes'].isin(amex_meses))]
+            amex_data = vdf[(vdf['año']==_Y) & (vdf['mes'].isin(amex_meses))]
             amex_rows = ''
             for am in amex_meses:
                 a26v = float(amex_data[amex_data['mes']==am]['bruto'].sum())
-                a25v = float(vdf[(vdf['año']==2025) & (vdf['mes']==am)]['bruto'].sum())
+                a25v = float(vdf[(vdf['año']==_Yp) & (vdf['mes']==am)]['bruto'].sum())
                 pv   = (a26v-a25v)/a25v*100 if a25v else 0
                 pc   = '#5CE8D4' if pv >= 0 else '#F7A8D0'
                 amex_rows += (

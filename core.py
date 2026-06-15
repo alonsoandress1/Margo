@@ -597,12 +597,14 @@ def chart_variability(model, cat='Fondo', top_n=18):
     has_std = agg['std'].gt(0).any()
     error_x = dict(type='data', array=agg['std'].tolist(),
                    color='rgba(110,231,183,.6)', thickness=1.5, width=6) if has_std else None
-    hover = ('<b>%{y}</b><br>Promedio: %{x:.1f}'
-             + (' ± %{error_x.array:.1f}' if has_std else '') + '<extra></extra>')
+    # customdata lleva el std por plato para mostrarlo en el hover (error_x.array no es interpolable)
+    hover = '<b>%{y}</b><br>Promedio: %{x:.1f}' + (
+        ' ± %{customdata:.1f}' if has_std else '') + '<extra></extra>'
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
         y=agg['dish'], x=agg['mean'], name='Promedio', orientation='h',
+        customdata=agg['std'].tolist(),
         error_x=error_x,
         marker=dict(
             color=[f'rgba(201,169,122,{max(.25, 1 - row.cv * .8):.2f})' for _, row in agg.iterrows()],
