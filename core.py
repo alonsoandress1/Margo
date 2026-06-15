@@ -84,6 +84,20 @@ PLOTLY_BASE = dict(
     colorway=[GOLD, "#7EB8F7", "#5CE8D4", "#F7A8D0", "#C4B5FD", "#E0C090", "#A5D6A7"],
 )
 
+def _theme(fig: "go.Figure") -> "go.Figure":
+    """Plotly JS 3.x no hereda layout.font.color a axis-title ni subplot ticks.
+    Llámalo justo antes de retornar cualquier go.Figure para forzar paleta cálida."""
+    fig.update_xaxes(
+        title_font=dict(color=MUTED, size=11, family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif"),
+        tickfont=dict(color=MUTED, size=11),
+    )
+    fig.update_yaxes(
+        title_font=dict(color=MUTED, size=11, family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif"),
+        tickfont=dict(color=MUTED, size=11),
+    )
+    fig.update_layout(font_color=TEXT, legend_font_color=TEXT)
+    return fig
+
 # ── Utility helpers ────────────────────────────────────────────────────────────
 
 def _fmt_clp(v):
@@ -508,7 +522,7 @@ def chart_forecast_bars(totals, dish_stats, cat='Fondo', top_n=20, horizon=1):
         yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed'},
         xaxis={**PLOTLY_BASE['xaxis'], 'title': f'Unidades totales a producir ({dias_lbl})'})
     fig.update_layout(**layout)
-    return fig
+    return _theme(fig)
 
 def chart_heatmap(df, top_n=14):
     if df.empty: return go.Figure()
@@ -531,7 +545,7 @@ def chart_heatmap(df, top_n=14):
     layout.update(title=dict(text='Patrón de Demanda por Día', **PLOTLY_BASE['title']),
         height=340, xaxis={**PLOTLY_BASE['xaxis'], 'tickangle': -40})
     fig.update_layout(**layout)
-    return fig
+    return _theme(fig)
 
 def chart_trend(df, dishes):
     if df.empty or not dishes: return go.Figure()
@@ -554,7 +568,7 @@ def chart_trend(df, dishes):
         xaxis=dict(**PLOTLY_BASE['xaxis'], tickformat='%d/%m'),
         yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades'))
     fig.update_layout(**layout)
-    return fig
+    return _theme(fig)
 
 def chart_variability(model, cat='Fondo', top_n=18):
     # Agrega ponderando por n (observaciones por tipo de día)
@@ -619,7 +633,7 @@ def chart_variability(model, cat='Fondo', top_n=18):
         yaxis=dict(**PLOTLY_BASE['yaxis'], autorange='reversed'),
         xaxis=dict(**PLOTLY_BASE['xaxis'], title='Unidades promedio por día'))
     fig.update_layout(**layout)
-    return fig
+    return _theme(fig)
 
 def chart_promo_impact(model, top_n=15):
     normal_d = model.get('Domingo',   {})
@@ -650,7 +664,7 @@ def chart_promo_impact(model, top_n=15):
         yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed'},
         xaxis={**PLOTLY_BASE['xaxis'], 'title': 'Unidades promedio'})
     fig.update_layout(**layout)
-    return fig
+    return _theme(fig)
 
 def chart_weekly_total(df):
     if df.empty: return go.Figure()
@@ -670,7 +684,7 @@ def chart_weekly_total(df):
         xaxis=dict(**PLOTLY_BASE['xaxis'], tickformat='%d/%m'),
         yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades'))
     fig.update_layout(**layout)
-    return fig
+    return _theme(fig)
 
 # ── Ventas financieras ─────────────────────────────────────────────────────────
 

@@ -2194,6 +2194,7 @@ class TabVentas(QWidget):
             margin=dict(l=16, r=64, t=56, b=16),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.12))
         fig_main.update_layout(**main_layout)
+        core._theme(fig_main)
 
         # Tabla mensual
         tbl_rows = ''
@@ -2274,6 +2275,7 @@ class TabVentas(QWidget):
         fig_mm.update_annotations(font=dict(
             family="'Palatino Linotype',Georgia,serif", size=12,
             color='rgba(242,234,224,.8)'))
+        core._theme(fig_mm)
 
         # Acumulado
         fig_acum = go.Figure()
@@ -2299,6 +2301,7 @@ class TabVentas(QWidget):
             yaxis=dict(**core.PLOTLY_BASE['yaxis'], ticksuffix='M'),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.15))
         fig_acum.update_layout(**acum_layout)
+        core._theme(fig_acum)
 
         # ── Donut mix por categoría ────────────────────────────────────────────
         vals25 = core._cat_totals(vc, CATS_ANA, _Yp, common)
@@ -2325,6 +2328,7 @@ class TabVentas(QWidget):
                         x=1.0, y=0.5, xanchor='left', yanchor='middle'),
             margin=dict(l=0, r=120, t=48, b=0))
         fig_mix.update_layout(**mix_layout)
+        core._theme(fig_mix)
 
         # ── Variación por categoría ────────────────────────────────────────────
         cat_rows = []
@@ -2367,6 +2371,7 @@ class TabVentas(QWidget):
             height=380, margin=dict(l=16, r=16, t=72, b=48),
             uniformtext=dict(mode='hide', minsize=9))
         fig_cat.update_layout(**cat_layout)
+        core._theme(fig_cat)
 
         # ── Tabla detalle por categoría ────────────────────────────────────────
         th_s = ('color:rgba(201,169,122,0.42);font-size:9px;letter-spacing:.12em;'
@@ -3547,10 +3552,14 @@ class TabCostos(QWidget):
             'paper_bgcolor': '#09080C', 'plot_bgcolor': 'rgba(242,234,224,.02)',
             'font': {'color': '#E8DDD0', 'family': 'Segoe UI'},
             'height': 420, 'margin': {'l': 60, 'r': 20, 't': 20, 'b': 50},
-            'xaxis': {'title': 'Popularidad (unidades/día promedio)',
+            'xaxis': {'title': {'text': 'Popularidad (unidades/día promedio)',
+                                'font': {'color': core.MUTED, 'size': 11}},
+                      'tickfont': {'color': core.MUTED, 'size': 11},
                       'gridcolor': 'rgba(242,234,224,.06)',
                       'zerolinecolor': 'rgba(242,234,224,.15)'},
-            'yaxis': {'title': 'Margen bruto ($ CLP)',
+            'yaxis': {'title': {'text': 'Margen bruto ($ CLP)',
+                                'font': {'color': core.MUTED, 'size': 11}},
+                      'tickfont': {'color': core.MUTED, 'size': 11},
                       'gridcolor': 'rgba(242,234,224,.06)',
                       'zerolinecolor': 'rgba(242,234,224,.15)'},
             'legend': {'bgcolor': 'rgba(0,0,0,0)',
