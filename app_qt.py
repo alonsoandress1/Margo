@@ -1212,6 +1212,7 @@ class NavRail(QWidget):
         ("📈", "Tendencias",  3),
         ("⭐", "AMEX",        4),
         ("📋", "Historial",   5),
+        ("💲", "Costos",      7),
         None,
         ("📖", "Recetas",     6),
     ]
@@ -2368,7 +2369,15 @@ class IngredienteRow(QFrame):
         self.temperatura.addItems(_TEMP_OPTS)
         if d.get('temperatura') in _TEMP_OPTS:
             self.temperatura.setCurrentText(d['temperatura'])
-        self.temperatura.setFixedWidth(120)
+        self.temperatura.setFixedWidth(110)
+
+        self.precio_unit = QDoubleSpinBox()
+        self.precio_unit.setRange(0, 999999)
+        self.precio_unit.setDecimals(0)
+        self.precio_unit.setSingleStep(10)
+        self.precio_unit.setValue(float(d.get('precio_unitario', 0) or 0))
+        self.precio_unit.setFixedWidth(90)
+        self.precio_unit.setPrefix("$")
 
         btn_del = QPushButton('✕')
         btn_del.setFixedSize(26, 26)
@@ -2380,6 +2389,7 @@ class IngredienteRow(QFrame):
         row1.addWidget(self.unidad)
         row1.addWidget(self.categoria, 3)
         row1.addWidget(self.temperatura)
+        row1.addWidget(self.precio_unit)
         row1.addWidget(btn_del)
         lay.addLayout(row1)
 
@@ -2415,12 +2425,13 @@ class IngredienteRow(QFrame):
 
     def get_data(self) -> dict:
         return {
-            'nombre':        self.nombre.text().strip(),
-            'cantidad':      self.cantidad.value(),
-            'unidad':        self.unidad.currentText(),
-            'categoria':     self.categoria.currentText(),
-            'temperatura':   self.temperatura.currentText(),
-            'dias_despacho': [d for d, cb in self._dia_checks.items() if cb.isChecked()],
+            'nombre':          self.nombre.text().strip(),
+            'cantidad':        self.cantidad.value(),
+            'unidad':          self.unidad.currentText(),
+            'categoria':       self.categoria.currentText(),
+            'temperatura':     self.temperatura.currentText(),
+            'precio_unitario': self.precio_unit.value(),
+            'dias_despacho':   [d for d, cb in self._dia_checks.items() if cb.isChecked()],
         }
 
 
@@ -2504,22 +2515,40 @@ class TabRecetas(QWidget):
         self._lbl_sku.setObjectName("subtle")
         self._lbl_status = QLabel()
         self._lbl_status.setStyleSheet("font-size:11px;color:rgba(240,232,220,0.62);")
+
+        precio_row = QHBoxLayout()
+        precio_row.setSpacing(8)
+        _lbl_pv = QLabel("Precio venta:")
+        _lbl_pv.setStyleSheet("font-size:11px;color:rgba(255,255,255,.45);")
+        self._spin_precio_venta = QDoubleSpinBox()
+        self._spin_precio_venta.setRange(0, 9999999)
+        self._spin_precio_venta.setDecimals(0)
+        self._spin_precio_venta.setSingleStep(100)
+        self._spin_precio_venta.setPrefix("$ ")
+        self._spin_precio_venta.setFixedWidth(130)
+        self._spin_precio_venta.setEnabled(False)
+        precio_row.addWidget(_lbl_pv)
+        precio_row.addWidget(self._spin_precio_venta)
+        precio_row.addStretch()
+
         right_lay.addWidget(self._lbl_title)
         right_lay.addWidget(self._lbl_sku)
         right_lay.addWidget(self._lbl_status)
+        right_lay.addLayout(precio_row)
 
         # Cabeceras de columnas
         hdr = QHBoxLayout()
         hdr.setContentsMargins(10, 0, 10, 0)
         hdr.setSpacing(6)
         for txt, stretch in [('INGREDIENTE',4),('CANTIDAD',0),('UNIDAD',0),
-                              ('CATEGORÍA',3),('TEMPERATURA',0),('',0)]:
+                              ('CATEGORÍA',3),('TEMPERATURA',0),('$/UNIT',0),('',0)]:
             lbl = QLabel(txt)
             lbl.setStyleSheet("font-size:9px;letter-spacing:.1em;color:rgba(255,255,255,.3);")
-            if txt == 'CANTIDAD': lbl.setFixedWidth(90)
-            elif txt == 'UNIDAD': lbl.setFixedWidth(70)
-            elif txt == 'TEMPERATURA': lbl.setFixedWidth(120)
-            elif txt == '': lbl.setFixedWidth(26)
+            if txt == 'CANTIDAD':    lbl.setFixedWidth(90)
+            elif txt == 'UNIDAD':    lbl.setFixedWidth(70)
+            elif txt == 'TEMPERATURA': lbl.setFixedWidth(110)
+            elif txt == '$/UNIT':    lbl.setFixedWidth(90)
+            elif txt == '':          lbl.setFixedWidth(26)
             if stretch: hdr.addWidget(lbl, stretch)
             else:       hdr.addWidget(lbl)
         right_lay.addLayout(hdr)
@@ -2565,7 +2594,8 @@ class TabRecetas(QWidget):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _set_editor_enabled(self, enabled: bool):
-        for w in (self._btn_add, self._btn_save, self._btn_del, self._scroll):
+        for w in (self._btn_add, self._btn_save, self._btn_del,
+                  self._scroll, self._spin_precio_venta):
             w.setEnabled(enabled)
 
     def _clear_ing_rows(self):
@@ -2696,6 +2726,7 @@ class TabRecetas(QWidget):
 
         self._lbl_title.setText(name)
         self._lbl_sku.setText(f"{cat.upper()}  ·  SKU {sku}")
+        self._spin_precio_venta.setValue(float(rec.get('precio_venta', 0) or 0))
 
         has = sku in self.state.recetas
         if has:
@@ -2734,7 +2765,8 @@ class TabRecetas(QWidget):
 
         s = self.state
         s._recetas_raw[self._current_sku] = {
-            'nombre': self._current_name,
+            'nombre':       self._current_name,
+            'precio_venta': self._spin_precio_venta.value(),
             'ingredientes': ings,
         }
         s.recetas[self._current_sku] = s._recetas_raw[self._current_sku]
@@ -2791,6 +2823,217 @@ class TabRecetas(QWidget):
                     break
 
 
+# ── TabCostos ─────────────────────────────────────────────────────────────────
+
+class TabCostos(QWidget):
+    def __init__(self, state: AppState, parent=None):
+        super().__init__(parent)
+        self.state = state
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self._web = WebTab()
+        lay.addWidget(self._web)
+        state.changed.connect(self._render)
+        self._render()
+
+    def _render(self):
+        s = self.state
+        if not s.recetas:
+            self._web.render(self._html_empty())
+            return
+        rows = core.calc_costos(s._recetas_raw, s.model)
+        self._web.render(self._html(rows))
+
+    @staticmethod
+    def _fc_color(pct):
+        if pct is None:  return 'rgba(255,255,255,.2)'
+        if pct < 28:     return '#5CE8D4'
+        if pct < 35:     return '#A5D6A7'
+        if pct < 45:     return '#FBBF24'
+        return '#F87171'
+
+    @staticmethod
+    def _fmt_clp(v):
+        if v is None or v == 0: return '—'
+        return f"${v:,.0f}".replace(',', '.')
+
+    def _html(self, rows):
+        # ── KPIs ──
+        conf = [r for r in rows if r['precio_venta'] > 0 and r['costo'] > 0]
+        avg_fc  = (sum(r['food_cost_pct'] for r in conf) / len(conf)) if conf else None
+        n_ok    = len(conf)
+        n_total = len(rows)
+
+        kpi_fc_color = self._fc_color(avg_fc)
+        kpi_fc_txt   = f"{avg_fc:.1f}%" if avg_fc else "—"
+
+        kpis_html = f"""
+        <div class="kpi-strip">
+          <div class="kpi">
+            <div class="kpi-v" style="color:{kpi_fc_color}">{kpi_fc_txt}</div>
+            <div class="kpi-l">Food Cost Promedio</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-v">{n_ok}</div>
+            <div class="kpi-l">Platos con costos completos</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-v" style="color:rgba(255,255,255,.35)">{n_total - n_ok}</div>
+            <div class="kpi-l">Sin precio / costo</div>
+          </div>
+        </div>"""
+
+        # ── Tabla ──
+        table_rows = ""
+        for r in rows:
+            fc  = r['food_cost_pct']
+            clr = self._fc_color(fc)
+            fc_txt  = f"{fc:.1f}%" if fc is not None else "—"
+            bar_w   = min(fc, 100) if fc else 0
+            pop_txt = f"{r['popularidad']:.1f}" if r['popularidad'] else "—"
+            table_rows += f"""
+            <tr>
+              <td class="name">{r['nombre']}</td>
+              <td class="num">{self._fmt_clp(r['precio_venta'])}</td>
+              <td class="num">{self._fmt_clp(r['costo'])}</td>
+              <td class="fc-cell">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="flex:1;height:4px;background:rgba(255,255,255,.07);border-radius:2px">
+                    <div style="width:{bar_w:.0f}%;height:4px;background:{clr};border-radius:2px"></div>
+                  </div>
+                  <span style="color:{clr};font-size:12px;min-width:44px;text-align:right">{fc_txt}</span>
+                </div>
+              </td>
+              <td class="num">{self._fmt_clp(r['margen'])}</td>
+              <td class="num muted">{pop_txt}</td>
+            </tr>"""
+
+        # ── Plotly matrix menú ──
+        chart_data, chart_layout = self._menu_engineering_chart(rows)
+
+        return f"""<!DOCTYPE html><html><head>
+        <meta charset="utf-8">
+        <script src="plotly-2.26.0.min.js"></script>
+        <style>
+          * {{ box-sizing:border-box; margin:0; padding:0 }}
+          body {{ background:#09080C; color:#F2EAE0; font-family:'Segoe UI',sans-serif;
+                  padding:24px; overflow-x:hidden }}
+          h2 {{ font-family:'Palatino Linotype',Georgia,serif; color:#C9A97A;
+                font-size:18px; font-weight:400; letter-spacing:.04em; margin-bottom:16px }}
+          .kpi-strip {{ display:flex; gap:16px; margin-bottom:24px }}
+          .kpi {{ background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.07);
+                  border-radius:12px; padding:14px 20px; flex:1 }}
+          .kpi-v {{ font-size:28px; font-weight:700; color:#E8DDD0 }}
+          .kpi-l {{ font-size:10px; color:rgba(255,255,255,.35); letter-spacing:.08em;
+                    text-transform:uppercase; margin-top:4px }}
+          table {{ width:100%; border-collapse:collapse; font-size:13px; margin-bottom:32px }}
+          th {{ font-size:9px; letter-spacing:.1em; color:rgba(255,255,255,.3);
+                padding:6px 12px; text-align:left; border-bottom:1px solid rgba(255,255,255,.08) }}
+          td {{ padding:9px 12px; border-bottom:1px solid rgba(255,255,255,.04) }}
+          tr:hover td {{ background:rgba(255,255,255,.02) }}
+          .name {{ color:#E8DDD0; max-width:260px }}
+          .num {{ text-align:right; color:rgba(255,255,255,.6); font-variant-numeric:tabular-nums }}
+          .fc-cell {{ min-width:160px }}
+          .muted {{ color:rgba(255,255,255,.3) }}
+          #chart {{ margin-top:8px }}
+        </style></head><body>
+        <h2>Análisis de Costos</h2>
+        {kpis_html}
+        <table>
+          <thead><tr>
+            <th>PLATO</th>
+            <th style="text-align:right">PRECIO VENTA</th>
+            <th style="text-align:right">COSTO RECETA</th>
+            <th>FOOD COST %</th>
+            <th style="text-align:right">MARGEN</th>
+            <th style="text-align:right">POP/DÍA</th>
+          </tr></thead>
+          <tbody>{table_rows}</tbody>
+        </table>
+        <h2>Matriz Menú Engineering</h2>
+        <div id="chart"></div>
+        <script>
+          var data = {chart_data};
+          var layout = {chart_layout};
+          Plotly.newPlot('chart', data, layout, {{responsive:true, displayModeBar:false}});
+        </script>
+        </body></html>"""
+
+    def _menu_engineering_chart(self, rows):
+        import json as _json
+        conf = [r for r in rows if r['margen'] and r['popularidad']]
+        if not conf:
+            return '[]', '{}'
+
+        med_pop = sorted(r['popularidad'] for r in conf)[len(conf)//2]
+        med_mar = sorted(r['margen']      for r in conf)[len(conf)//2]
+
+        # 4 cuadrantes
+        QUADS = {
+            'Estrellas':  ('#C9A97A', []),   # alta pop, alto margen
+            'Vacas':      ('#7EB8F7', []),   # alta pop, bajo margen
+            'Enigmas':    ('#F7A8D0', []),   # baja pop, alto margen
+            'Perros':     ('#6B7280', []),   # baja pop, bajo margen
+        }
+        for r in conf:
+            hi_pop = r['popularidad'] >= med_pop
+            hi_mar = r['margen']      >= med_mar
+            if   hi_pop and hi_mar:  q = 'Estrellas'
+            elif hi_pop and not hi_mar: q = 'Vacas'
+            elif not hi_pop and hi_mar: q = 'Enigmas'
+            else:                       q = 'Perros'
+            QUADS[q][1].append(r)
+
+        traces = []
+        for label, (color, items) in QUADS.items():
+            if not items: continue
+            traces.append({
+                'type': 'scatter', 'mode': 'markers+text',
+                'name': label,
+                'x': [r['popularidad'] for r in items],
+                'y': [r['margen']      for r in items],
+                'text': [r['nombre']   for r in items],
+                'textposition': 'top center',
+                'textfont': {'size': 9, 'color': 'rgba(255,255,255,.5)'},
+                'marker': {'size': 10, 'color': color,
+                           'line': {'color': 'rgba(255,255,255,.2)', 'width': 1}},
+            })
+
+        layout = {
+            'paper_bgcolor': '#09080C', 'plot_bgcolor': 'rgba(255,255,255,.02)',
+            'font': {'color': '#E8DDD0', 'family': 'Segoe UI'},
+            'height': 420, 'margin': {'l': 60, 'r': 20, 't': 20, 'b': 50},
+            'xaxis': {'title': 'Popularidad (unidades/día promedio)',
+                      'gridcolor': 'rgba(255,255,255,.06)',
+                      'zerolinecolor': 'rgba(255,255,255,.15)'},
+            'yaxis': {'title': 'Margen bruto ($ CLP)',
+                      'gridcolor': 'rgba(255,255,255,.06)',
+                      'zerolinecolor': 'rgba(255,255,255,.15)'},
+            'legend': {'bgcolor': 'rgba(0,0,0,0)',
+                       'font': {'size': 11}},
+            'shapes': [
+                {'type': 'line', 'x0': med_pop, 'x1': med_pop, 'y0': 0, 'y1': 1,
+                 'xref': 'x', 'yref': 'paper',
+                 'line': {'color': 'rgba(255,255,255,.15)', 'dash': 'dot', 'width': 1}},
+                {'type': 'line', 'x0': 0, 'x1': 1, 'y0': med_mar, 'y1': med_mar,
+                 'xref': 'paper', 'yref': 'y',
+                 'line': {'color': 'rgba(255,255,255,.15)', 'dash': 'dot', 'width': 1}},
+            ],
+        }
+        return _json.dumps(traces), _json.dumps(layout)
+
+    @staticmethod
+    def _html_empty():
+        return """<!DOCTYPE html><html><head><meta charset="utf-8">
+        <style>body{background:#09080C;color:rgba(255,255,255,.3);
+        display:flex;align-items:center;justify-content:center;height:100vh;
+        font-family:'Segoe UI',sans-serif;font-size:14px;text-align:center}
+        p{line-height:1.8}</style></head><body>
+        <p>No hay recetas cargadas.<br>
+        Configura ingredientes y precios en la sección <b style="color:#C9A97A">Recetas</b>.</p>
+        </body></html>"""
+
+
 # ── Main Window ────────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -2823,6 +3066,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(TabAmex(self.state))         # 4 – AMEX
         self.stack.addWidget(TabHistorial(self.state))    # 5 – Historial
         self.stack.addWidget(TabRecetas(self.state))      # 6 – Recetas
+        self.stack.addWidget(TabCostos(self.state))       # 7 – Costos
 
         self.nav.page_changed.connect(self.stack.setCurrentIndex)
         _lay.addWidget(self.stack, 1)

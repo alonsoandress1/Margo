@@ -685,6 +685,51 @@ def save_recetas(raw: dict):
     with open(RECETAS_PATH, 'w', encoding='utf-8') as f:
         json.dump(raw, f, ensure_ascii=False, indent=2)
 
+def calc_costos(recetas_raw: dict, model: dict) -> list[dict]:
+    """Calcula food cost por plato. Retorna lista de dicts ordenada por categoría."""
+    # Popularidad: promedio de unidades/día ponderado por tipos de día (excl. Dom-Promo)
+    pop: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    for dt, dishes in model.items():
+        if dt == 'Dom-Promo':
+            continue
+        for (name, cat), stats in dishes.items():
+            pop[name]    = pop.get(name, 0) + stats['mean']
+            counts[name] = counts.get(name, 0) + 1
+    pop_avg = {n: v / counts[n] for n, v in pop.items() if counts.get(n, 0) > 0}
+
+    rows = []
+    for sku, rec in recetas_raw.items():
+        if sku.startswith('_'):
+            continue
+        nombre       = rec.get('nombre', sku)
+        precio_venta = float(rec.get('precio_venta', 0) or 0)
+        ings         = rec.get('ingredientes', [])
+
+        # Costo total = suma(cantidad × precio_unitario por ingrediente)
+        costo = sum(
+            float(i.get('cantidad', 0) or 0) * float(i.get('precio_unitario', 0) or 0)
+            for i in ings
+        )
+
+        food_cost_pct = (costo / precio_venta * 100) if precio_venta > 0 else None
+        margen        = (precio_venta - costo)        if precio_venta > 0 else None
+        popularidad   = pop_avg.get(nombre)
+
+        rows.append({
+            'sku':           sku,
+            'nombre':        nombre,
+            'precio_venta':  precio_venta,
+            'costo':         costo,
+            'food_cost_pct': food_cost_pct,
+            'margen':        margen,
+            'popularidad':   popularidad,
+            'n_ings':        len(ings),
+        })
+
+    rows.sort(key=lambda r: (r['nombre']))
+    return rows
+
 # ── Excel export ───────────────────────────────────────────────────────────────
 
 def make_excel_bytes(day_details, totals, dish_stats, history_len, k_factor=K_SAFETY) -> bytes | None:
