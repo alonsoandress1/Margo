@@ -105,7 +105,7 @@ def _fmt_q(v):
     return f"{v:.0f}"
 
 def cov_color(pct, is_current=False):
-    border = f'border:2px solid {GOLD};' if is_current else 'border:1px solid rgba(255,255,255,.06);'
+    border = f'border:2px solid {GOLD};' if is_current else 'border:1px solid rgba(242,234,224,.06);'
     if pct >= 90:   bg, color = 'rgba(100,230,170,.12)', 'rgba(100,230,170,.9)'
     elif pct >= 75: bg, color = 'rgba(245,158,11,.10)',  '#F59E0B'
     else:           bg, color = 'rgba(215,75,65,.10)',   'rgba(215,75,65,.9)'
@@ -422,7 +422,7 @@ def _cov_badge(pct):
 
 def prod_table_html(items, dish_stats, color, dish_coverage=None):
     if not items:
-        return '<p style="color:rgba(255,255,255,.32);padding:20px">Sin datos para esta categoría.</p>'
+        return '<p style="color:rgba(242,234,224,.32);padding:20px">Sin datos para esta categoría.</p>'
     max_v = max(items.values())
     rows  = ''
     for i, ((name, cat), qty) in enumerate(sorted(items.items(), key=lambda x: -x[1])):
@@ -524,7 +524,7 @@ def chart_heatmap(df, top_n=14):
         colorscale=[[0,'#0B1428'],[0.3,'#3A2A00'],[0.65,'#8B6B1A'],[1,'#C9A97A']],
         hovertemplate='<b>%{x}</b><br>%{y}: <b>%{z:.1f}</b> uds<extra></extra>',
         showscale=True, text=np.round(pivot.values, 1),
-        texttemplate='<b>%{text}</b>', textfont=dict(size=10, color='rgba(255,255,255,0.7)'),
+        texttemplate='<b>%{text}</b>', textfont=dict(size=10, color='rgba(242,234,224,0.7)'),
         colorbar=dict(bgcolor='rgba(0,0,0,0)', bordercolor=BORDER,
                       tickfont=dict(color=MUTED, size=10), thickness=12, len=0.8)))
     layout = {**PLOTLY_BASE}
@@ -658,7 +658,7 @@ def chart_weekly_total(df):
               .sum().reset_index())
     weekly.columns = ['week','is_promo','total']
     fig = go.Figure()
-    for is_p, clr, name in [(False,'rgba(255,255,255,.32)','Normal'),(True,GOLD,'Con Dom-Promo')]:
+    for is_p, clr, name in [(False,'rgba(242,234,224,.32)','Normal'),(True,GOLD,'Con Dom-Promo')]:
         d = weekly[weekly['is_promo'] == is_p]
         if not d.empty:
             fig.add_trace(go.Scatter(x=d['week'], y=d['total'], name=name,

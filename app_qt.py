@@ -67,7 +67,7 @@ QWidget#navRail QLabel {
 
 /* ── Nav Rail items ────────────────────────────────────────── */
 QPushButton#navItem {
-    background: rgba(255,255,255,0.02);
+    background: rgba(242,234,224,0.02);
     color: #A09A94;
     border: none;
     border-left: 2px solid transparent;
@@ -92,7 +92,7 @@ QPushButton#navItem:pressed {
     background: rgba(201,169,122,0.20);
 }
 QFrame#navDivider {
-    background: rgba(255,255,255,0.07);
+    background: rgba(242,234,224,0.07);
     border: none;
     max-height: 1px;
 }
@@ -119,9 +119,9 @@ QWidget#navRail QLabel#navMetaGold {
     font-family: Consolas, "Cascadia Code", "Courier New", monospace;
 }
 QPushButton#navSmallBtn {
-    background: rgba(255,255,255,0.04);
+    background: rgba(242,234,224,0.04);
     color: #8A847E;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(242,234,224,0.08);
     border-radius: 6px;
     padding: 4px 8px;
     font-size: 11px;
@@ -132,13 +132,13 @@ QPushButton#navSmallBtn:hover {
     border-color: rgba(201,169,122,0.22);
 }
 /* Widgets DENTRO del navRail heredan color explícito */
-QWidget#navRail QSlider::groove:horizontal { height: 2px; background: rgba(255,255,255,0.10); border-radius:1px; }
+QWidget#navRail QSlider::groove:horizontal { height: 2px; background: rgba(242,234,224,0.10); border-radius:1px; }
 QWidget#navRail QSlider::handle:horizontal { background:#C9A97A; width:14px; height:14px; margin:-6px 0; border-radius:7px; border:2px solid #0E0C12; }
 QWidget#navRail QSlider::sub-page:horizontal { background: rgba(201,169,122,0.55); border-radius:1px; }
 QWidget#navRail QDateEdit,
 QWidget#navRail QSpinBox {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(242,234,224,0.05);
+    border: 1px solid rgba(242,234,224,0.10);
     border-radius: 6px;
     padding: 5px 8px;
     color: #C2B8AE;
@@ -348,19 +348,19 @@ QWidget#prodToolbar {
 /* ── Recetas panel izquierdo ──────────────────────────────── */
 QWidget#recetasPanel {
     background: #0E0D12;
-    border-right: 1px solid rgba(255,255,255,0.06);
+    border-right: 1px solid rgba(242,234,224,0.06);
     color: #E8DDD0;
 }
 QWidget#recetasPanel QLabel { color: #C2B8AE; background: transparent; }
 QListWidget#recetasList {
     background: #09080C;
-    border: 1px solid rgba(255,255,255,0.06);
+    border: 1px solid rgba(242,234,224,0.06);
     border-radius: 8px;
     color: #C2B8AE;
 }
 QListWidget#recetasList::item { padding: 7px 12px; font-size: 12px; border-radius: 5px; }
 QListWidget#recetasList::item:selected { background: rgba(201,169,122,0.12); color: #C9A97A; }
-QListWidget#recetasList::item:hover:!selected { background: rgba(255,255,255,0.028); color: #D8CFC4; }
+QListWidget#recetasList::item:hover:!selected { background: rgba(242,234,224,0.028); color: #D8CFC4; }
 
 /* ── Message box / Dialogs ────────────────────────────────── */
 QMessageBox {
@@ -500,7 +500,7 @@ def _page(body: str, extra_css: str = "", include_plotly: bool = True) -> str:
   --shadow-sm: 0 3px 16px rgba(0,0,0,.42), 0 1px 2px rgba(0,0,0,.45);
   --shadow-md: 0 6px 32px rgba(0,0,0,.52), 0 2px 4px rgba(0,0,0,.40);
   --shadow-lg: 0 12px 52px rgba(0,0,0,.62), 0 4px 8px rgba(0,0,0,.40);
-  --inner-hi:  inset 0 1px 0 rgba(255,255,255,.072);
+  --inner-hi:  inset 0 1px 0 rgba(242,234,224,.072);
   --inner-gold: inset 0 1px 0 rgba(201,169,122,.15);
   --ring-gold:  0 0 0 1px rgba(201,169,122,.10);
 
@@ -1089,17 +1089,17 @@ body > * {{ animation: fade-in 0.55s var(--snap) both; }}
 
 _STABS_CSS_JS = """<style>
 .stabs{display:flex;gap:6px;margin:20px 0 0;
-  border-bottom:1px solid rgba(255,255,255,.07);
+  border-bottom:1px solid rgba(242,234,224,.07);
   flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
   scrollbar-width:none}
 .stabs::-webkit-scrollbar{display:none}
-.stab{background:transparent;border:1px solid rgba(255,255,255,.08);border-bottom:none;
-  border-radius:6px 6px 0 0;color:rgba(255,255,255,.42);font-size:11px;font-weight:700;
+.stab{background:transparent;border:1px solid rgba(242,234,224,.08);border-bottom:none;
+  border-radius:6px 6px 0 0;color:rgba(242,234,224,.42);font-size:11px;font-weight:700;
   letter-spacing:.08em;padding:7px 16px;cursor:pointer;white-space:nowrap;flex-shrink:0;
   transition:background .15s,color .15s}
-.stab:hover{background:rgba(255,255,255,.04);color:rgba(255,255,255,.7)}
-.stab.son{background:rgba(255,255,255,.06);color:var(--stab-clr,#C9A97A);
-  border-color:rgba(255,255,255,.13);border-bottom:2px solid var(--stab-clr,#C9A97A)}
+.stab:hover{background:rgba(242,234,224,.04);color:rgba(242,234,224,.7)}
+.stab.son{background:rgba(242,234,224,.06);color:var(--stab-clr,#C9A97A);
+  border-color:rgba(242,234,224,.13);border-bottom:2px solid var(--stab-clr,#C9A97A)}
 .spanel{animation:spfade .18s ease}
 @keyframes spfade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 </style>
@@ -1796,7 +1796,7 @@ class TabProduccion(QWidget):
           <h2 style="margin:0">Plan de Producción{cat_lbl}</h2>
           <span style="font-size:18px;color:#C9A97A;font-family:'Palatino Linotype',Georgia,serif">
             {core.fecha_es(start)}</span>
-          <span style="font-size:12px;color:rgba(255,255,255,.3)">
+          <span style="font-size:12px;color:rgba(242,234,224,.3)">
             {n_dias_lbl} · {len(s.history)} días en modelo</span>
         </div>
         {cards_html}
@@ -1812,8 +1812,8 @@ class TabProduccion(QWidget):
         cov_rows = ''
         for dt in sorted(cov_data):
             d = cov_data[dt]
-            cov_rows += f'<tr><td style="color:rgba(255,255,255,.7);padding:7px 10px">{dt}</td>'
-            cov_rows += f'<td style="padding:7px 10px;color:rgba(255,255,255,.4)">{d["n"]} días</td>'
+            cov_rows += f'<tr><td style="color:rgba(242,234,224,.7);padding:7px 10px">{dt}</td>'
+            cov_rows += f'<td style="padding:7px 10px;color:rgba(242,234,224,.4)">{d["n"]} días</td>'
             for k in K_COLS:
                 pct = d['coverage'].get(k, 0)
                 if pct >= 90:   c = 'rgba(100,230,170,.8)'
@@ -1825,7 +1825,7 @@ class TabProduccion(QWidget):
 
         k_headers = ''.join(
             f'<th style="text-align:center;padding:6px 10px;font-size:10px;'
-            f'letter-spacing:.06em;color:{"#C9A97A" if abs(k-s.k_factor)<.05 else "rgba(255,255,255,.32)"};">'
+            f'letter-spacing:.06em;color:{"#C9A97A" if abs(k-s.k_factor)<.05 else "rgba(242,234,224,.32)"};">'
             f'k={k:.1f}</th>'
             for k in K_COLS)
 
@@ -1834,12 +1834,12 @@ class TabProduccion(QWidget):
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr>
               <th style="text-align:left;padding:8px 10px;font-size:9px;
-                letter-spacing:.1em;color:rgba(255,255,255,.32);
-                border-bottom:1px solid rgba(255,255,255,.06)">TIPO DE DÍA</th>
+                letter-spacing:.1em;color:rgba(242,234,224,.32);
+                border-bottom:1px solid rgba(242,234,224,.06)">TIPO DE DÍA</th>
               <th style="padding:8px 10px;font-size:9px;letter-spacing:.1em;
-                color:rgba(255,255,255,.32);
-                border-bottom:1px solid rgba(255,255,255,.06)">Muestras</th>
-              {k_headers.replace('padding:6px','border-bottom:1px solid rgba(255,255,255,.06);padding:8px')}
+                color:rgba(242,234,224,.32);
+                border-bottom:1px solid rgba(242,234,224,.06)">Muestras</th>
+              {k_headers.replace('padding:6px','border-bottom:1px solid rgba(242,234,224,.06);padding:8px')}
             </tr></thead>
             <tbody>{cov_rows}</tbody>
           </table>
@@ -1976,8 +1976,8 @@ class TabCompras(WebTab):
                 if n_dias == 0:   urg_bg, urg_clr, urg_txt = '#A5D6A7', '#1B4332', f'⚡ HOY ({nombre_dia})'
                 elif n_dias == 1: urg_bg, urg_clr, urg_txt = '#FBBF24', '#1C1305', f'📋 MAÑANA ({nombre_dia})'
                 elif n_dias <= 3: urg_bg, urg_clr, urg_txt = '#7EB8F7', '#0C1A2E', f'📦 {n_dias}d ({nombre_dia})'
-                elif n_dias < 99: urg_bg, urg_clr, urg_txt = 'rgba(255,255,255,.08)', 'rgba(255,255,255,.7)', f'🗓 {n_dias}d ({nombre_dia})'
-                else:             urg_bg, urg_clr, urg_txt = 'rgba(255,255,255,.04)', 'rgba(255,255,255,.35)', '—'
+                elif n_dias < 99: urg_bg, urg_clr, urg_txt = 'rgba(242,234,224,.08)', 'rgba(242,234,224,.7)', f'🗓 {n_dias}d ({nombre_dia})'
+                else:             urg_bg, urg_clr, urg_txt = 'rgba(242,234,224,.04)', 'rgba(242,234,224,.35)', '—'
 
                 qty     = d['total']
                 qty_txt = f"{qty:,.1f}" if qty < 1000 else f"{qty:,.0f}"
@@ -1986,10 +1986,10 @@ class TabCompras(WebTab):
                 costo_i_html = (
                     f'<span class="ing-costo">{_fmt_clp(costo_i)}</span>'
                     if costo_i else
-                    '<span class="ing-costo" style="color:rgba(255,255,255,.2)">—</span>')
+                    '<span class="ing-costo" style="color:rgba(242,234,224,.2)">—</span>')
 
                 prov = d.get('proveedor', '')
-                prov_html = (f'<span style="font-size:10px;color:rgba(255,255,255,.3);'
+                prov_html = (f'<span style="font-size:10px;color:rgba(242,234,224,.3);'
                              f'flex:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
                              f'{prov}</span>' if prov else
                              '<span style="flex:1.5"></span>')
@@ -2125,7 +2125,7 @@ class TabVentas(QWidget):
       </div>
     </div>
     <div style="display:flex;gap:20px;margin-top:18px;padding-top:14px;
-                border-top:1px solid rgba(255,255,255,0.05)">
+                border-top:1px solid rgba(242,234,224,0.05)">
       <div>
         <div style="font-size:8px;letter-spacing:.16em;color:var(--t3);font-weight:700">
           MEJOR · {MN[best_m]}</div>
@@ -2156,7 +2156,7 @@ class TabVentas(QWidget):
         {"+" if tend3>=0 else ""}{tend3:.1f}%</div>
       <div style="font-size:11px;color:{tc};opacity:.7">{tend_lbl}</div>
     </div>
-    <div style="height:1px;background:rgba(255,255,255,0.05)"></div>
+    <div style="height:1px;background:rgba(242,234,224,0.05)"></div>
     <div>
       <div style="font-size:11px;color:var(--t3);margin-bottom:2px">
         {MN[best_m]} {_Y}: {core._fmt_clp(v25[best_m])} → {core._fmt_clp(v26[best_m])}</div>
@@ -2175,7 +2175,7 @@ class TabVentas(QWidget):
             y=[v26[m]/1e6 for m in all26], marker_color='#C9A97A'))
         fig_main.add_trace(go.Scatter(name='YoY %', x=[MN[m] for m in common],
             y=[yoy[m] for m in common], yaxis='y2', mode='lines+markers+text',
-            line=dict(color='rgba(255,255,255,.5)', width=1.5, dash='dot'),
+            line=dict(color='rgba(242,234,224,.5)', width=1.5, dash='dot'),
             marker=dict(size=8, color=['#5CE8D4' if yoy[m]>=0 else '#F7A8D0' for m in common]),
             text=[f"{yoy[m]:+.0f}%" for m in common], textposition='top center',
             textfont=dict(size=10)))
@@ -2185,8 +2185,8 @@ class TabVentas(QWidget):
             yaxis=dict(**core.PLOTLY_BASE['yaxis'], ticksuffix='M', tickformat=',.0f'),
             yaxis2=dict(overlaying='y', side='right', tickformat='+.0f', ticksuffix='%',
                         showgrid=False, zeroline=True,
-                        zerolinecolor='rgba(255,255,255,.08)',
-                        tickfont=dict(size=10, color='rgba(255,255,255,.35)')),
+                        zerolinecolor='rgba(242,234,224,.08)',
+                        tickfont=dict(size=10, color='rgba(242,234,224,.35)')),
             margin=dict(l=16, r=64, t=56, b=16),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.12))
         fig_main.update_layout(**main_layout)
@@ -2197,15 +2197,15 @@ class TabVentas(QWidget):
             a25 = v25[m]; a26 = v26[m]
             pct = (a26-a25)/a25*100 if a25 else 0
             clr = '#5CE8D4' if pct >= 0 else '#F7A8D0'
-            tbl_rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.65)">{MN[m]}</td>'
-                         f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.4)">{core._fmt_clp(a25)}</td>'
+            tbl_rows += (f'<tr><td style="padding:7px 10px;color:rgba(242,234,224,.65)">{MN[m]}</td>'
+                         f'<td style="text-align:right;padding:7px 10px;color:rgba(242,234,224,.4)">{core._fmt_clp(a25)}</td>'
                          f'<td style="text-align:right;padding:7px 10px;color:#C9A97A">{core._fmt_clp(a26)}</td>'
                          f'<td style="text-align:center;padding:7px 10px;color:{clr};font-weight:600">{"+" if pct>=0 else ""}{pct:.1f}%</td></tr>')
 
         for m in sorted(set(v25.index)-set(common)):
-            tbl_rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.4)">{MN[m]}</td>'
-                         f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.3)">{core._fmt_clp(v25[m])}</td>'
-                         f'<td colspan="2" style="padding:7px 10px;color:rgba(255,255,255,.2)">sin dato {_Y}</td></tr>')
+            tbl_rows += (f'<tr><td style="padding:7px 10px;color:rgba(242,234,224,.4)">{MN[m]}</td>'
+                         f'<td style="text-align:right;padding:7px 10px;color:rgba(242,234,224,.3)">{core._fmt_clp(v25[m])}</td>'
+                         f'<td colspan="2" style="padding:7px 10px;color:rgba(242,234,224,.2)">sin dato {_Y}</td></tr>')
 
         tbl_html = (f'<table class="ventas-tbl"><thead><tr>'
                     f'<th style="text-align:left">MES</th><th>{_Yp}</th><th>{_Y}</th><th>VAR.</th>'
@@ -2243,7 +2243,7 @@ class TabVentas(QWidget):
                     yoy_txts.append(f'{pv:+.0f}%')
             fig_mm.add_trace(go.Scatter(name='YoY%', x=yoy_xs, y=yoy_ys,
                 mode='lines+markers+text',
-                line=dict(color='rgba(255,255,255,.4)', width=1.2, dash='dot'),
+                line=dict(color='rgba(242,234,224,.4)', width=1.2, dash='dot'),
                 marker=dict(size=6, color=yoy_ms),
                 text=yoy_txts, textposition='top center',
                 textfont=dict(size=9), showlegend=show_leg),
@@ -2256,12 +2256,12 @@ class TabVentas(QWidget):
                 **core.PLOTLY_BASE['title']),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.04))
         _y_primary = dict(ticksuffix='M', tickformat=',.1f',
-            tickfont=dict(size=9, color='rgba(255,255,255,.3)'),
-            gridcolor='rgba(255,255,255,.05)', showgrid=True, zeroline=False)
+            tickfont=dict(size=9, color='rgba(242,234,224,.3)'),
+            gridcolor='rgba(242,234,224,.05)', showgrid=True, zeroline=False)
         _y_secondary = dict(tickformat='+.0f', ticksuffix='%',
-            tickfont=dict(size=9, color='rgba(255,255,255,.25)'),
+            tickfont=dict(size=9, color='rgba(242,234,224,.25)'),
             showgrid=False, zeroline=True,
-            zerolinecolor='rgba(255,255,255,.07)')
+            zerolinecolor='rgba(242,234,224,.07)')
         for ax in ['yaxis','yaxis3','yaxis5','yaxis7']:
             mm_layout[ax] = _y_primary
         for ax in ['yaxis2','yaxis4','yaxis6','yaxis8']:
@@ -2269,7 +2269,7 @@ class TabVentas(QWidget):
         fig_mm.update_layout(**mm_layout)
         fig_mm.update_annotations(font=dict(
             family="'Palatino Linotype',Georgia,serif", size=12,
-            color='rgba(255,255,255,.8)'))
+            color='rgba(242,234,224,.8)'))
 
         # Acumulado
         fig_acum = go.Figure()
@@ -2343,16 +2343,16 @@ class TabVentas(QWidget):
             marker_color=[core.GOLD if d['rv'] >= 0 else '#F7A8D0' for d in cat_rows],
             opacity=0.9,
             text=[f"{d['rv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color='rgba(255,255,255,0.8)'),
+            textposition='outside', textfont=dict(size=11, color='rgba(242,234,224,0.8)'),
             hovertemplate='%{x}<br>Ingresos: <b>%{y:+.1f}%</b><extra></extra>'))
         fig_cat.add_trace(go.Bar(name='Unidades YoY %', x=CATS_ANA,
             y=[d['qv'] for d in cat_rows],
             marker_color=['#5CE8D4' if d['qv'] >= 0 else '#9F7AEA' for d in cat_rows],
             opacity=0.85,
             text=[f"{d['qv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color='rgba(255,255,255,0.7)'),
+            textposition='outside', textfont=dict(size=11, color='rgba(242,234,224,0.7)'),
             hovertemplate='%{x}<br>Unidades: <b>%{y:+.1f}%</b><extra></extra>'))
-        fig_cat.add_hline(y=0, line_color='rgba(255,255,255,0.12)', line_width=1)
+        fig_cat.add_hline(y=0, line_color='rgba(242,234,224,0.12)', line_width=1)
         cat_layout = {**core.PLOTLY_BASE}
         cat_layout.update(
             title=dict(text='Variación por categoría — Ingresos vs Unidades (YoY %)',
@@ -2375,17 +2375,17 @@ class TabVentas(QWidget):
                 f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
                 f'background:{d["color"]};margin-right:8px;vertical-align:middle"></span>'
                 f'{d["cat"]}</td>'
-                f'<td style="padding:9px 12px;font-size:11px;color:rgba(255,255,255,.45);'
+                f'<td style="padding:9px 12px;font-size:11px;color:rgba(242,234,224,.45);'
                 f'text-align:right">{core._fmt_clp(d["r25"])}</td>'
                 f'<td style="padding:9px 12px;font-size:11px;color:#C9A97A;'
                 f'text-align:right">{core._fmt_clp(d["r26"])}</td>'
                 f'<td style="padding:9px 12px;text-align:center">{core._pct_badge(d["rv"])}</td>'
-                f'<td style="padding:9px 12px;font-size:11px;color:rgba(255,255,255,.45);'
+                f'<td style="padding:9px 12px;font-size:11px;color:rgba(242,234,224,.45);'
                 f'text-align:right">{core._fmt_q(d["q25"])}</td>'
                 f'<td style="padding:9px 12px;font-size:11px;color:#C9A97A;'
                 f'text-align:right">{core._fmt_q(d["q26"])}</td>'
                 f'<td style="padding:9px 12px;text-align:center">{core._pct_badge(d["qv"])}</td>'
-                f'<td style="padding:9px 12px;font-size:11px;color:rgba(255,255,255,.45);'
+                f'<td style="padding:9px 12px;font-size:11px;color:rgba(242,234,224,.45);'
                 f'text-align:right">{core._fmt_clp(d["a25"])}</td>'
                 f'<td style="padding:9px 12px;font-size:11px;color:#C9A97A;'
                 f'text-align:right">{core._fmt_clp(d["a26"])}</td>'
@@ -2459,9 +2459,9 @@ class TabVentas(QWidget):
                 'padding:18px 20px;display:flex;align-items:center;gap:16px">'
                 '<div style="font-size:24px">⭐</div>'
                 '<div>'
-                '<div style="font-size:13px;color:rgba(255,255,255,.85)">'
+                '<div style="font-size:13px;color:rgba(242,234,224,.85)">'
                 'Promo activa desde el 7 Jun 2026</div>'
-                '<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:4px">'
+                '<div style="font-size:11px;color:rgba(242,234,224,.4);margin-top:4px">'
                 'Los datos de impacto aparecerán aquí automáticamente cuando se agregue '
                 '<b style="color:rgba(201,169,122,.7)">Jun26.xls</b> '
                 'a la carpeta Ventas/</div></div></div>')
@@ -2475,10 +2475,10 @@ class TabVentas(QWidget):
                 pc   = '#5CE8D4' if pv >= 0 else '#F7A8D0'
                 amex_rows += (
                     f'<div style="display:flex;align-items:center;gap:12px;padding:8px 0;'
-                    f'border-bottom:1px solid rgba(255,255,255,.04)">'
-                    f'<span style="min-width:32px;font-size:12px;color:rgba(255,255,255,.6)">'
+                    f'border-bottom:1px solid rgba(242,234,224,.04)">'
+                    f'<span style="min-width:32px;font-size:12px;color:rgba(242,234,224,.6)">'
                     f'{MN[am]}</span>'
-                    f'<span style="font-size:11px;color:rgba(255,255,255,.4);min-width:74px">'
+                    f'<span style="font-size:11px;color:rgba(242,234,224,.4);min-width:74px">'
                     f'{_Yp}: {core._fmt_clp(a25v)}</span>'
                     f'<span style="font-size:11px;color:{core.GOLD};min-width:74px">'
                     f'{_Y}: {core._fmt_clp(a26v)}</span>'
@@ -2722,27 +2722,27 @@ class TabHistorial(QWidget):
                 key=lambda x: -x[1])
             if not items: continue
             rows += (f'<tr><td colspan="4" style="padding:8px 10px;'
-                     f'background:rgba(255,255,255,.03);font-size:9px;'
+                     f'background:rgba(242,234,224,.03);font-size:9px;'
                      f'letter-spacing:.14em;color:var(--t3)">{cat.upper()}</td></tr>')
             for (name, cat2), real_qty in items:
                 stats  = dm.get((name, cat2))
                 fc_qty = round(core.dish_fc(stats, self.state.k_factor)) if stats else None
                 diff   = real_qty - fc_qty if fc_qty is not None else None
-                if diff is None:    diff_clr, diff_icon = 'rgba(255,255,255,.25)', ''
+                if diff is None:    diff_clr, diff_icon = 'rgba(242,234,224,.25)', ''
                 elif diff > 0:      diff_clr, diff_icon = '#F87171', '↑'
                 elif diff < 0:      diff_clr, diff_icon = '#FBBF24', '↓'
                 else:               diff_clr, diff_icon = '#A5D6A7', '='
                 diff_txt = f'{diff_icon}{abs(diff):.0f}' if diff is not None else '—'
-                rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.8)">{_html_mod.escape(name)}</td>'
+                rows += (f'<tr><td style="padding:7px 10px;color:rgba(242,234,224,.8)">{_html_mod.escape(name)}</td>'
                          f'<td style="text-align:right;padding:7px 10px;font-family:monospace">{round(real_qty)}</td>'
-                         f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.4)">{fc_qty or "—"}</td>'
+                         f'<td style="text-align:right;padding:7px 10px;color:rgba(242,234,224,.4)">{fc_qty or "—"}</td>'
                          f'<td style="text-align:center;padding:7px 10px;color:{diff_clr};font-weight:600">{diff_txt}</td></tr>')
 
-        leyenda = ('<div style="font-size:10px;color:rgba(255,255,255,.3);margin-bottom:10px">'
+        leyenda = ('<div style="font-size:10px;color:rgba(242,234,224,.3);margin-bottom:10px">'
                    '<span style="color:#F87171">↑ faltó</span>&nbsp;·&nbsp;'
                    '<span style="color:#FBBF24">↓ sobró</span>&nbsp;·&nbsp;'
                    '<span style="color:#A5D6A7">= exacto</span></div>')
-        th = ('font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06);padding:6px 10px')
+        th = ('font-size:9px;color:var(--t3);border-bottom:1px solid rgba(242,234,224,.06);padding:6px 10px')
         body = (f'<h2>{core.DAYS_ES[d.weekday()]} {d.strftime("%d/%m/%Y")}</h2>'
                 f'<p style="color:var(--t3);margin-bottom:8px">Tipo: {dt}</p>'
                 f'{excl_banner}'
@@ -2779,8 +2779,8 @@ class TabHistorial(QWidget):
         # Construir tabla: filas = plato, columnas = fecha
         date_headers = ''.join(
             f'<th style="text-align:right;padding:6px 8px;font-size:9px;'
-            f'color:{"#C9A97A" if fd==d_ref else "rgba(255,255,255,.35)"};'
-            f'border-bottom:1px solid rgba(255,255,255,.06)">'
+            f'color:{"#C9A97A" if fd==d_ref else "rgba(242,234,224,.35)"};'
+            f'border-bottom:1px solid rgba(242,234,224,.06)">'
             f'{fd.strftime("%d/%m")}</th>'
             for fd in fechas)
 
@@ -2789,20 +2789,20 @@ class TabHistorial(QWidget):
             cat_items = [(n, c) for (n, c) in nombres if c == cat]
             if not cat_items: continue
             rows += (f'<tr><td colspan="{len(fechas)+1}" style="padding:8px 10px;'
-                     f'background:rgba(255,255,255,.03);font-size:9px;'
+                     f'background:rgba(242,234,224,.03);font-size:9px;'
                      f'letter-spacing:.14em;color:var(--t3)">{cat.upper()}</td></tr>')
             for name, cat2 in sorted(cat_items, key=lambda x: x[0]):
-                row_cells = f'<td style="padding:6px 10px;color:rgba(255,255,255,.75);font-size:12px">{_html_mod.escape(name)}</td>'
+                row_cells = f'<td style="padding:6px 10px;color:rgba(242,234,224,.75);font-size:12px">{_html_mod.escape(name)}</td>'
                 for fd in fechas:
                     qty = next((v for (_, n, c), v in self.state.history.get(fd, {}).items()
                                 if n == name and c == cat2), None)
-                    clr = '#C9A97A' if fd == d_ref else 'rgba(255,255,255,.6)'
+                    clr = '#C9A97A' if fd == d_ref else 'rgba(242,234,224,.6)'
                     cell = f'{round(qty):>3}' if qty else '—'
                     row_cells += (f'<td style="text-align:right;padding:6px 8px;'
                                   f'font-family:monospace;font-size:12px;color:{clr}">{cell}</td>')
                 rows += f'<tr>{row_cells}</tr>'
 
-        th = 'font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06);padding:6px 10px'
+        th = 'font-size:9px;color:var(--t3);border-bottom:1px solid rgba(242,234,224,.06);padding:6px 10px'
         body = (f'<h2>Comparativa — {dt}</h2>'
                 f'<p style="color:var(--t3);margin-bottom:12px">Últimas {len(fechas)} ocurrencias '
                 f'· <span style="color:#C9A97A">{d_ref.strftime("%d/%m/%Y")}</span> = referencia</p>'
@@ -2827,8 +2827,8 @@ _DIAS_OPTS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
 _ING_STYLE = """
 QFrame#ingRow {
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(242,234,224,0.02);
+    border: 1px solid rgba(242,234,224,0.06);
     border-radius: 8px;
     margin-bottom: 4px;
     color: #E8DDD0;
@@ -2922,7 +2922,7 @@ class IngredienteRow(QFrame):
         for dia in _DIAS_OPTS:
             cb = QCheckBox(dia[:3])
             cb.setChecked(dia in dias_activos)
-            cb.setStyleSheet("font-size:11px; color:rgba(255,255,255,.65);")
+            cb.setStyleSheet("font-size:11px; color:rgba(242,234,224,.65);")
             self._dia_checks[dia] = cb
             row2.addWidget(cb)
         btn_all = QPushButton("Todos")
@@ -3001,7 +3001,7 @@ class TabRecetas(QWidget):
 
         # Pendientes primero
         self._chk_pending = QCheckBox("Pendientes primero")
-        self._chk_pending.setStyleSheet("font-size:11px;color:rgba(255,255,255,.55);")
+        self._chk_pending.setStyleSheet("font-size:11px;color:rgba(242,234,224,.55);")
         self._chk_pending.stateChanged.connect(self._reload)
         left_lay.addWidget(self._chk_pending)
 
@@ -3027,7 +3027,7 @@ class TabRecetas(QWidget):
         self._lbl_title = QLabel("Selecciona un plato")
         self._lbl_title.setStyleSheet(
             "font-size:16px;font-family:'Playfair Display',Georgia,serif;"
-            "color:rgba(255,255,255,.9);")
+            "color:rgba(242,234,224,.9);")
         self._lbl_sku = QLabel()
         self._lbl_sku.setObjectName("subtle")
         self._lbl_status = QLabel()
@@ -3036,7 +3036,7 @@ class TabRecetas(QWidget):
         precio_row = QHBoxLayout()
         precio_row.setSpacing(8)
         _lbl_pv = QLabel("Precio venta:")
-        _lbl_pv.setStyleSheet("font-size:11px;color:rgba(255,255,255,.45);")
+        _lbl_pv.setStyleSheet("font-size:11px;color:rgba(242,234,224,.45);")
         self._spin_precio_venta = QDoubleSpinBox()
         self._spin_precio_venta.setRange(0, 9999999)
         self._spin_precio_venta.setDecimals(0)
@@ -3060,7 +3060,7 @@ class TabRecetas(QWidget):
         for txt, stretch in [('INGREDIENTE',4),('CANTIDAD',0),('UNIDAD',0),
                               ('CATEGORÍA',3),('TEMPERATURA',0),('$/UNIT',0),('',0)]:
             lbl = QLabel(txt)
-            lbl.setStyleSheet("font-size:9px;letter-spacing:.1em;color:rgba(255,255,255,.3);")
+            lbl.setStyleSheet("font-size:9px;letter-spacing:.1em;color:rgba(242,234,224,.3);")
             if txt == 'CANTIDAD':    lbl.setFixedWidth(90)
             elif txt == 'UNIDAD':    lbl.setFixedWidth(70)
             elif txt == 'TEMPERATURA': lbl.setFixedWidth(110)
@@ -3156,12 +3156,12 @@ class TabRecetas(QWidget):
         self._lbl_prog.setText(
             f'<div style="margin-bottom:8px">'
             f'<span style="font-size:18px;font-weight:700;color:#C9A97A">{n_conf}</span>'
-            f'<span style="font-size:11px;color:rgba(255,255,255,.4)"> con receta  </span>'
-            f'<span style="font-size:18px;color:rgba(255,255,255,.45)">{n_total-n_conf}</span>'
-            f'<span style="font-size:11px;color:rgba(255,255,255,.4)"> sin receta</span></div>'
-            f'<div style="height:5px;background:rgba(255,255,255,.07);border-radius:3px">'
+            f'<span style="font-size:11px;color:rgba(242,234,224,.4)"> con receta  </span>'
+            f'<span style="font-size:18px;color:rgba(242,234,224,.45)">{n_total-n_conf}</span>'
+            f'<span style="font-size:11px;color:rgba(242,234,224,.4)"> sin receta</span></div>'
+            f'<div style="height:5px;background:rgba(242,234,224,.07);border-radius:3px">'
             f'<div style="height:5px;width:{pct}%;background:#C9A97A;border-radius:3px"></div></div>'
-            f'<div style="font-size:10px;color:rgba(255,255,255,.3);margin-top:3px">{pct}% configurado</div>')
+            f'<div style="font-size:10px;color:rgba(242,234,224,.3);margin-top:3px">{pct}% configurado</div>')
 
         active_cat    = self._cat_filter.currentData()
         search_txt    = self._search.text().strip().lower()
@@ -3205,8 +3205,8 @@ class TabRecetas(QWidget):
             ok, tot = by_cat[cat]
             clr = '#A5D6A7' if ok == tot else ('#FBBF24' if ok >= tot / 2 else '#F87171')
             cat_html += (f'<div style="display:flex;justify-content:space-between;'
-                         f'font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">'
-                         f'<span style="color:rgba(255,255,255,.55)">{cat}</span>'
+                         f'font-size:11px;padding:3px 0;border-bottom:1px solid rgba(242,234,224,.04)">'
+                         f'<span style="color:rgba(242,234,224,.55)">{cat}</span>'
                          f'<span style="color:{clr}">{ok}/{tot}</span></div>')
         cat_html += '</div>'
         self._lbl_cat.setText(cat_html)
@@ -3383,7 +3383,7 @@ class TabCostos(QWidget):
 
     @staticmethod
     def _fc_color(pct):
-        if pct is None:  return 'rgba(255,255,255,.2)'
+        if pct is None:  return 'rgba(242,234,224,.2)'
         if pct < 28:     return '#5CE8D4'
         if pct < 35:     return '#A5D6A7'
         if pct < 45:     return '#FBBF24'
@@ -3415,7 +3415,7 @@ class TabCostos(QWidget):
             <div class="kpi-l">Platos con costos completos</div>
           </div>
           <div class="kpi">
-            <div class="kpi-v" style="color:rgba(255,255,255,.35)">{n_total - n_ok}</div>
+            <div class="kpi-v" style="color:rgba(242,234,224,.35)">{n_total - n_ok}</div>
             <div class="kpi-l">Sin precio / costo</div>
           </div>
         </div>"""
@@ -3435,7 +3435,7 @@ class TabCostos(QWidget):
               <td class="num">{self._fmt_clp(r['costo'])}</td>
               <td class="fc-cell">
                 <div style="display:flex;align-items:center;gap:8px">
-                  <div style="flex:1;height:4px;background:rgba(255,255,255,.07);border-radius:2px">
+                  <div style="flex:1;height:4px;background:rgba(242,234,224,.07);border-radius:2px">
                     <div style="width:{bar_w:.0f}%;height:4px;background:{clr};border-radius:2px"></div>
                   </div>
                   <span style="color:{clr};font-size:12px;min-width:44px;text-align:right">{fc_txt}</span>
@@ -3457,23 +3457,23 @@ class TabCostos(QWidget):
                   padding:24px; overflow-x:hidden }}
           h2 {{ font-family:'Palatino Linotype',Georgia,serif; color:#C9A97A;
                 font-size:18px; font-weight:400; letter-spacing:.04em; margin-bottom:16px }}
-          h3 {{ font-size:13px; font-weight:600; color:rgba(255,255,255,.5);
+          h3 {{ font-size:13px; font-weight:600; color:rgba(242,234,224,.5);
                 letter-spacing:.08em; text-transform:uppercase; margin:28px 0 12px }}
           .kpi-strip {{ display:flex; gap:16px; margin-bottom:24px }}
-          .kpi {{ background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.07);
+          .kpi {{ background:rgba(242,234,224,.03); border:1px solid rgba(242,234,224,.07);
                   border-radius:12px; padding:14px 20px; flex:1 }}
           .kpi-v {{ font-size:28px; font-weight:700; color:#E8DDD0 }}
-          .kpi-l {{ font-size:10px; color:rgba(255,255,255,.35); letter-spacing:.08em;
+          .kpi-l {{ font-size:10px; color:rgba(242,234,224,.35); letter-spacing:.08em;
                     text-transform:uppercase; margin-top:4px }}
           table {{ width:100%; border-collapse:collapse; font-size:13px; margin-bottom:32px }}
-          th {{ font-size:9px; letter-spacing:.1em; color:rgba(255,255,255,.3);
-                padding:6px 12px; text-align:left; border-bottom:1px solid rgba(255,255,255,.08) }}
-          td {{ padding:9px 12px; border-bottom:1px solid rgba(255,255,255,.04) }}
-          tr:hover td {{ background:rgba(255,255,255,.02) }}
+          th {{ font-size:9px; letter-spacing:.1em; color:rgba(242,234,224,.3);
+                padding:6px 12px; text-align:left; border-bottom:1px solid rgba(242,234,224,.08) }}
+          td {{ padding:9px 12px; border-bottom:1px solid rgba(242,234,224,.04) }}
+          tr:hover td {{ background:rgba(242,234,224,.02) }}
           .name {{ color:#E8DDD0; max-width:260px }}
-          .num {{ text-align:right; color:rgba(255,255,255,.6); font-variant-numeric:tabular-nums }}
+          .num {{ text-align:right; color:rgba(242,234,224,.6); font-variant-numeric:tabular-nums }}
           .fc-cell {{ min-width:160px }}
-          .muted {{ color:rgba(255,255,255,.3) }}
+          .muted {{ color:rgba(242,234,224,.3) }}
           #chart {{ margin-top:8px }}
         </style></head><body>
         <h2>Análisis de Costos</h2>
@@ -3534,30 +3534,30 @@ class TabCostos(QWidget):
                 'y': [r['margen']      for r in items],
                 'text': [r['nombre']   for r in items],
                 'textposition': 'top center',
-                'textfont': {'size': 9, 'color': 'rgba(255,255,255,.5)'},
+                'textfont': {'size': 9, 'color': 'rgba(242,234,224,.5)'},
                 'marker': {'size': 10, 'color': color,
-                           'line': {'color': 'rgba(255,255,255,.2)', 'width': 1}},
+                           'line': {'color': 'rgba(242,234,224,.2)', 'width': 1}},
             })
 
         layout = {
-            'paper_bgcolor': '#09080C', 'plot_bgcolor': 'rgba(255,255,255,.02)',
+            'paper_bgcolor': '#09080C', 'plot_bgcolor': 'rgba(242,234,224,.02)',
             'font': {'color': '#E8DDD0', 'family': 'Segoe UI'},
             'height': 420, 'margin': {'l': 60, 'r': 20, 't': 20, 'b': 50},
             'xaxis': {'title': 'Popularidad (unidades/día promedio)',
-                      'gridcolor': 'rgba(255,255,255,.06)',
-                      'zerolinecolor': 'rgba(255,255,255,.15)'},
+                      'gridcolor': 'rgba(242,234,224,.06)',
+                      'zerolinecolor': 'rgba(242,234,224,.15)'},
             'yaxis': {'title': 'Margen bruto ($ CLP)',
-                      'gridcolor': 'rgba(255,255,255,.06)',
-                      'zerolinecolor': 'rgba(255,255,255,.15)'},
+                      'gridcolor': 'rgba(242,234,224,.06)',
+                      'zerolinecolor': 'rgba(242,234,224,.15)'},
             'legend': {'bgcolor': 'rgba(0,0,0,0)',
                        'font': {'size': 11}},
             'shapes': [
                 {'type': 'line', 'x0': med_pop, 'x1': med_pop, 'y0': 0, 'y1': 1,
                  'xref': 'x', 'yref': 'paper',
-                 'line': {'color': 'rgba(255,255,255,.15)', 'dash': 'dot', 'width': 1}},
+                 'line': {'color': 'rgba(242,234,224,.15)', 'dash': 'dot', 'width': 1}},
                 {'type': 'line', 'x0': 0, 'x1': 1, 'y0': med_mar, 'y1': med_mar,
                  'xref': 'paper', 'yref': 'y',
-                 'line': {'color': 'rgba(255,255,255,.15)', 'dash': 'dot', 'width': 1}},
+                 'line': {'color': 'rgba(242,234,224,.15)', 'dash': 'dot', 'width': 1}},
             ],
         }
         return _json.dumps(traces), _json.dumps(layout)
@@ -3565,7 +3565,7 @@ class TabCostos(QWidget):
     @staticmethod
     def _html_empty():
         return """<!DOCTYPE html><html><head><meta charset="utf-8">
-        <style>body{background:#09080C;color:rgba(255,255,255,.3);
+        <style>body{background:#09080C;color:rgba(242,234,224,.3);
         display:flex;align-items:center;justify-content:center;height:100vh;
         font-family:'Segoe UI',sans-serif;font-size:14px;text-align:center}
         p{line-height:1.8}</style></head><body>
