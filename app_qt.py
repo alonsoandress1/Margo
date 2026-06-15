@@ -1204,6 +1204,34 @@ class WebTab(QWebEngineView):
         # Base URL apunta a assets/ → el browser resuelve plotly-2.26.0.min.js localmente
         self.setHtml(html, _BASE_URL)
 
+# ── Reload worker (background thread) ─────────────────────────────────────────
+
+class _ReloadWorker(QThread):
+    """Ejecuta state.reload() en hilo secundario para no bloquear la UI."""
+    finished = pyqtSignal()
+
+    def __init__(self, folder: str):
+        super().__init__()
+        self.folder = folder
+        self.result: dict = {}
+        self.errors: list = []
+
+    def run(self):
+        self.errors = []
+        history      = core.load_history(self.folder, self.errors)
+        model        = core.build_model(history)
+        df           = core.build_df(history)
+        name_to_sku  = core.build_name_to_sku(history)
+        ventas_df    = core.load_ventas_df()
+        recetas_raw, recetas = core.load_recetas()
+        self.result = {
+            'history': history, 'model': model, 'df': df,
+            'name_to_sku': name_to_sku, 'ventas_df': ventas_df,
+            'recetas_raw': recetas_raw, 'recetas': recetas,
+        }
+        self.finished.emit()
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
 class NavRail(QWidget):
@@ -1350,9 +1378,9 @@ class NavRail(QWidget):
         btn_row = QHBoxLayout(); btn_row.setSpacing(5)
         btn_f = QPushButton("📁 Carpeta"); btn_f.setObjectName("navSmallBtn")
         btn_f.setFixedHeight(26); btn_f.clicked.connect(self._on_folder)
-        btn_r = QPushButton("🔄 Recargar"); btn_r.setObjectName("navSmallBtn")
-        btn_r.setFixedHeight(26); btn_r.clicked.connect(self._on_reload)
-        btn_row.addWidget(btn_f); btn_row.addWidget(btn_r)
+        self._btn_r = QPushButton("🔄 Recargar"); self._btn_r.setObjectName("navSmallBtn")
+        self._btn_r.setFixedHeight(26); self._btn_r.clicked.connect(self._on_reload)
+        btn_row.addWidget(btn_f); btn_row.addWidget(self._btn_r)
         lay.addLayout(btn_row)
         lay.addSpacing(8)
 
@@ -1397,11 +1425,34 @@ class NavRail(QWidget):
             self._on_reload()
 
     def _on_reload(self):
-        try:
-            self.state.reload()
-        except Exception as e:
-            QMessageBox.critical(self, "Error al recargar",
-                f"No se pudo recargar los datos.\n\n{e}")
+        self._btn_r.setEnabled(False)
+        self._btn_r.setText("⏳ Cargando…")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self._worker = _ReloadWorker(self.state.folder)
+        self._worker.finished.connect(self._on_reload_done)
+        self._worker.start()
+
+    def _on_reload_done(self):
+        QApplication.restoreOverrideCursor()
+        self._btn_r.setEnabled(True)
+        self._btn_r.setText("🔄 Recargar")
+        w = self._worker
+        s = self.state
+        s.load_errors  = w.errors
+        s.history      = w.result['history']
+        s.model        = w.result['model']
+        s.df           = w.result['df']
+        s.name_to_sku  = w.result['name_to_sku']
+        s.ventas_df    = w.result['ventas_df']
+        s._recetas_raw = w.result['recetas_raw']
+        s.recetas      = w.result['recetas']
+        s.changed.emit()
+        self._refresh_stats()
+        if w.errors and not s.history:
+            detail = "\n".join(f"  • {e}" for e in w.errors[:8])
+            QMessageBox.warning(self, "Sin datos",
+                f"No se pudieron cargar archivos.\n\n{detail}\n\n"
+                "Selecciona la carpeta correcta en el panel lateral.")
 
     def set_active(self, idx: int):
         if idx in self._btns:
@@ -2240,10 +2291,10 @@ class TabVentas(WebTab):
         p_amex = f'<div style="margin-top:16px">{amex_html}</div>'
 
         ventas_tabs = _stabs([
-            ('RESUMEN',      'res',  p_resumen),
-            ('CATEGORÍAS',   'cat',  p_cats),
-            ('DIAGNÓSTICO',  'diag', p_diag),
-            ('AMEX',         'amex', p_amex),
+            ('RESUMEN',        'res',  p_resumen),
+            ('CATEGORÍAS',     'cat',  p_cats),
+            ('DIAGNÓSTICO',    'diag', p_diag),
+            ('PROMO DOM. 💰',  'amex', p_amex),   # ingresos; análisis de producción en tab ⭐ AMEX
         ])
 
         body = f'<h2>Ventas</h2>{kpis}{ventas_tabs}'
@@ -2369,22 +2420,40 @@ class TabHistorial(QWidget):
                 stats    = dm.get((name, cat2))
                 fc_qty   = round(core.dish_fc(stats, self.state.k_factor)) if stats else None
                 diff     = real_qty - fc_qty if fc_qty is not None else None
-                diff_clr = '#5CE8D4' if diff is not None and diff >= 0 else '#F7A8D0'
-                diff_txt = f'{diff:+.0f}' if diff is not None else '—'
+                # Positivo = se vendió MÁS de lo pronosticado = posible faltante de stock (rojo)
+                # Negativo = se vendió MENOS = sobró producción (amarillo)
+                # Cero o sin dato = gris
+                if diff is None:
+                    diff_clr, diff_icon = 'rgba(255,255,255,.25)', ''
+                elif diff > 0:
+                    diff_clr, diff_icon = '#F87171', '↑'   # faltó
+                elif diff < 0:
+                    diff_clr, diff_icon = '#FBBF24', '↓'   # sobró
+                else:
+                    diff_clr, diff_icon = '#A5D6A7', '='
+                diff_txt = f'{diff_icon}{abs(diff):.0f}' if diff is not None else '—'
                 fc_txt   = str(fc_qty) if fc_qty is not None else '—'
                 rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.8)">{name}</td>'
                          f'<td style="text-align:right;padding:7px 10px;font-family:monospace">{round(real_qty)}</td>'
                          f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.4)">{fc_txt}</td>'
                          f'<td style="text-align:center;padding:7px 10px;color:{diff_clr};font-weight:600">{diff_txt}</td></tr>')
 
+        leyenda = ('<div style="font-size:10px;color:rgba(255,255,255,.3);margin-bottom:10px">'
+                   '<span style="color:#F87171">↑ faltó</span>'
+                   '&nbsp;&nbsp;·&nbsp;&nbsp;'
+                   '<span style="color:#FBBF24">↓ sobró</span>'
+                   '&nbsp;&nbsp;·&nbsp;&nbsp;'
+                   '<span style="color:#A5D6A7">= exacto</span>'
+                   '</div>')
         body = (f'<h2>{core.DAYS_ES[d.weekday()]} {d.strftime("%d/%m/%Y")}</h2>'
-                f'<p style="color:var(--t3);margin-bottom:16px">Tipo: {dt}</p>'
+                f'<p style="color:var(--t3);margin-bottom:8px">Tipo: {dt}</p>'
+                f'{leyenda}'
                 f'<table style="width:100%;border-collapse:collapse;font-size:12px">'
                 f'<thead><tr>'
                 f'<th style="text-align:left;padding:6px 10px;font-size:9px;letter-spacing:.1em;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Plato</th>'
                 f'<th style="text-align:right;padding:6px 10px;font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Real</th>'
                 f'<th style="text-align:right;padding:6px 10px;font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Pronóstico</th>'
-                f'<th style="text-align:center;padding:6px 10px;font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Δ</th>'
+                f'<th style="text-align:center;padding:6px 10px;font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Balance</th>'
                 f'</tr></thead><tbody>{rows}</tbody></table>')
         self.view.render(_page(body))
 
