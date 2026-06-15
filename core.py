@@ -15,6 +15,11 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.io as _pio
+
+# Deshabilitar el template default de Plotly — inyecta colores blancos/azules
+# que Plotly JS 3.x puede usar como fallback sobreescribiendo nuestros colores warm.
+_pio.templates.default = 'none'
 
 try:
     import xlrd
