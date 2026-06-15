@@ -558,18 +558,21 @@ def chart_trend(df, dishes):
 
 def chart_variability(model, cat='Fondo', top_n=18):
     # Agrega ponderando por n (observaciones por tipo de día)
-    accum: dict = {}   # dish → {sum_mean_n, sum_std_n, sum_n}
+    # mean_n / n_total  →  media ponderada global
+    # std_n  / n_std    →  std ponderada solo sobre tipos-de-día con std disponible
+    accum: dict = {}
     for dt, dishes in model.items():
         for (name, c), stats in dishes.items():
             if c != cat:
                 continue
             n = stats.get('n', 1)
             if name not in accum:
-                accum[name] = {'mean_n': 0.0, 'std_n': 0.0, 'n': 0}
+                accum[name] = {'mean_n': 0.0, 'std_n': 0.0, 'n': 0, 'n_std': 0}
             accum[name]['mean_n'] += stats['mean'] * n
             accum[name]['n']      += n
             if stats['std'] is not None:
-                accum[name]['std_n'] += stats['std'] * n
+                accum[name]['std_n']  += stats['std'] * n
+                accum[name]['n_std']  += n        # solo cuenta donde existe std
 
     if not accum:
         return go.Figure()
@@ -579,7 +582,8 @@ def chart_variability(model, cat='Fondo', top_n=18):
         if a['n'] == 0:
             continue
         mean_w = a['mean_n'] / a['n']
-        std_w  = a['std_n']  / a['n']   # None si todos tenían 1 obs → std_n=0
+        # Denominador correcto: solo las observaciones donde se pudo calcular std
+        std_w  = a['std_n'] / a['n_std'] if a['n_std'] > 0 else 0
         cv     = std_w / mean_w if mean_w > 0 and std_w > 0 else 0
         rows.append({'dish': name, 'mean': mean_w, 'std': std_w, 'cv': cv})
 
