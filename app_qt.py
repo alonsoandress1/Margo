@@ -2182,7 +2182,7 @@ class TabVentas(QWidget):
             line=dict(color='rgba(242,234,224,.5)', width=1.5, dash='dot'),
             marker=dict(size=8, color=['#5CE8D4' if yoy[m]>=0 else '#F7A8D0' for m in common]),
             text=[f"{yoy[m]:+.0f}%" for m in common], textposition='top center',
-            textfont=dict(size=10)))
+            textfont=dict(size=10, color=core.TEXT)))
         main_layout = {**core.PLOTLY_BASE}
         main_layout.update(barmode='group', bargap=0.25, height=380,
             title=dict(text=f'Ventas Mensuales — {_Yp} vs {_Y}', **core.PLOTLY_BASE['title']),
@@ -2250,7 +2250,7 @@ class TabVentas(QWidget):
                 line=dict(color='rgba(242,234,224,.4)', width=1.2, dash='dot'),
                 marker=dict(size=6, color=yoy_ms),
                 text=yoy_txts, textposition='top center',
-                textfont=dict(size=9), showlegend=show_leg),
+                textfont=dict(size=9, color=core.MUTED), showlegend=show_leg),
                 row=row, col=col, secondary_y=True)
         mm_layout = {k: v for k, v in core.PLOTLY_BASE.items()
                      if k not in ('xaxis','yaxis','title','margin','legend')}
@@ -3554,7 +3554,7 @@ class TabCostos(QWidget):
                       'gridcolor': 'rgba(242,234,224,.06)',
                       'zerolinecolor': 'rgba(242,234,224,.15)'},
             'legend': {'bgcolor': 'rgba(0,0,0,0)',
-                       'font': {'size': 11}},
+                       'font': {'size': 11, 'color': core.TEXT}},
             'shapes': [
                 {'type': 'line', 'x0': med_pop, 'x1': med_pop, 'y0': 0, 'y1': 1,
                  'xref': 'x', 'yref': 'paper',

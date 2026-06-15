@@ -72,15 +72,15 @@ PLOTLY_BASE = dict(
     font=dict(family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif", color=TEXT, size=12),
     margin=dict(l=16, r=16, t=48, b=16),
     xaxis=dict(gridcolor="rgba(250,235,200,0.04)", linecolor="rgba(250,235,200,0.07)",
-               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11)),
+               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11, color=MUTED)),
     yaxis=dict(gridcolor="rgba(250,235,200,0.04)", linecolor="rgba(250,235,200,0.07)",
-               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11)),
+               zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11, color=MUTED)),
     hoverlabel=dict(bgcolor=BG_3, bordercolor="rgba(201,169,122,0.45)",
                     font=dict(family="'Segoe UI','Segoe UI Light',Calibri,system-ui,sans-serif", color=TEXT, size=12)),
     title=dict(font=dict(family="'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif",
                          size=20, color=TEXT), x=0, xref="paper", pad=dict(b=12)),
     legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=BORDER,
-                borderwidth=1, font=dict(size=11)),
+                borderwidth=1, font=dict(size=11, color=TEXT)),
     colorway=[GOLD, "#7EB8F7", "#5CE8D4", "#F7A8D0", "#C4B5FD", "#E0C090", "#A5D6A7"],
 )
 
