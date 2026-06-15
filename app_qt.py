@@ -1529,7 +1529,23 @@ class TabProduccion(QWidget):
         self._btn_export.setFixedHeight(30)
         self._btn_export.setFixedWidth(165)
         self._btn_export.clicked.connect(self._export_excel)
+        self._btn_pdf = QPushButton("🖨  Imprimir / PDF")
+        self._btn_pdf.setFixedHeight(30)
+        self._btn_pdf.setFixedWidth(155)
+        self._btn_pdf.clicked.connect(self._export_pdf)
+
+        # Selector de categoría — solo visible en sub-tab Análisis
+        self._cat_combo = QComboBox()
+        self._cat_combo.addItems(core.CAT_ORDER)
+        self._cat_combo.setCurrentText('Fondo')
+        self._cat_combo.setFixedHeight(30)
+        self._cat_combo.setVisible(False)
+        self._cat_combo.currentTextChanged.connect(self._on_analisis_cat)
+
         tl.addStretch()
+        tl.addWidget(self._cat_combo)
+        tl.addSpacing(8)
+        tl.addWidget(self._btn_pdf)
         tl.addWidget(self._btn_export)
         lay.addWidget(self._toolbar)
 
@@ -1537,7 +1553,11 @@ class TabProduccion(QWidget):
         self.sub = QTabWidget()
         self.sub.setObjectName("innerTabs")
         self.sub.setTabPosition(QTabWidget.TabPosition.North)
-        self.sub.currentChanged.connect(lambda i: self._toolbar.setVisible(i == 0))
+        def _on_sub_change(i):
+            self._btn_export.setVisible(i == 0)
+            self._btn_pdf.setVisible(i == 0)
+            self._cat_combo.setVisible(i == 1)
+        self.sub.currentChanged.connect(_on_sub_change)
 
         self.plan_view     = WebTab()
         self.analisis_view = WebTab()
@@ -1548,6 +1568,26 @@ class TabProduccion(QWidget):
 
         state.changed.connect(self.refresh)
         self.refresh()
+
+    def _on_analisis_cat(self, cat: str):
+        if cat in core.CAT_ORDER:
+            self.refresh()
+
+    def _export_pdf(self):
+        default = f"Plan_{self.state.start_date.strftime('%d-%m-%Y')}.pdf"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Guardar PDF del plan", default, "PDF (*.pdf)")
+        if not path:
+            return
+        def _on_pdf_done(ok):
+            if ok:
+                QMessageBox.information(self, "PDF guardado",
+                    f"Archivo guardado correctamente:\n{path}")
+            else:
+                QMessageBox.warning(self, "Error al guardar PDF",
+                    "No se pudo generar el PDF.")
+        self.plan_view.page().pdfPrintingFinished.connect(_on_pdf_done)
+        self.plan_view.page().printToPdf(path)
 
     def _export_excel(self):
         if not self._day_details:
@@ -1615,11 +1655,15 @@ class TabProduccion(QWidget):
                        f'</div>')
             cat_sections.append((cat.upper(), sl, content, color))
 
+        n_dias_lbl = f"{s.horizon} día" + ("s" if s.horizon > 1 else "")
         body = f"""
-        <h2>Plan de Producción</h2>
-        <p style="color:var(--t3);font-size:11px;margin-bottom:16px">
-          {core.fecha_es(start)} · μ + {s.k_factor:.1f}σ · {len(s.history)} días en modelo
-        </p>
+        <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:4px">
+          <h2 style="margin:0">Plan de Producción</h2>
+          <span style="font-size:18px;color:#C9A97A;font-family:'Palatino Linotype',Georgia,serif">
+            {core.fecha_es(start)}</span>
+          <span style="font-size:12px;color:rgba(255,255,255,.3)">
+            {n_dias_lbl} · μ+{s.k_factor:.1f}σ · {len(s.history)} días en modelo</span>
+        </div>
         {cards_html}
         {_stabs(cat_sections)}
         """
@@ -1666,15 +1710,17 @@ class TabProduccion(QWidget):
           </table>
         </div>"""
 
-        # Charts: variabilidad + forecast bars
-        fig_var  = core.chart_variability(s.model, 'Fondo')
-        fig_bars = core.chart_forecast_bars(totals, dish_stats, 'Fondo')
+        # Charts: variabilidad + forecast bars — categoría elegida en el combo Qt
+        sel_cat  = self._cat_combo.currentText() or 'Fondo'
+        fig_var  = core.chart_variability(s.model, sel_cat)
+        fig_bars = core.chart_forecast_bars(totals, dish_stats, sel_cat)
+
         analisis_tabs = _stabs([
-            ('COBERTURA',          'cob', cov_table),
-            ('VARIABILIDAD — FONDOS', 'var', f'<div class="chart-box">{_fig_html(fig_var,  420)}</div>'),
-            ('FORECAST — FONDOS',     'fc',  f'<div class="chart-box">{_fig_html(fig_bars, 420)}</div>'),
+            ('COBERTURA',    'cob', cov_table),
+            ('VARIABILIDAD', 'var', f'<div class="chart-box">{_fig_html(fig_var,  420)}</div>'),
+            ('FORECAST',     'fc',  f'<div class="chart-box">{_fig_html(fig_bars, 420)}</div>'),
         ])
-        analisis_body = f'<h2>Análisis del Modelo</h2>{analisis_tabs}'
+        analisis_body = f'<h2>Análisis del Modelo — {sel_cat}</h2>{analisis_tabs}'
         self.analisis_view.render(_page(analisis_body))
 
 
@@ -2363,14 +2409,22 @@ class TabHistorial(QWidget):
         lay.setContentsMargins(14, 12, 14, 12)
         lay.setSpacing(8)
 
-        # Barra superior: selector fecha + buscador
+        # Barra superior: selector fecha + modo comparación + buscador
         top = QHBoxLayout()
         top.setSpacing(10)
         top.addWidget(QLabel("Día:"))
         self.date_combo = QComboBox()
         self.date_combo.setFixedWidth(230)
         top.addWidget(self.date_combo)
-        top.addSpacing(12)
+        top.addSpacing(8)
+        self._chk_comparar = QCheckBox("Comparar días similares")
+        self._chk_comparar.setToolTip(
+            "Muestra las últimas 4 ocurrencias del mismo tipo de día\n"
+            "(ej: los últimos 4 sábados) para comparar tendencias.")
+        self._chk_comparar.stateChanged.connect(
+            lambda _: self._on_date_change(self.date_combo.currentIndex()))
+        top.addWidget(self._chk_comparar)
+        top.addSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Buscar plato...")
         self.search.setFixedWidth(200)
@@ -2401,15 +2455,23 @@ class TabHistorial(QWidget):
             return
         d = self.date_combo.itemData(idx)
         if d is None: return
-        dt     = core.day_type(d)
-        data   = self.state.history.get(d, {})
-        dm     = self.state.model.get(dt, {})
-        q      = self.search.text().strip().lower()
+
+        comparar = self._chk_comparar.isChecked()
+        if comparar:
+            self._render_comparar(d)
+        else:
+            self._render_single(d)
+
+    def _render_single(self, d):
+        dt  = core.day_type(d)
+        data = self.state.history.get(d, {})
+        dm   = self.state.model.get(dt, {})
+        q    = self.search.text().strip().lower()
 
         rows = ''
         for cat in core.CAT_ORDER:
             items = sorted(
-                [((n,c), qty) for (_, n, c), qty in data.items()
+                [((n, c), qty) for (_, n, c), qty in data.items()
                  if c == cat and (not q or q in n.lower())],
                 key=lambda x: -x[1])
             if not items: continue
@@ -2417,43 +2479,88 @@ class TabHistorial(QWidget):
                      f'background:rgba(255,255,255,.03);font-size:9px;'
                      f'letter-spacing:.14em;color:var(--t3)">{cat.upper()}</td></tr>')
             for (name, cat2), real_qty in items:
-                stats    = dm.get((name, cat2))
-                fc_qty   = round(core.dish_fc(stats, self.state.k_factor)) if stats else None
-                diff     = real_qty - fc_qty if fc_qty is not None else None
-                # Positivo = se vendió MÁS de lo pronosticado = posible faltante de stock (rojo)
-                # Negativo = se vendió MENOS = sobró producción (amarillo)
-                # Cero o sin dato = gris
-                if diff is None:
-                    diff_clr, diff_icon = 'rgba(255,255,255,.25)', ''
-                elif diff > 0:
-                    diff_clr, diff_icon = '#F87171', '↑'   # faltó
-                elif diff < 0:
-                    diff_clr, diff_icon = '#FBBF24', '↓'   # sobró
-                else:
-                    diff_clr, diff_icon = '#A5D6A7', '='
+                stats  = dm.get((name, cat2))
+                fc_qty = round(core.dish_fc(stats, self.state.k_factor)) if stats else None
+                diff   = real_qty - fc_qty if fc_qty is not None else None
+                if diff is None:    diff_clr, diff_icon = 'rgba(255,255,255,.25)', ''
+                elif diff > 0:      diff_clr, diff_icon = '#F87171', '↑'
+                elif diff < 0:      diff_clr, diff_icon = '#FBBF24', '↓'
+                else:               diff_clr, diff_icon = '#A5D6A7', '='
                 diff_txt = f'{diff_icon}{abs(diff):.0f}' if diff is not None else '—'
-                fc_txt   = str(fc_qty) if fc_qty is not None else '—'
                 rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.8)">{name}</td>'
                          f'<td style="text-align:right;padding:7px 10px;font-family:monospace">{round(real_qty)}</td>'
-                         f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.4)">{fc_txt}</td>'
+                         f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.4)">{fc_qty or "—"}</td>'
                          f'<td style="text-align:center;padding:7px 10px;color:{diff_clr};font-weight:600">{diff_txt}</td></tr>')
 
         leyenda = ('<div style="font-size:10px;color:rgba(255,255,255,.3);margin-bottom:10px">'
-                   '<span style="color:#F87171">↑ faltó</span>'
-                   '&nbsp;&nbsp;·&nbsp;&nbsp;'
-                   '<span style="color:#FBBF24">↓ sobró</span>'
-                   '&nbsp;&nbsp;·&nbsp;&nbsp;'
-                   '<span style="color:#A5D6A7">= exacto</span>'
-                   '</div>')
+                   '<span style="color:#F87171">↑ faltó</span>&nbsp;·&nbsp;'
+                   '<span style="color:#FBBF24">↓ sobró</span>&nbsp;·&nbsp;'
+                   '<span style="color:#A5D6A7">= exacto</span></div>')
+        th = ('font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06);padding:6px 10px')
         body = (f'<h2>{core.DAYS_ES[d.weekday()]} {d.strftime("%d/%m/%Y")}</h2>'
                 f'<p style="color:var(--t3);margin-bottom:8px">Tipo: {dt}</p>'
                 f'{leyenda}'
-                f'<table style="width:100%;border-collapse:collapse;font-size:12px">'
-                f'<thead><tr>'
-                f'<th style="text-align:left;padding:6px 10px;font-size:9px;letter-spacing:.1em;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Plato</th>'
-                f'<th style="text-align:right;padding:6px 10px;font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Real</th>'
-                f'<th style="text-align:right;padding:6px 10px;font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Pronóstico</th>'
-                f'<th style="text-align:center;padding:6px 10px;font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06)">Balance</th>'
+                f'<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>'
+                f'<th style="text-align:left;{th}">Plato</th>'
+                f'<th style="text-align:right;{th}">Real</th>'
+                f'<th style="text-align:right;{th}">Pronóstico</th>'
+                f'<th style="text-align:center;{th}">Balance</th>'
+                f'</tr></thead><tbody>{rows}</tbody></table>')
+        self.view.render(_page(body))
+
+    def _render_comparar(self, d_ref):
+        """Muestra las últimas 4 ocurrencias del mismo tipo de día, una por columna."""
+        dt  = core.day_type(d_ref)
+        q   = self.search.text().strip().lower()
+
+        # Últimas 4 fechas del mismo tipo de día (incluyendo la seleccionada)
+        fechas = sorted(
+            [fd for fd in self.state.history if core.day_type(fd) == dt],
+            reverse=True)[:4]
+        if not fechas:
+            self.view.render(_page(f'<h2>Sin datos para {dt}</h2>'))
+            return
+        fechas = list(reversed(fechas))  # orden cronológico
+
+        # Recopilar todos los platos que aparecen en alguno de esos días
+        nombres: dict = {}
+        for fd in fechas:
+            for (_, n, c), _ in self.state.history.get(fd, {}).items():
+                if not q or q in n.lower():
+                    nombres[(n, c)] = True
+
+        # Construir tabla: filas = plato, columnas = fecha
+        date_headers = ''.join(
+            f'<th style="text-align:right;padding:6px 8px;font-size:9px;'
+            f'color:{"#C9A97A" if fd==d_ref else "rgba(255,255,255,.35)"};'
+            f'border-bottom:1px solid rgba(255,255,255,.06)">'
+            f'{fd.strftime("%d/%m")}</th>'
+            for fd in fechas)
+
+        rows = ''
+        for cat in core.CAT_ORDER:
+            cat_items = [(n, c) for (n, c) in nombres if c == cat]
+            if not cat_items: continue
+            rows += (f'<tr><td colspan="{len(fechas)+1}" style="padding:8px 10px;'
+                     f'background:rgba(255,255,255,.03);font-size:9px;'
+                     f'letter-spacing:.14em;color:var(--t3)">{cat.upper()}</td></tr>')
+            for name, cat2 in sorted(cat_items, key=lambda x: x[0]):
+                row_cells = f'<td style="padding:6px 10px;color:rgba(255,255,255,.75);font-size:12px">{name}</td>'
+                for fd in fechas:
+                    qty = next((v for (_, n, c), v in self.state.history.get(fd, {}).items()
+                                if n == name and c == cat2), None)
+                    clr = '#C9A97A' if fd == d_ref else 'rgba(255,255,255,.6)'
+                    cell = f'{round(qty):>3}' if qty else '—'
+                    row_cells += (f'<td style="text-align:right;padding:6px 8px;'
+                                  f'font-family:monospace;font-size:12px;color:{clr}">{cell}</td>')
+                rows += f'<tr>{row_cells}</tr>'
+
+        th = 'font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06);padding:6px 10px'
+        body = (f'<h2>Comparativa — {dt}</h2>'
+                f'<p style="color:var(--t3);margin-bottom:12px">Últimas {len(fechas)} ocurrencias '
+                f'· <span style="color:#C9A97A">{d_ref.strftime("%d/%m/%Y")}</span> = referencia</p>'
+                f'<table style="width:100%;border-collapse:collapse"><thead><tr>'
+                f'<th style="text-align:left;{th}">Plato</th>{date_headers}'
                 f'</tr></thead><tbody>{rows}</tbody></table>')
         self.view.render(_page(body))
 
