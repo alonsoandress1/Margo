@@ -990,6 +990,14 @@ h2 em {{
   font-variant-numeric: tabular-nums;
 }}
 .ing-unit {{ flex: 1; font-size: 11px; color: var(--t3); }}
+.ing-costo {{
+  flex: 1.5;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgba(201,169,122,.55);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}}
 .ing-urgency {{
   flex: 2;
   font-size: 11px;
@@ -1641,10 +1649,14 @@ class TabCompras(WebTab):
             if not sku or sku not in s.recetas: continue
             for ing in s.recetas[sku].get('ingredientes', []):
                 k_i = f"{ing['nombre']}||{ing.get('unidad','g')}"
+                pu  = float(ing.get('precio_unitario', 0) or 0)
                 if k_i not in _ing:
-                    _ing[k_i] = {**ing, 'total': 0.0,
+                    _ing[k_i] = {**ing, 'total': 0.0, 'precio_unitario': pu,
                                  'dias_despacho': list(ing.get('dias_despacho', []))}
                 _ing[k_i]['total'] += ing['cantidad'] * total_qty
+                # Si el registro aún no tiene precio pero este ingrediente sí, actualizarlo
+                if not _ing[k_i]['precio_unitario'] and pu:
+                    _ing[k_i]['precio_unitario'] = pu
                 dd = ing.get('dias_despacho', [])
                 _ing[k_i]['dias_despacho'] = sorted(
                     set(_ing[k_i]['dias_despacho']) | set(dd),
@@ -1655,6 +1667,33 @@ class TabCompras(WebTab):
                 '<h2>Compras</h2>'
                 '<p style="color:var(--t3)">Sin recetas configuradas con ingredientes.</p>'))
             return
+
+        # Totales globales
+        total_costo = sum(
+            d['total'] * d['precio_unitario']
+            for d in _ing.values() if d.get('precio_unitario')
+        )
+        n_sin_precio = sum(1 for d in _ing.values() if not d.get('precio_unitario'))
+
+        def _fmt_clp(v):
+            return f"${v:,.0f}".replace(',', '.')
+
+        # KPI strip superior
+        costo_html = _fmt_clp(total_costo) if total_costo else '—'
+        sin_p_html  = (f'<span style="color:#FBBF24"> · {n_sin_precio} sin precio</span>'
+                       if n_sin_precio else '')
+        kpi_strip = f"""
+        <div style="display:flex;gap:14px;margin-bottom:20px">
+          <div class="kpi" style="flex:2;padding:16px 20px">
+            <div class="kpi-label">COSTO ESTIMADO DEL PEDIDO</div>
+            <div class="kpi-value" style="font-size:32px;color:#C9A97A">{costo_html}</div>
+            <div class="kpi-sub">{core.fecha_es(start)} · {s.horizon} día(s){sin_p_html}</div>
+          </div>
+          <div class="kpi" style="flex:1;padding:16px 20px">
+            <div class="kpi-label">INSUMOS</div>
+            <div class="kpi-value">{len(_ing)}</div>
+          </div>
+        </div>"""
 
         # Agrupar por categoría
         by_cat: dict = {}
@@ -1672,6 +1711,11 @@ class TabCompras(WebTab):
         compras_sections = []
         for cat, ings in sorted(by_cat.items()):
             icon = CAT_ICONS.get(cat, '📦')
+            cat_costo = sum(d['total'] * d['precio_unitario']
+                            for d in ings if d.get('precio_unitario'))
+            cat_costo_html = (f'<span style="float:right;color:rgba(201,169,122,.6);'
+                              f'font-size:12px">{_fmt_clp(cat_costo)}</span>'
+                              if cat_costo else '')
             rows_html = ''
             for d in sorted(ings, key=lambda x: -x['total']):
                 n_dias, nombre_dia = _prox_despacho(d.get('dias_despacho', []))
@@ -1681,22 +1725,29 @@ class TabCompras(WebTab):
                 elif n_dias < 99: urg_bg, urg_clr, urg_txt = 'rgba(255,255,255,.08)', 'rgba(255,255,255,.7)', f'🗓 {n_dias}d ({nombre_dia})'
                 else:             urg_bg, urg_clr, urg_txt = 'rgba(255,255,255,.04)', 'rgba(255,255,255,.35)', '—'
 
-                qty = d['total']
+                qty     = d['total']
                 qty_txt = f"{qty:,.1f}" if qty < 1000 else f"{qty:,.0f}"
+                pu      = d.get('precio_unitario', 0)
+                costo_i = qty * pu if pu else None
+                costo_i_html = (
+                    f'<span class="ing-costo">{_fmt_clp(costo_i)}</span>'
+                    if costo_i else
+                    '<span class="ing-costo" style="color:rgba(255,255,255,.2)">—</span>')
+
                 rows_html += (
                     f'<div class="ing-row">'
                     f'<span class="ing-name">{d["nombre"]}</span>'
                     f'<span class="ing-qty">{qty_txt}</span>'
                     f'<span class="ing-unit">{d.get("unidad","g")}</span>'
+                    f'{costo_i_html}'
                     f'<span class="ing-urgency" style="background:{urg_bg};color:{urg_clr}">'
                     f'{urg_txt}</span></div>')
             slug = _slug(cat)
-            panel_html = f'<div class="cat-header" style="margin-top:4px">{icon} {cat}</div>{rows_html}'
+            panel_html = (f'<div class="cat-header" style="margin-top:4px">'
+                          f'{icon} {cat}{cat_costo_html}</div>{rows_html}')
             compras_sections.append((f'{icon} {cat.upper()}', slug, panel_html))
 
-        subtitle = (f'<p style="color:var(--t3);font-size:11px;margin-bottom:4px">'
-                    f'{core.fecha_es(start)} · {s.horizon} días · {len(_ing)} insumos</p>')
-        body = f'<h2>Lista de Compras</h2>{subtitle}{_stabs(compras_sections)}'
+        body = f'<h2>Lista de Compras</h2>{kpi_strip}{_stabs(compras_sections)}'
         self.render(_page(body))
 
 
