@@ -2159,9 +2159,9 @@ class TabVentas(QWidget):
     <div style="height:1px;background:rgba(255,255,255,0.05)"></div>
     <div>
       <div style="font-size:11px;color:var(--t3);margin-bottom:2px">
-        {MN[best_m]} 26: {core._fmt_clp(v25[best_m])} → {core._fmt_clp(v26[best_m])}</div>
+        {MN[best_m]} {_Y}: {core._fmt_clp(v25[best_m])} → {core._fmt_clp(v26[best_m])}</div>
       <div style="font-size:11px;color:var(--t3)">
-        {MN[worst_m]} 26: {core._fmt_clp(v25[worst_m])} → {core._fmt_clp(v26[worst_m])}</div>
+        {MN[worst_m]} {_Y}: {core._fmt_clp(v25[worst_m])} → {core._fmt_clp(v26[worst_m])}</div>
     </div>
   </div>
 </div>"""
@@ -2186,7 +2186,7 @@ class TabVentas(QWidget):
             yaxis2=dict(overlaying='y', side='right', tickformat='+.0f', ticksuffix='%',
                         showgrid=False, zeroline=True,
                         zerolinecolor='rgba(255,255,255,.08)',
-                        tickfont=dict(size=10)),
+                        tickfont=dict(size=10, color='rgba(255,255,255,.35)')),
             margin=dict(l=16, r=64, t=56, b=16),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.12))
         fig_main.update_layout(**main_layout)
@@ -2255,11 +2255,17 @@ class TabVentas(QWidget):
             title=dict(text=f'Categorías mes a mes — {_Yp} vs {_Y}',
                 **core.PLOTLY_BASE['title']),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.04))
+        _y_primary = dict(ticksuffix='M', tickformat=',.1f',
+            tickfont=dict(size=9, color='rgba(255,255,255,.3)'),
+            gridcolor='rgba(255,255,255,.05)', showgrid=True, zeroline=False)
+        _y_secondary = dict(tickformat='+.0f', ticksuffix='%',
+            tickfont=dict(size=9, color='rgba(255,255,255,.25)'),
+            showgrid=False, zeroline=True,
+            zerolinecolor='rgba(255,255,255,.07)')
+        for ax in ['yaxis','yaxis3','yaxis5','yaxis7']:
+            mm_layout[ax] = _y_primary
         for ax in ['yaxis2','yaxis4','yaxis6','yaxis8']:
-            mm_layout[ax] = dict(tickformat='+.0f', ticksuffix='%',
-                tickfont=dict(size=9, color='rgba(255,255,255,.3)'),
-                showgrid=False, zeroline=True,
-                zerolinecolor='rgba(255,255,255,.07)')
+            mm_layout[ax] = _y_secondary
         fig_mm.update_layout(**mm_layout)
         fig_mm.update_annotations(font=dict(
             family="'Palatino Linotype',Georgia,serif", size=12,
@@ -2273,14 +2279,16 @@ class TabVentas(QWidget):
         cx26, cy26, acc = [], [], 0
         for m in sorted(v26.index):
             acc += v26[m]; cx26.append(MN[m]); cy26.append(acc/1e6)
+        # Año anterior: línea fina punteada sin fill — referencia visual
         fig_acum.add_trace(go.Scatter(x=cx25, y=cy25, name=f'Acum. {_Yp}',
             mode='lines+markers',
-            line=dict(color='rgba(201,169,122,.4)', width=2, dash='dot'),
-            marker=dict(size=6), fill='tozeroy', fillcolor='rgba(201,169,122,.04)'))
+            line=dict(color='rgba(201,169,122,.35)', width=1.5, dash='dot'),
+            marker=dict(size=5, color='rgba(201,169,122,.35)')))
+        # Año actual: línea sólida con fill sutil — el protagonista
         fig_acum.add_trace(go.Scatter(x=cx26, y=cy26, name=f'Acum. {_Y}',
             mode='lines+markers', line=dict(color='#C9A97A', width=2.5),
             marker=dict(size=7, color='#C9A97A'),
-            fill='tozeroy', fillcolor='rgba(201,169,122,.10)'))
+            fill='tozeroy', fillcolor='rgba(201,169,122,.08)'))
         acum_layout = {**core.PLOTLY_BASE}
         acum_layout.update(height=300,
             title=dict(text='Ventas acumuladas en el año', **core.PLOTLY_BASE['title']),
@@ -2352,7 +2360,8 @@ class TabVentas(QWidget):
             barmode='group', bargap=0.28, bargroupgap=0.06,
             yaxis=dict(**core.PLOTLY_BASE['yaxis'], tickformat='+.0f', ticksuffix='%'),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.12),
-            height=360, margin=dict(l=16, r=16, t=72, b=48))
+            height=380, margin=dict(l=16, r=16, t=72, b=48),
+            uniformtext=dict(mode='hide', minsize=9))
         fig_cat.update_layout(**cat_layout)
 
         # ── Tabla detalle por categoría ────────────────────────────────────────
@@ -2397,9 +2406,7 @@ class TabVentas(QWidget):
             f'</tr></thead><tbody>{tbl_cat_rows}</tbody></table></div>')
 
         # ── Panel diagnóstico ──────────────────────────────────────────────────
-        ult3       = sorted(common)[-3:]
-        tend3      = sum(yoy[m] for m in ult3) / max(1, len(ult3))
-        n_pos      = sum(1 for v in yoy.values() if v >= 0)
+        # ult3, tend3, n_pos ya calculados arriba para los KPIs
         desc25     = float(vd[(vd['año']==_Yp) & (vd['mes'].isin(common))]['descuento'].sum())
         desc26     = float(vd[(vd['año']==_Y)  & (vd['mes'].isin(common))]['descuento'].sum())
         dpct25     = desc25/tot25*100 if tot25 else 0
@@ -2472,9 +2479,9 @@ class TabVentas(QWidget):
                     f'<span style="min-width:32px;font-size:12px;color:rgba(255,255,255,.6)">'
                     f'{MN[am]}</span>'
                     f'<span style="font-size:11px;color:rgba(255,255,255,.4);min-width:74px">'
-                    f'2025: {core._fmt_clp(a25v)}</span>'
+                    f'{_Yp}: {core._fmt_clp(a25v)}</span>'
                     f'<span style="font-size:11px;color:{core.GOLD};min-width:74px">'
-                    f'2026: {core._fmt_clp(a26v)}</span>'
+                    f'{_Y}: {core._fmt_clp(a26v)}</span>'
                     f'<span style="font-size:12px;font-weight:600;color:{pc}">'
                     f'{"+" if pv>=0 else ""}{pv:.1f}%</span></div>')
             amex_html = (
@@ -2486,7 +2493,7 @@ class TabVentas(QWidget):
 
         # Panel RESUMEN: barras mensuales + detalle + acumuladas
         p_resumen = f"""
-        <div class="section-label">VENTAS MENSUALES — 2025 VS 2026</div>
+        <div class="section-label">VENTAS MENSUALES — {_Yp} VS {_Y}</div>
         <div class="chart-box">{_fig_html(fig_main, 380)}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
           <div>
