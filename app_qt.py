@@ -2183,7 +2183,7 @@ class TabVentas(QWidget):
             line=dict(color='rgba(242,234,224,.5)', width=1.5, dash='dot'),
             marker=dict(size=8, color=['#5CE8D4' if yoy[m]>=0 else '#F7A8D0' for m in common]),
             text=[f"{yoy[m]:+.0f}%" for m in common], textposition='top center',
-            textfont=dict(size=10, color=core.TEXT)))
+            textfont=dict(size=10, color=core._CH_FONT)))
         main_layout = {**core.PLOTLY_BASE}
         main_layout.update(barmode='group', bargap=0.25, height=380,
             title=dict(text=f'Ventas Mensuales — {_Yp} vs {_Y}', **core.PLOTLY_BASE['title']),
@@ -2252,7 +2252,7 @@ class TabVentas(QWidget):
                 line=dict(color='rgba(242,234,224,.4)', width=1.2, dash='dot'),
                 marker=dict(size=6, color=yoy_ms),
                 text=yoy_txts, textposition='top center',
-                textfont=dict(size=9, color=core.MUTED), showlegend=show_leg),
+                textfont=dict(size=9, color=core._CH_TICK), showlegend=show_leg),
                 row=row, col=col, secondary_y=True)
         mm_layout = {k: v for k, v in core.PLOTLY_BASE.items()
                      if k not in ('xaxis','yaxis','title','margin','legend')}
@@ -2352,14 +2352,14 @@ class TabVentas(QWidget):
             marker_color=[core.GOLD if d['rv'] >= 0 else '#F7A8D0' for d in cat_rows],
             opacity=0.9,
             text=[f"{d['rv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color='rgba(242,234,224,0.8)'),
+            textposition='outside', textfont=dict(size=11, color=core._CH_FONT),
             hovertemplate='%{x}<br>Ingresos: <b>%{y:+.1f}%</b><extra></extra>'))
         fig_cat.add_trace(go.Bar(name='Unidades YoY %', x=CATS_ANA,
             y=[d['qv'] for d in cat_rows],
             marker_color=['#5CE8D4' if d['qv'] >= 0 else '#9F7AEA' for d in cat_rows],
             opacity=0.85,
             text=[f"{d['qv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color='rgba(242,234,224,0.7)'),
+            textposition='outside', textfont=dict(size=11, color=core._CH_TICK),
             hovertemplate='%{x}<br>Unidades: <b>%{y:+.1f}%</b><extra></extra>'))
         fig_cat.add_hline(y=0, line_color='rgba(242,234,224,0.12)', line_width=1)
         cat_layout = {**core.PLOTLY_BASE}
@@ -3544,7 +3544,7 @@ class TabCostos(QWidget):
                 'y': [r['margen']      for r in items],
                 'text': [r['nombre']   for r in items],
                 'textposition': 'top center',
-                'textfont': {'size': 9, 'color': 'rgba(242,234,224,.5)'},
+                'textfont': {'size': 9, 'color': core._CH_TICK},
                 'marker': {'size': 10, 'color': color,
                            'line': {'color': 'rgba(242,234,224,.2)', 'width': 1}},
             })
