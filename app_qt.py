@@ -7,7 +7,7 @@ Ejecutar: python app_qt.py
 Empaquetar: pyinstaller app_qt.spec
 """
 
-import os, sys, json, tempfile, html as _html_mod
+import os, sys, json, tempfile, html as _html_mod, re as _re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QTabWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout,
     QLabel, QSlider, QPushButton, QScrollArea, QFrame,
-    QSizePolicy, QSplitter, QFileDialog, QMessageBox,
+    QSizePolicy, QSplitter, QFileDialog, QMessageBox, QInputDialog,
     QDateEdit, QSpinBox, QDoubleSpinBox, QLineEdit,
     QComboBox, QListWidget, QListWidgetItem, QStackedWidget,
     QGroupBox, QCheckBox, QButtonGroup,
@@ -1162,6 +1162,15 @@ class AppState(QObject):
             self.start_date = None
         if not self.start_date or self.start_date < datetime.now().date():
             self.start_date = datetime.now().date() + timedelta(days=1)
+        # Fechas excluidas del modelo (configurables por el usuario)
+        self.excluded_extra: set = set()
+        for s in cfg.get("excluded_extra", []):
+            try:
+                self.excluded_extra.add(datetime.strptime(s, "%Y-%m-%d"))
+            except (ValueError, TypeError):
+                pass
+        # Locales configurados: {nombre: ruta_reportes}
+        self.locales: dict = cfg.get("locales", {})
         self.history      : dict = {}
         self.model        : dict = {}
         self.df           = None
@@ -1177,11 +1186,21 @@ class AppState(QObject):
         cfg["k_factor"]        = self.k_factor
         cfg["horizon"]         = self.horizon
         cfg["start_date"]      = self.start_date.strftime("%Y-%m-%d") if self.start_date else None
+        cfg["excluded_extra"]  = sorted(d.strftime("%Y-%m-%d") for d in self.excluded_extra)
+        cfg["locales"]         = self.locales
         core.save_config(cfg)
+
+    def toggle_excluded(self, date: datetime):
+        """Agrega o quita una fecha de la lista de excluidos del modelo."""
+        if date in self.excluded_extra:
+            self.excluded_extra.discard(date)
+        else:
+            self.excluded_extra.add(date)
+        self._save_prefs()
 
     def reload(self):
         self.load_errors = []
-        self.history     = core.load_history(self.folder, self.load_errors)
+        self.history     = core.load_history(self.folder, self.load_errors, self.excluded_extra)
         self.model       = core.build_model(self.history)
         self.df          = core.build_df(self.history)
         self.name_to_sku = core.build_name_to_sku(self.history)
@@ -1213,15 +1232,16 @@ class _ReloadWorker(QThread):
     """Ejecuta state.reload() en hilo secundario para no bloquear la UI."""
     finished = pyqtSignal()
 
-    def __init__(self, folder: str):
+    def __init__(self, folder: str, excluded_extra: set | None = None):
         super().__init__()
-        self.folder = folder
-        self.result: dict = {}
-        self.errors: list = []
+        self.folder          = folder
+        self.excluded_extra  = excluded_extra or set()
+        self.result: dict    = {}
+        self.errors: list    = []
 
     def run(self):
         self.errors = []
-        history      = core.load_history(self.folder, self.errors)
+        history      = core.load_history(self.folder, self.errors, self.excluded_extra)
         model        = core.build_model(history)
         df           = core.build_df(history)
         name_to_sku  = core.build_name_to_sku(history)
@@ -1285,6 +1305,23 @@ class NavRail(QWidget):
                 "font-family:'Palatino Linotype',Georgia,serif;"
                 "font-size:15px;font-style:italic;color:#C9A97A;padding:2px 4px 10px 4px;")
         lay.addWidget(logo_lbl)
+
+        # ── Selector de local ──────────────────────────────────────────────────
+        self._add_divider(lay)
+        sec_loc = QLabel("LOCAL"); sec_loc.setObjectName("navSection")
+        lay.addWidget(sec_loc)
+        loc_row = QHBoxLayout(); loc_row.setSpacing(4)
+        self._local_combo = QComboBox()
+        self._local_combo.setFixedHeight(26)
+        self._local_combo.currentIndexChanged.connect(self._on_local_change)
+        loc_row.addWidget(self._local_combo, 1)
+        btn_add_loc = QPushButton("＋"); btn_add_loc.setObjectName("navSmallBtn")
+        btn_add_loc.setFixedSize(26, 26); btn_add_loc.setToolTip("Agregar local")
+        btn_add_loc.clicked.connect(self._on_add_local)
+        loc_row.addWidget(btn_add_loc)
+        lay.addLayout(loc_row)
+        self._rebuild_local_combo()
+        self._add_divider(lay)
 
         # Nav items — el grupo debe vivir como atributo para no ser garbage-collected
         self._btn_grp = QButtonGroup(self)
@@ -1448,7 +1485,7 @@ class NavRail(QWidget):
         self._btn_r.setEnabled(False)
         self._btn_r.setText("⏳ Cargando…")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self._worker = _ReloadWorker(self.state.folder)
+        self._worker = _ReloadWorker(self.state.folder, self.state.excluded_extra)
         self._worker.finished.connect(self._on_reload_done)
         self._worker.start()
 
@@ -1479,6 +1516,49 @@ class NavRail(QWidget):
                     "No se encontraron archivos de informe.\n"
                     "Selecciona la carpeta correcta en el panel lateral.")
 
+    # ── Locales ────────────────────────────────────────────────────────────────
+    def _rebuild_local_combo(self):
+        self._local_combo.blockSignals(True)
+        self._local_combo.clear()
+        locs = self.state.locales
+        if not locs:
+            # Si no hay locales configurados, mostrar la carpeta activa
+            name = os.path.basename(self.state.folder) or self.state.folder
+            self._local_combo.addItem(name, self.state.folder)
+        else:
+            for name, path in locs.items():
+                self._local_combo.addItem(name, path)
+            # Seleccionar el local cuya ruta coincide con la carpeta activa
+            for i in range(self._local_combo.count()):
+                if self._local_combo.itemData(i) == self.state.folder:
+                    self._local_combo.setCurrentIndex(i)
+                    break
+        self._local_combo.blockSignals(False)
+
+    def _on_local_change(self, idx: int):
+        path = self._local_combo.itemData(idx)
+        if path and path != self.state.folder:
+            self.state.folder = path
+            self.state._save_prefs()
+            self._on_reload()
+
+    def _on_add_local(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Carpeta de reportes del nuevo local", self.state.folder)
+        if not folder:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Nombre del local",
+            "Ingresa el nombre de este local\n(ej: Chicureo, La Dehesa):")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        self.state.locales[name] = folder
+        self.state.folder = folder
+        self.state._save_prefs()
+        self._rebuild_local_combo()
+        self._on_reload()
+
     def set_active(self, idx: int):
         if idx in self._btns:
             self._btns[idx].setChecked(True)
@@ -1491,10 +1571,18 @@ class NavRail(QWidget):
         else:
             ds = sorted(h)
             n_p = sum(1 for d in h if core.day_type(d) == 'Dom-Promo')
+            last = ds[-1]
+            days_old = (datetime.now() - last).days
             txt = (f"{len(h)} días  ·  {n_p} promo\n"
-                   f"{ds[0].strftime('%d/%m/%y')} - {ds[-1].strftime('%d/%m/%y')}")
-            if errs:
+                   f"{ds[0].strftime('%d/%m/%y')} - {last.strftime('%d/%m/%y')}")
+            if days_old > 2:
+                txt += f"\n⚠ Datos con {days_old}d de antigüedad"
+            elif errs:
                 txt += f"\n⚠ {len(errs)} archivo(s) con problemas"
+            # Indicar cuántos días están excluidos manualmente
+            n_excl = len(self.state.excluded_extra)
+            if n_excl:
+                txt += f"\n✕ {n_excl} día(s) excluido(s) del modelo"
             self.lbl_stats.setText(txt)
 
         vdf = self.state.ventas_df
@@ -2525,6 +2613,14 @@ class TabHistorial(QWidget):
         self.search.setFixedWidth(200)
         self.search.textChanged.connect(lambda _: self._on_date_change(self.date_combo.currentIndex()))
         top.addWidget(self.search)
+        top.addSpacing(12)
+        self._btn_excluir = QPushButton("✕ Excluir del modelo")
+        self._btn_excluir.setFixedHeight(28)
+        self._btn_excluir.setToolTip(
+            "Marca este día como atípico y lo excluye del modelo estadístico.\n"
+            "Útil para eventos especiales, feriados no capturados o días con datos incorrectos.")
+        self._btn_excluir.clicked.connect(self._on_toggle_excluded)
+        top.addWidget(self._btn_excluir)
         top.addStretch()
         lay.addLayout(top)
 
@@ -2545,11 +2641,49 @@ class TabHistorial(QWidget):
         self.date_combo.blockSignals(False)
         self._on_date_change(0)
 
+    def _on_toggle_excluded(self):
+        idx = self.date_combo.currentIndex()
+        if idx < 0: return
+        d = self.date_combo.itemData(idx)
+        if d is None: return
+        is_excl = d in self.state.excluded_extra
+        accion  = "incluir" if is_excl else "excluir"
+        reply = QMessageBox.question(
+            self, f"{'Incluir' if is_excl else 'Excluir'} día del modelo",
+            f"¿Deseas {accion} el {core.DAYS_ES[d.weekday()]} "
+            f"{d.strftime('%d/%m/%Y')} {'en' if is_excl else 'del'} modelo estadístico?\n\n"
+            f"{'Esto lo volverá a incluir en los cálculos.' if is_excl else 'No afecta datos ya guardados — solo el cálculo del pronóstico.'}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.state.toggle_excluded(d)
+        self._update_excluir_btn(d)
+        # Recargar el modelo con el nuevo conjunto de excluidos
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: (
+            setattr(self.state, 'history',
+                    core.load_history(self.state.folder, [], self.state.excluded_extra)),
+            setattr(self.state, 'model', core.build_model(self.state.history)),
+            setattr(self.state, 'df',    core.build_df(self.state.history)),
+            self.state.changed.emit()
+        ))
+
+    def _update_excluir_btn(self, d):
+        if d is None:
+            self._btn_excluir.setEnabled(False)
+            return
+        is_excl = d in self.state.excluded_extra
+        self._btn_excluir.setText("✓ Incluir en modelo" if is_excl else "✕ Excluir del modelo")
+        self._btn_excluir.setStyleSheet(
+            "color:#5CE8D4;" if is_excl else "")
+
     def _on_date_change(self, idx):
         if idx < 0 or not self.state.history:
             return
         d = self.date_combo.itemData(idx)
         if d is None: return
+        self._update_excluir_btn(d)
 
         comparar = self._chk_comparar.isChecked()
         if comparar:
@@ -2558,10 +2692,17 @@ class TabHistorial(QWidget):
             self._render_single(d)
 
     def _render_single(self, d):
-        dt  = core.day_type(d)
-        data = self.state.history.get(d, {})
-        dm   = self.state.model.get(dt, {})
-        q    = self.search.text().strip().lower()
+        dt      = core.day_type(d)
+        data    = self.state.history.get(d, {})
+        dm      = self.state.model.get(dt, {})
+        q       = self.search.text().strip().lower()
+        is_excl = d in self.state.excluded_extra
+        excl_banner = (
+            '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);'
+            'border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;'
+            'color:rgba(248,113,113,.9)">✕ Este día está <b>excluido del modelo estadístico</b>. '
+            'Los datos se muestran pero no influyen en el pronóstico.</div>'
+        ) if is_excl else ''
 
         rows = ''
         for cat in core.CAT_ORDER:
@@ -2594,6 +2735,7 @@ class TabHistorial(QWidget):
         th = ('font-size:9px;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.06);padding:6px 10px')
         body = (f'<h2>{core.DAYS_ES[d.weekday()]} {d.strftime("%d/%m/%Y")}</h2>'
                 f'<p style="color:var(--t3);margin-bottom:8px">Tipo: {dt}</p>'
+                f'{excl_banner}'
                 f'{leyenda}'
                 f'<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>'
                 f'<th style="text-align:left;{th}">Plato</th>'

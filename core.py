@@ -255,10 +255,12 @@ def parse_report(path):
         return {}
     return result
 
-def load_history(folder: str, errors: list | None = None) -> dict:
+def load_history(folder: str, errors: list | None = None,
+                 excluded_extra: set | None = None) -> dict:
     history = {}
     if not os.path.isdir(folder):
         return history
+    _excluded = EXCLUDED | (excluded_extra or set())
     for fname in sorted(os.listdir(folder)):
         if not fname.startswith('informe'):
             continue
@@ -272,7 +274,7 @@ def load_history(folder: str, errors: list | None = None) -> dict:
             if errors is not None:
                 errors.append(f"Nombre inválido: {fname}")
             continue
-        if date in EXCLUDED:
+        if date in _excluded:
             continue
         data = parse_report(os.path.join(folder, fname))
         if data:
