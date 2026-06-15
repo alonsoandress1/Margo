@@ -7,7 +7,7 @@ Ejecutar: python app_qt.py
 Empaquetar: pyinstaller app_qt.spec
 """
 
-import os, sys, json, tempfile
+import os, sys, json, tempfile, html as _html_mod
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -1114,9 +1114,12 @@ function stab(slug,btn){
 _ACCENT_DEFAULT = '#C9A97A'
 
 def _slug(text):
-    return (text.lower()
-            .replace(' ','_').replace('á','a').replace('é','e')
-            .replace('í','i').replace('ó','o').replace('ú','u').replace('ñ','n'))
+    import re as _re
+    s = (text.lower()
+         .replace(' ','_').replace('á','a').replace('é','e')
+         .replace('í','i').replace('ó','o').replace('ú','u').replace('ñ','n')
+         .replace('ü','u').replace('ç','c').replace('à','a').replace('è','e'))
+    return _re.sub(r'[^a-z0-9_]', '_', s)
 
 def _stabs(sections, active=0):
     # sections: list of (label, slug, content) or (label, slug, content, color)
@@ -1440,6 +1443,8 @@ class NavRail(QWidget):
             self._on_reload()
 
     def _on_reload(self):
+        if getattr(self, '_worker', None) and self._worker.isRunning():
+            return  # evita race condition si ya hay un reload en curso
         self._btn_r.setEnabled(False)
         self._btn_r.setText("⏳ Cargando…")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -1463,11 +1468,16 @@ class NavRail(QWidget):
         s.recetas      = w.result['recetas']
         s.changed.emit()
         self._refresh_stats()
-        if w.errors and not s.history:
-            detail = "\n".join(f"  • {e}" for e in w.errors[:8])
-            QMessageBox.warning(self, "Sin datos",
-                f"No se pudieron cargar archivos.\n\n{detail}\n\n"
-                "Selecciona la carpeta correcta en el panel lateral.")
+        if not s.history:
+            if w.errors:
+                detail = "\n".join(f"  • {e}" for e in w.errors[:8])
+                QMessageBox.warning(self, "Sin datos",
+                    f"No se pudieron cargar archivos.\n\n{detail}\n\n"
+                    "Selecciona la carpeta correcta en el panel lateral.")
+            else:
+                QMessageBox.warning(self, "Sin datos",
+                    "No se encontraron archivos de informe.\n"
+                    "Selecciona la carpeta correcta en el panel lateral.")
 
     def set_active(self, idx: int):
         if idx in self._btns:
@@ -1497,7 +1507,7 @@ class NavRail(QWidget):
             common = sorted(set(v25.index) & set(v26.index))
             if len(common) >= 3:
                 ult3 = common[-3:]
-                yoys = [(v26[m]-v25[m])/v25[m]*100 for m in ult3]
+                yoys = [(v26[m]-v25[m])/v25[m]*100 if v25[m] else 0 for m in ult3]
                 tend = sum(yoys)/len(yoys)
                 if tend >= 0:      clr, lbl = '#5CE8D4', 'Crecimiento'
                 elif tend >= -5:   clr, lbl = '#F59E0B', 'Estable'
@@ -1613,8 +1623,13 @@ class TabProduccion(QWidget):
             else:
                 QMessageBox.warning(self, "Error al guardar PDF",
                     "No se pudo generar el PDF.")
-        self.plan_view.page().pdfPrintingFinished.connect(_on_pdf_done)
-        self.plan_view.page().printToPdf(path)
+        page = self.plan_view.page()
+        try:
+            page.pdfPrintingFinished.disconnect()
+        except Exception:
+            pass
+        page.pdfPrintingFinished.connect(_on_pdf_done)
+        page.printToPdf(path)
 
     def _export_excel(self):
         if not self._day_details:
@@ -1794,12 +1809,16 @@ class TabCompras(WebTab):
             sku = s.name_to_sku.get(dname)
             if not sku or sku not in s.recetas: continue
             for ing in s.recetas[sku].get('ingredientes', []):
-                k_i = f"{ing['nombre']}||{ing.get('unidad','g')}"
+                _nombre = ing.get('nombre', '').strip()
+                if not _nombre:
+                    continue
+                k_i = f"{_nombre}||{ing.get('unidad','g')}"
                 pu  = float(ing.get('precio_unitario', 0) or 0)
                 if k_i not in _ing:
-                    _ing[k_i] = {**ing, 'total': 0.0, 'precio_unitario': pu,
+                    _ing[k_i] = {**ing, 'nombre': _nombre, 'total': 0.0,
+                                 'precio_unitario': pu,
                                  'dias_despacho': list(ing.get('dias_despacho', []))}
-                _ing[k_i]['total'] += ing['cantidad'] * total_qty
+                _ing[k_i]['total'] += float(ing.get('cantidad', 0) or 0) * total_qty
                 # Actualizar con cualquier precio no-cero encontrado
                 if pu:
                     _ing[k_i]['precio_unitario'] = pu
@@ -1887,7 +1906,7 @@ class TabCompras(WebTab):
                              '<span style="flex:1.5"></span>')
                 rows_html += (
                     f'<div class="ing-row">'
-                    f'<span class="ing-name">{d["nombre"]}</span>'
+                    f'<span class="ing-name">{_html_mod.escape(d["nombre"])}</span>'
                     f'<span class="ing-qty">{qty_txt}</span>'
                     f'<span class="ing-unit">{d.get("unidad","g")}</span>'
                     f'{prov_html}'
@@ -1985,7 +2004,7 @@ class TabVentas(QWidget):
 
         tot25 = v25[common].sum(); tot26 = v26[common].sum()
         delta = (tot26-tot25)/tot25*100 if tot25 else 0
-        yoy   = {m: (v26[m]-v25[m])/v25[m]*100 for m in common}
+        yoy   = {m: (v26[m]-v25[m])/v25[m]*100 if v25[m] else 0 for m in common}
         best_m  = max(yoy, key=yoy.get)
         worst_m = min(yoy, key=yoy.get)
         arr, acol = core._delta_arrow(delta)
@@ -2563,7 +2582,7 @@ class TabHistorial(QWidget):
                 elif diff < 0:      diff_clr, diff_icon = '#FBBF24', '↓'
                 else:               diff_clr, diff_icon = '#A5D6A7', '='
                 diff_txt = f'{diff_icon}{abs(diff):.0f}' if diff is not None else '—'
-                rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.8)">{name}</td>'
+                rows += (f'<tr><td style="padding:7px 10px;color:rgba(255,255,255,.8)">{_html_mod.escape(name)}</td>'
                          f'<td style="text-align:right;padding:7px 10px;font-family:monospace">{round(real_qty)}</td>'
                          f'<td style="text-align:right;padding:7px 10px;color:rgba(255,255,255,.4)">{fc_qty or "—"}</td>'
                          f'<td style="text-align:center;padding:7px 10px;color:{diff_clr};font-weight:600">{diff_txt}</td></tr>')
@@ -2621,7 +2640,7 @@ class TabHistorial(QWidget):
                      f'background:rgba(255,255,255,.03);font-size:9px;'
                      f'letter-spacing:.14em;color:var(--t3)">{cat.upper()}</td></tr>')
             for name, cat2 in sorted(cat_items, key=lambda x: x[0]):
-                row_cells = f'<td style="padding:6px 10px;color:rgba(255,255,255,.75);font-size:12px">{name}</td>'
+                row_cells = f'<td style="padding:6px 10px;color:rgba(255,255,255,.75);font-size:12px">{_html_mod.escape(name)}</td>'
                 for fd in fechas:
                     qty = next((v for (_, n, c), v in self.state.history.get(fd, {}).items()
                                 if n == name and c == cat2), None)
@@ -3412,9 +3431,8 @@ class MainWindow(QMainWindow):
         self.resize(1440, 900)
         self.setMinimumSize(1024, 700)
 
-        # Estado global
+        # Estado global — sin carga sincrónica: el worker arranca después de show()
         self.state = AppState()
-        self.state.reload()
 
         # ── Layout raíz: NavRail | separador | QStackedWidget ─────────────
         _root = QWidget()
@@ -3443,16 +3461,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(_root)
         self.setStyleSheet(QSS)
 
-        if self.state.load_errors and not self.state.history:
-            detail = "\n".join(f"  • {e}" for e in self.state.load_errors[:8])
-            QMessageBox.warning(self, "Sin datos",
-                "No se pudieron cargar archivos de informe.\n\n"
-                f"{detail}\n\n"
-                "Selecciona la carpeta correcta en el panel lateral.")
-        elif not self.state.history:
-            QMessageBox.warning(self, "Sin datos",
-                "No se encontraron archivos de informe.\n"
-                "Selecciona la carpeta correcta en el panel lateral.")
+        # Arrancar carga asíncrona después de mostrar la UI (evita congelamiento inicial)
+        QTimer.singleShot(100, self.nav._on_reload)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

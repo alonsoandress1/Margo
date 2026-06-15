@@ -87,6 +87,7 @@ PLOTLY_BASE = dict(
 # ── Utility helpers ────────────────────────────────────────────────────────────
 
 def _fmt_clp(v):
+    if v is None or v != v: return "$0K"   # None o NaN
     if v >= 1e9: return f"${v/1e9:.2f}MM"
     if v >= 1e6: return f"${v/1e6:.1f}M"
     return f"${v/1e3:.0f}K"
@@ -292,7 +293,7 @@ def build_model(history):
         for dish, vals in dishes.items():
             n    = len(vals)
             mean = sum(vals) / n
-            std  = (sum((v - mean)**2 for v in vals) / n)**0.5 if n > 1 else None
+            std  = (sum((v - mean)**2 for v in vals) / (n - 1))**0.5 if n > 1 else None
             model[dt][dish] = {'mean': mean, 'std': std, 'n': n}
     return model
 
