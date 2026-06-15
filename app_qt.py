@@ -11,6 +11,10 @@ import os, sys, json, tempfile, html as _html_mod, re as _re
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# Suprimir errores GPU de Chromium (GLES3→GLES2 fallback benign en la mayoría de PCs Windows)
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-logging --log-level=3")
+os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots as _msp
