@@ -1170,9 +1170,10 @@ class AppState(QObject):
 
     def _save_prefs(self):
         cfg = core.load_config()
-        cfg["k_factor"]   = self.k_factor
-        cfg["horizon"]    = self.horizon
-        cfg["start_date"] = self.start_date.strftime("%Y-%m-%d") if self.start_date else None
+        cfg["reportes_folder"] = self.folder
+        cfg["k_factor"]        = self.k_factor
+        cfg["horizon"]         = self.horizon
+        cfg["start_date"]      = self.start_date.strftime("%Y-%m-%d") if self.start_date else None
         core.save_config(cfg)
 
     def reload(self):
@@ -1381,8 +1382,7 @@ class NavRail(QWidget):
             self, "Carpeta de reportes", self.state.folder)
         if folder:
             self.state.folder = folder
-            cfg = core.load_config(); cfg["reportes_folder"] = folder
-            core.save_config(cfg)
+            self.state._save_prefs()
             self.lbl_folder.setText(os.path.basename(folder) or folder)
             self._on_reload()
 
@@ -2090,10 +2090,13 @@ class TabVentas(WebTab):
         best_cat   = max(cat_rows, key=lambda x: x['rv'])
         proy_anual = None
         if len(v26) >= 3:
-            tot26_all = float(v26.sum())
-            mp        = tot26_all / len(v26)
-            mr        = 12 - int(max(v26.index))
-            proy_anual = tot26_all + mp * mr
+            tot26_all  = float(v26.sum())
+            mes_min    = int(min(v26.index))
+            mes_max    = int(max(v26.index))
+            meses_trans = mes_max - mes_min + 1   # meses reales transcurridos (no solo archivos presentes)
+            mp          = tot26_all / meses_trans
+            mr          = 12 - mes_max
+            proy_anual  = tot26_all + mp * mr
 
         def _dc(title, body_txt, bc):
             return (f'<div class="diag-card" style="border-color:{bc}">'
@@ -2826,10 +2829,16 @@ class TabRecetas(QWidget):
             self._lbl_status.setText(
                 f'<span style="color:#A5D6A7">✓ {len(ings)} ingrediente{"s" if len(ings)!=1 else ""} configurado{"s" if len(ings)!=1 else ""}</span>')
             self._btn_del.setVisible(True)
-            # Refresh list badge
             self._update_dish_item_badge(self._current_sku, True)
-            # Refresh category stats
             self._reload()
+            # Si el filtro activo excluye el plato guardado, resetear editor
+            if self.dish_list.currentRow() < 0:
+                self._current_sku = None
+                self._current_name = None
+                self._set_editor_enabled(False)
+                self._lbl_title.setText("Selecciona un plato")
+                self._lbl_sku.setText("")
+                self._lbl_status.setText("")
         except Exception as e:
             self._lbl_msg.setText(f'<span style="color:#F87171">Error: {e}</span>')
 
@@ -2889,7 +2898,7 @@ class TabCostos(QWidget):
         if not s.recetas:
             self._web.render(self._html_empty())
             return
-        rows = core.calc_costos(s._recetas_raw, s.model)
+        rows = core.calc_costos(s._recetas_raw, s.model, s.df)
         self._web.render(self._html(rows))
 
     @staticmethod

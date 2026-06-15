@@ -685,18 +685,27 @@ def save_recetas(raw: dict):
     with open(RECETAS_PATH, 'w', encoding='utf-8') as f:
         json.dump(raw, f, ensure_ascii=False, indent=2)
 
-def calc_costos(recetas_raw: dict, model: dict) -> list[dict]:
-    """Calcula food cost por plato. Retorna lista de dicts ordenada por categoría."""
-    # Popularidad: promedio de unidades/día ponderado por tipos de día (excl. Dom-Promo)
-    pop: dict[str, float] = {}
-    counts: dict[str, int] = {}
-    for dt, dishes in model.items():
-        if dt == 'Dom-Promo':
-            continue
-        for (name, cat), stats in dishes.items():
-            pop[name]    = pop.get(name, 0) + stats['mean']
-            counts[name] = counts.get(name, 0) + 1
-    pop_avg = {n: v / counts[n] for n, v in pop.items() if counts.get(n, 0) > 0}
+def calc_costos(recetas_raw: dict, model: dict, df=None) -> list[dict]:
+    """Calcula food cost por plato. Retorna lista de dicts ordenada por nombre."""
+    # Popularidad: media real de unidades/día desde el historial completo.
+    # Usando df evita el sesgo de acumular medias por tipo de día (algunos platos
+    # solo aparecen en ciertos días, distorsionando la comparación entre platos).
+    pop_avg: dict[str, float] = {}
+    if df is not None and not df.empty:
+        grp = df.groupby('dish')['quantity'].mean()
+        pop_avg = grp.to_dict()
+    else:
+        # Fallback: media ponderada por N observaciones históricas de cada tipo de día
+        pop_sum: dict[str, float] = {}
+        pop_n:   dict[str, int]   = {}
+        for dt, dishes in model.items():
+            if dt == 'Dom-Promo':
+                continue
+            for (name, cat), stats in dishes.items():
+                n = stats.get('n', 1)
+                pop_sum[name] = pop_sum.get(name, 0) + stats['mean'] * n
+                pop_n[name]   = pop_n.get(name, 0) + n
+        pop_avg = {n: pop_sum[n] / pop_n[n] for n in pop_sum if pop_n.get(n, 0) > 0}
 
     rows = []
     for sku, rec in recetas_raw.items():
