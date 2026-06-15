@@ -1157,7 +1157,7 @@ class AppState(QObject):
             self.start_date = datetime.strptime(_saved_date, "%Y-%m-%d").date() if _saved_date else None
         except (ValueError, TypeError):
             self.start_date = None
-        if not self.start_date or self.start_date <= datetime.now().date():
+        if not self.start_date or self.start_date < datetime.now().date():
             self.start_date = datetime.now().date() + timedelta(days=1)
         self.history      : dict = {}
         self.model        : dict = {}
@@ -1172,20 +1172,17 @@ class AppState(QObject):
         cfg = core.load_config()
         cfg["k_factor"]   = self.k_factor
         cfg["horizon"]    = self.horizon
-        cfg["start_date"] = self.start_date.strftime("%Y-%m-%d")
+        cfg["start_date"] = self.start_date.strftime("%Y-%m-%d") if self.start_date else None
         core.save_config(cfg)
 
     def reload(self):
         self.load_errors = []
-        try:
-            self.history     = core.load_history(self.folder, self.load_errors)
-            self.model       = core.build_model(self.history)
-            self.df          = core.build_df(self.history)
-            self.name_to_sku = core.build_name_to_sku(self.history)
-            self.ventas_df   = core.load_ventas_df()
-            self._recetas_raw, self.recetas = core.load_recetas()
-        except Exception as e:
-            self.load_errors.append(f"Error crítico al cargar datos: {e}")
+        self.history     = core.load_history(self.folder, self.load_errors)
+        self.model       = core.build_model(self.history)
+        self.df          = core.build_df(self.history)
+        self.name_to_sku = core.build_name_to_sku(self.history)
+        self.ventas_df   = core.load_ventas_df()
+        self._recetas_raw, self.recetas = core.load_recetas()
         self.changed.emit()
 
 # ── Web view base ──────────────────────────────────────────────────────────────
@@ -1654,8 +1651,8 @@ class TabCompras(WebTab):
                     _ing[k_i] = {**ing, 'total': 0.0, 'precio_unitario': pu,
                                  'dias_despacho': list(ing.get('dias_despacho', []))}
                 _ing[k_i]['total'] += ing['cantidad'] * total_qty
-                # Si el registro aún no tiene precio pero este ingrediente sí, actualizarlo
-                if not _ing[k_i]['precio_unitario'] and pu:
+                # Actualizar con cualquier precio no-cero encontrado
+                if pu:
                     _ing[k_i]['precio_unitario'] = pu
                 dd = ing.get('dias_despacho', [])
                 _ing[k_i]['dias_despacho'] = sorted(
