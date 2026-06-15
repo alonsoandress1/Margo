@@ -1140,10 +1140,17 @@ class AppState(QObject):
 
     def __init__(self):
         super().__init__()
+        cfg = core.load_config()
         self.folder       = core.get_folder()
-        self.k_factor     = core.K_SAFETY
-        self.start_date   = datetime.now().date() + timedelta(days=1)
-        self.horizon      = core.DEFAULT_HORIZON
+        self.k_factor     = float(cfg.get("k_factor", core.K_SAFETY))
+        self.horizon      = int(cfg.get("horizon", core.DEFAULT_HORIZON))
+        _saved_date       = cfg.get("start_date")
+        try:
+            self.start_date = datetime.strptime(_saved_date, "%Y-%m-%d").date() if _saved_date else None
+        except (ValueError, TypeError):
+            self.start_date = None
+        if not self.start_date or self.start_date <= datetime.now().date():
+            self.start_date = datetime.now().date() + timedelta(days=1)
         self.history      : dict = {}
         self.model        : dict = {}
         self.df           = None
@@ -1152,6 +1159,13 @@ class AppState(QObject):
         self._recetas_raw : dict = {}
         self.recetas      : dict = {}
         self.load_errors  : list = []
+
+    def _save_prefs(self):
+        cfg = core.load_config()
+        cfg["k_factor"]   = self.k_factor
+        cfg["horizon"]    = self.horizon
+        cfg["start_date"] = self.start_date.strftime("%Y-%m-%d")
+        core.save_config(cfg)
 
     def reload(self):
         self.load_errors = []
@@ -1343,14 +1357,17 @@ class NavRail(QWidget):
     def _on_k(self, v):
         self.state.k_factor = v / 10
         self.k_val_lbl.setText(f"{self.state.k_factor:.1f}σ")
+        self.state._save_prefs()
         self.state.changed.emit()
 
     def _on_date(self, qd):
         self.state.start_date = qd.toPyDate()
+        self.state._save_prefs()
         self.state.changed.emit()
 
     def _on_horizon(self, v):
         self.state.horizon = v
+        self.state._save_prefs()
         self.state.changed.emit()
 
     def _on_folder(self):
