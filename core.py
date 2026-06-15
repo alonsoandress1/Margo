@@ -559,7 +559,7 @@ def chart_heatmap(df, top_n=14):
         showscale=True, text=np.round(pivot.values, 1),
         texttemplate='<b>%{text}</b>', textfont=dict(size=10, color='rgba(242,234,224,0.7)'),
         colorbar=dict(bgcolor='rgba(0,0,0,0)', bordercolor=BORDER,
-                      tickfont=dict(color=MUTED, size=10), thickness=12, len=0.8)))
+                      tickfont=dict(color=_CH_TICK, size=10), thickness=12, len=0.8)))
     layout = {**PLOTLY_BASE}
     layout.update(title=dict(text='Patrón de Demanda por Día', **PLOTLY_BASE['title']),
         height=340, xaxis={**PLOTLY_BASE['xaxis'], 'tickangle': -40})
@@ -675,7 +675,7 @@ def chart_promo_impact(model, top_n=15):
         if nv > 0:
             fig.add_annotation(x=max(pv, nv), y=name, text=f'  {fct:.1f}×',
                 showarrow=False, xanchor='left',
-                font=dict(size=10, color=GOLD if fct > 1.5 else MUTED))
+                font=dict(size=10, color=GOLD if fct > 1.5 else _CH_AXIS))
     layout = {**PLOTLY_BASE}
     layout.update(barmode='overlay',
         title=dict(text='Impacto AMEX — Fondos', **PLOTLY_BASE['title']),

@@ -2319,7 +2319,7 @@ class TabVentas(QWidget):
             textinfo='none',
             hovertemplate=f'%{{label}}<br>{_Y}: <b>%{{value:,.0f}}</b> (%{{percent}})<extra></extra>'))
         fig_mix.add_annotation(text=str(_Yp), x=0.23, y=0.5, showarrow=False,
-            font=dict(size=13, color=core.MUTED))
+            font=dict(size=13, color=core._CH_TICK))
         fig_mix.add_annotation(text=str(_Y),  x=0.77, y=0.5, showarrow=False,
             font=dict(size=13, color=core.GOLD))
         mix_layout = {**core.PLOTLY_BASE}
@@ -2352,14 +2352,14 @@ class TabVentas(QWidget):
             marker_color=[core.GOLD if d['rv'] >= 0 else '#F7A8D0' for d in cat_rows],
             opacity=0.9,
             text=[f"{d['rv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color=core._CH_FONT),
+            textposition='outside', textfont=dict(size=11, color=core._CH_FONT), outsidetextfont=dict(size=11, color=core._CH_FONT),
             hovertemplate='%{x}<br>Ingresos: <b>%{y:+.1f}%</b><extra></extra>'))
         fig_cat.add_trace(go.Bar(name='Unidades YoY %', x=CATS_ANA,
             y=[d['qv'] for d in cat_rows],
             marker_color=['#5CE8D4' if d['qv'] >= 0 else '#9F7AEA' for d in cat_rows],
             opacity=0.85,
             text=[f"{d['qv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color=core._CH_TICK),
+            textposition='outside', textfont=dict(size=11, color=core._CH_TICK), outsidetextfont=dict(size=11, color=core._CH_TICK),
             hovertemplate='%{x}<br>Unidades: <b>%{y:+.1f}%</b><extra></extra>'))
         fig_cat.add_hline(y=0, line_color='rgba(242,234,224,0.12)', line_width=1)
         cat_layout = {**core.PLOTLY_BASE}
@@ -3564,7 +3564,7 @@ class TabCostos(QWidget):
                       'gridcolor': 'rgba(242,234,224,.06)',
                       'zerolinecolor': 'rgba(242,234,224,.15)'},
             'legend': {'bgcolor': 'rgba(0,0,0,0)',
-                       'font': {'size': 11, 'color': core.TEXT}},
+                       'font': {'size': 11, 'color': core._CH_FONT}},
             'shapes': [
                 {'type': 'line', 'x0': med_pop, 'x1': med_pop, 'y0': 0, 'y1': 1,
                  'xref': 'x', 'yref': 'paper',
