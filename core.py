@@ -554,17 +554,22 @@ def chart_heatmap(df, top_n=14):
              .groupby(['weekday','dish'])['quantity'].mean().unstack(fill_value=0))
     order = [d for d in DAYS_ES + ['Dom-Promo'] if d in pivot.index]
     pivot = pivot.reindex(order)[top_dishes]
+    full_names = list(pivot.columns)
+    short_names = [n[:22] for n in full_names]  # etiqueta eje X truncada
     fig = go.Figure(go.Heatmap(
-        z=pivot.values, x=[n[:20] for n in pivot.columns], y=pivot.index,
+        z=pivot.values,
+        x=short_names, y=pivot.index,
+        customdata=[[n]*len(pivot.index) for n in full_names],  # nombre completo en hover
         colorscale=[[0,'#0B1428'],[0.3,'#3A2A00'],[0.65,'#8B6B1A'],[1,'#C9A97A']],
-        hovertemplate='<b>%{x}</b><br>%{y}: <b>%{z:.1f}</b> uds<extra></extra>',
+        hovertemplate='<b>%{customdata}</b><br>%{y}: <b>%{z:.1f}</b> uds<extra></extra>',
         showscale=True, text=np.round(pivot.values, 1),
-        texttemplate='<b>%{text}</b>', textfont=dict(size=10, color=_CH_TICK),
+        texttemplate='<b>%{text}</b>', textfont=dict(size=9, color=_CH_TICK),
         colorbar=dict(bgcolor='rgba(0,0,0,0)', bordercolor=BORDER,
                       tickfont=dict(color=_CH_TICK, size=10), thickness=12, len=0.8)))
     layout = {**PLOTLY_BASE}
-    layout.update(title=dict(text='Patrón de Demanda por Día', **PLOTLY_BASE['title']),
-        height=340, xaxis={**PLOTLY_BASE['xaxis'], 'tickangle': -40})
+    layout.update(title=dict(text='Patrón de Demanda por Día — Fondos', **PLOTLY_BASE['title']),
+        height=360, margin=dict(l=16, r=16, t=48, b=90),
+        xaxis={**PLOTLY_BASE['xaxis'], 'tickangle': -45, 'automargin': True})
     fig.update_layout(**layout)
     return _theme(fig)
 
@@ -578,13 +583,18 @@ def chart_trend(df, dishes):
         if data.empty: continue
         data['roll'] = data['quantity'].rolling(7, min_periods=1).mean()
         c = colors[i % len(colors)]
+        # Puntos crudos: en hover unificado muestran dato real del día
         fig.add_trace(go.Scatter(x=data['date'], y=data['quantity'],
             mode='markers', marker=dict(size=5, color=c, opacity=0.35),
-            showlegend=False, name=dish))
+            showlegend=False, name=dish,
+            hovertemplate=f'<b>{dish}</b><br>Real: %{{y:.0f}} uds<extra></extra>'))
+        # Línea media móvil 7 días
         fig.add_trace(go.Scatter(x=data['date'], y=data['roll'], name=dish,
-            mode='lines', line=dict(width=2.5, color=c)))
+            mode='lines', line=dict(width=2.5, color=c),
+            hovertemplate=f'<b>{dish}</b><br>Media 7d: %{{y:.1f}} uds<extra></extra>'))
     layout = {**PLOTLY_BASE}
-    layout.update(title=dict(text='Tendencia — Media 7 días', **PLOTLY_BASE['title']),
+    layout.update(
+        title=dict(text='Tendencia Fondos — Media móvil 7 días', **PLOTLY_BASE['title']),
         height=420, hovermode='x unified',
         xaxis=dict(**PLOTLY_BASE['xaxis'], tickformat='%d/%m'),
         yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades'))
@@ -698,21 +708,39 @@ def chart_promo_impact(model, top_n=15):
 
 def chart_weekly_total(df):
     if df.empty: return go.Figure()
-    weekly = (df.groupby([pd.Grouper(key='date', freq='W'), 'is_promo'])['quantity']
-              .sum().reset_index())
-    weekly.columns = ['week','is_promo','total']
+    # Total de producción por semana (todos los días)
+    weekly_tot = (df.groupby(pd.Grouper(key='date', freq='W'))['quantity']
+                  .sum().reset_index())
+    weekly_tot.columns = ['week', 'total']
+    # Flag: ¿tuvo esa semana algún domingo-promo?
+    weekly_promo = (df.groupby(pd.Grouper(key='date', freq='W'))['is_promo']
+                    .any().reset_index())
+    weekly_promo.columns = ['week', 'has_promo']
+    weekly = weekly_tot.merge(weekly_promo, on='week')
+
+    normal = weekly[~weekly['has_promo']]
+    promo  = weekly[ weekly['has_promo']]
+
     fig = go.Figure()
-    for is_p, clr, name in [(False,_CH_AXIS,'Normal'),(True,GOLD,'Con Dom-Promo')]:
-        d = weekly[weekly['is_promo'] == is_p]
-        if not d.empty:
-            fig.add_trace(go.Scatter(x=d['week'], y=d['total'], name=name,
-                mode='lines+markers', line=dict(color=clr, width=2.5),
-                marker=dict(size=7, color=clr)))
+    if not normal.empty:
+        fig.add_trace(go.Scatter(x=normal['week'], y=normal['total'],
+            name='Semana normal', mode='lines+markers',
+            line=dict(color='rgba(130,105,65,.65)', width=2),
+            marker=dict(size=7, color='rgba(130,105,65,.65)'),
+            hovertemplate='Sem. %{x|%d/%m}: <b>%{y:.0f}</b> uds<extra>Normal</extra>'))
+    if not promo.empty:
+        fig.add_trace(go.Scatter(x=promo['week'], y=promo['total'],
+            name='Semana con Dom-Promo ⭐', mode='lines+markers',
+            line=dict(color=GOLD, width=2.5),
+            marker=dict(size=9, color=GOLD, symbol='star'),
+            hovertemplate='Sem. %{x|%d/%m}: <b>%{y:.0f}</b> uds<extra>Dom-Promo ⭐</extra>'))
     layout = {**PLOTLY_BASE}
-    layout.update(title=dict(text='Volumen Semanal', **PLOTLY_BASE['title']),
+    layout.update(
+        title=dict(text='Volumen Semanal Total — producción acumulada por semana',
+                   **PLOTLY_BASE['title']),
         height=340, hovermode='x unified',
         xaxis=dict(**PLOTLY_BASE['xaxis'], tickformat='%d/%m'),
-        yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades'))
+        yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades totales'))
     fig.update_layout(**layout)
     return _theme(fig)
 
