@@ -3463,7 +3463,7 @@ class TabCostos(QWidget):
         <script src="{_PLOTLY_FILE}"></script>
         <style>
           * {{ box-sizing:border-box; margin:0; padding:0 }}
-          body {{ background:#09080C; color:#F2EAE0; font-family:'Segoe UI',sans-serif;
+          body {{ background:#09080C; color:rgba(201,169,122,.88); font-family:'Segoe UI',sans-serif;
                   padding:24px; overflow-x:hidden }}
           h2 {{ font-family:'Palatino Linotype',Georgia,serif; color:#C9A97A;
                 font-size:18px; font-weight:400; letter-spacing:.04em; margin-bottom:16px }}

@@ -92,7 +92,7 @@ PLOTLY_BASE = dict(
     yaxis=dict(gridcolor="rgba(250,235,200,0.04)", linecolor="rgba(250,235,200,0.07)",
                zerolinecolor="rgba(250,235,200,0.04)", tickfont=dict(size=11, color=_CH_TICK)),
     hoverlabel=dict(bgcolor=BG_3, bordercolor="rgba(201,169,122,0.45)",
-                    font=dict(family=_SANS, color=TEXT, size=12)),
+                    font=dict(family=_SANS, color=_CH_FONT, size=12)),
     title=dict(font=dict(family=_SERIF, size=20, color=_CH_TITLE),
                x=0, xref="paper", pad=dict(b=12)),
     legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=BORDER,
@@ -103,16 +103,17 @@ PLOTLY_BASE = dict(
 def _theme(fig: "go.Figure") -> "go.Figure":
     """Fuerza paleta gold en TODOS los elementos de texto de Plotly.
     Plotly JS 3.x no hereda layout.font.color a axis-title/tick/legend."""
+    # Solo impone COLOR — no sobreescribe tamaños específicos por chart (ej: fig_mm size=9)
     fig.update_xaxes(
-        title_font=dict(color=_CH_AXIS, size=11, family=_SANS),
-        tickfont=dict(color=_CH_TICK, size=11),
+        title_font_color=_CH_AXIS,
+        tickfont_color=_CH_TICK,
     )
     fig.update_yaxes(
-        title_font=dict(color=_CH_AXIS, size=11, family=_SANS),
-        tickfont=dict(color=_CH_TICK, size=11),
+        title_font_color=_CH_AXIS,
+        tickfont_color=_CH_TICK,
     )
     fig.update_layout(
-        font=dict(color=_CH_FONT, family=_SANS, size=12),
+        font_color=_CH_FONT,
         legend_font_color=_CH_LEGEND,
     )
     return fig
@@ -455,7 +456,7 @@ def _cov_badge(pct):
 
 def prod_table_html(items, dish_stats, color, dish_coverage=None):
     if not items:
-        return '<p style="color:rgba(242,234,224,.32);padding:20px">Sin datos para esta categoría.</p>'
+        return f'<p style="color:{_CH_AXIS};padding:20px">Sin datos para esta categoría.</p>'
     max_v = max(items.values())
     rows  = ''
     for i, ((name, cat), qty) in enumerate(sorted(items.items(), key=lambda x: -x[1])):
@@ -557,7 +558,7 @@ def chart_heatmap(df, top_n=14):
         colorscale=[[0,'#0B1428'],[0.3,'#3A2A00'],[0.65,'#8B6B1A'],[1,'#C9A97A']],
         hovertemplate='<b>%{x}</b><br>%{y}: <b>%{z:.1f}</b> uds<extra></extra>',
         showscale=True, text=np.round(pivot.values, 1),
-        texttemplate='<b>%{text}</b>', textfont=dict(size=10, color='rgba(242,234,224,0.7)'),
+        texttemplate='<b>%{text}</b>', textfont=dict(size=10, color=_CH_TICK),
         colorbar=dict(bgcolor='rgba(0,0,0,0)', bordercolor=BORDER,
                       tickfont=dict(color=_CH_TICK, size=10), thickness=12, len=0.8)))
     layout = {**PLOTLY_BASE}
@@ -691,7 +692,7 @@ def chart_weekly_total(df):
               .sum().reset_index())
     weekly.columns = ['week','is_promo','total']
     fig = go.Figure()
-    for is_p, clr, name in [(False,'rgba(242,234,224,.32)','Normal'),(True,GOLD,'Con Dom-Promo')]:
+    for is_p, clr, name in [(False,_CH_AXIS,'Normal'),(True,GOLD,'Con Dom-Promo')]:
         d = weekly[weekly['is_promo'] == is_p]
         if not d.empty:
             fig.add_trace(go.Scatter(x=d['week'], y=d['total'], name=name,
