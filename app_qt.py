@@ -2248,11 +2248,11 @@ class TabVentas(QWidget):
                     yoy_ms.append('#5CE8D4' if pv>=0 else '#F7A8D0')
                     yoy_txts.append(f'{pv:+.0f}%')
             fig_mm.add_trace(go.Scatter(name='YoY%', x=yoy_xs, y=yoy_ys,
-                mode='lines+markers+text',
+                mode='lines+markers',
                 line=dict(color='rgba(201,169,122,.38)', width=1.2, dash='dot'),
                 marker=dict(size=6, color=yoy_ms),
-                text=yoy_txts, textposition='top center',
-                textfont=dict(size=9, color=core._CH_TICK), showlegend=show_leg),
+                hovertemplate='YoY: <b>%{y:+.1f}%</b><extra></extra>',
+                showlegend=show_leg),
                 row=row, col=col, secondary_y=True)
         mm_layout = {k: v for k, v in core.PLOTLY_BASE.items()
                      if k not in ('xaxis','yaxis','title','margin','legend')}
@@ -2347,23 +2347,23 @@ class TabVentas(QWidget):
                              'q25':q25,'q26':q26,'qv':qv,'a25':a25,'a26':a26,'av':av})
 
         fig_cat = go.Figure()
-        fig_cat.add_trace(go.Bar(name='Ingresos YoY %', x=CATS_ANA,
+        fig_cat.add_trace(go.Bar(name='Ingresos', x=CATS_ANA,
             y=[d['rv'] for d in cat_rows],
             marker_color=[core.GOLD if d['rv'] >= 0 else '#F7A8D0' for d in cat_rows],
             opacity=0.9, cliponaxis=False,
             text=[f"{d['rv']:+.1f}%" for d in cat_rows],
             textposition='outside',
-            textfont=dict(size=10, color=core._CH_FONT),
-            outsidetextfont=dict(size=10, color=core._CH_FONT),
+            textfont=dict(size=11, color=core._CH_FONT),
+            outsidetextfont=dict(size=11, color=core._CH_FONT),
             hovertemplate='%{x}<br>Ingresos: <b>%{y:+.1f}%</b><extra></extra>'))
-        fig_cat.add_trace(go.Bar(name='Unidades YoY %', x=CATS_ANA,
+        fig_cat.add_trace(go.Bar(name='Unidades', x=CATS_ANA,
             y=[d['qv'] for d in cat_rows],
             marker_color=['#5CE8D4' if d['qv'] >= 0 else '#9F7AEA' for d in cat_rows],
             opacity=0.85, cliponaxis=False,
             text=[f"{d['qv']:+.1f}%" for d in cat_rows],
             textposition='outside',
-            textfont=dict(size=10, color=core._CH_TICK),
-            outsidetextfont=dict(size=10, color=core._CH_TICK),
+            textfont=dict(size=11, color=core._CH_TICK),
+            outsidetextfont=dict(size=11, color=core._CH_TICK),
             hovertemplate='%{x}<br>Unidades: <b>%{y:+.1f}%</b><extra></extra>'))
         fig_cat.add_hline(y=0, line_color='rgba(201,169,122,0.15)', line_width=1)
         cat_layout = {**core.PLOTLY_BASE}
@@ -2374,8 +2374,7 @@ class TabVentas(QWidget):
             yaxis=dict(**core.PLOTLY_BASE['yaxis'], tickformat='+.0f', ticksuffix='%',
                        automargin=True),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.12),
-            height=420, margin=dict(l=16, r=16, t=72, b=56),
-            uniformtext=dict(mode='show', minsize=8))
+            height=440, margin=dict(l=16, r=16, t=72, b=64))
         fig_cat.update_layout(**cat_layout)
         core._theme(fig_cat)
 
