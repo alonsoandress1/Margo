@@ -550,52 +550,69 @@ def chart_heatmap(df, top_n=14):
     fondo_df = df[df['category'] == 'Fondo']
     top_dishes = (fondo_df.groupby('dish')['quantity'].mean()
                   .sort_values(ascending=False).head(top_n).index.tolist())
+    # Fix #1: usar day_type (separa Dom-Promo de Domingo normal)
     pivot = (fondo_df[fondo_df['dish'].isin(top_dishes)]
-             .groupby(['weekday','dish'])['quantity'].mean().unstack(fill_value=0))
+             .groupby(['day_type','dish'])['quantity'].mean().unstack(fill_value=0))
     order = [d for d in DAYS_ES + ['Dom-Promo'] if d in pivot.index]
-    pivot = pivot.reindex(order)[top_dishes]
+    pivot = pivot.reindex(order).reindex(columns=top_dishes, fill_value=0)
+    n_rows, n_cols = pivot.shape
     full_names = list(pivot.columns)
-    short_names = [n[:22] for n in full_names]  # etiqueta eje X truncada
+    short_names = [n[:22] for n in full_names]
+    # Fix #2: customdata con forma correcta (n_rows, n_cols) para que hover use col correcta
+    customdata = [[full_names[xi] for xi in range(n_cols)] for _ in range(n_rows)]
+    z_vals = pivot.values
+    z_max  = z_vals.max() if z_vals.max() > 0 else 1
+    # Fix #3: texto blanco en todas las celdas — legible sobre toda la escala oscura-dorada
     fig = go.Figure(go.Heatmap(
-        z=pivot.values,
-        x=short_names, y=pivot.index,
-        customdata=[[n]*len(pivot.index) for n in full_names],  # nombre completo en hover
+        z=z_vals, x=short_names, y=list(pivot.index),
+        customdata=customdata,
         colorscale=[[0,'#0B1428'],[0.3,'#3A2A00'],[0.65,'#8B6B1A'],[1,'#C9A97A']],
         hovertemplate='<b>%{customdata}</b><br>%{y}: <b>%{z:.1f}</b> uds<extra></extra>',
-        showscale=True, text=np.round(pivot.values, 1),
-        texttemplate='<b>%{text}</b>', textfont=dict(size=9, color=_CH_TICK),
+        showscale=True, text=np.where(z_vals > 0, np.round(z_vals, 1), ''),
+        texttemplate='%{text}', textfont=dict(size=9, color='rgba(242,234,224,0.88)'),
         colorbar=dict(bgcolor='rgba(0,0,0,0)', bordercolor=BORDER,
                       tickfont=dict(color=_CH_TICK, size=10), thickness=12, len=0.8)))
     layout = {**PLOTLY_BASE}
-    layout.update(title=dict(text='Patrón de Demanda por Día — Fondos', **PLOTLY_BASE['title']),
-        height=360, margin=dict(l=16, r=16, t=48, b=90),
+    layout.update(title=dict(text='Patrón de Demanda por Tipo de Día — Fondos', **PLOTLY_BASE['title']),
+        height=380, margin=dict(l=16, r=16, t=48, b=100),
         xaxis={**PLOTLY_BASE['xaxis'], 'tickangle': -45, 'automargin': True})
     fig.update_layout(**layout)
     return _theme(fig)
 
 def chart_trend(df, dishes):
     if df.empty or not dishes: return go.Figure()
-    colors = [GOLD,'#4F96FF','#2DD4BF','#F472B6','#A78BFA','#E8C878','#93C5FD']
+    # Fix #5: paleta sin dos azules similares (#93C5FD reemplazado por naranja cálido)
+    colors = [GOLD, '#2DD4BF', '#F472B6', '#A78BFA', '#4F96FF', '#E8C878', '#F97316']
     fig = go.Figure()
+    # Fix #8: franjas de fin de semana como contexto de variabilidad
+    if not df.empty:
+        dates = pd.date_range(df['date'].min(), df['date'].max(), freq='D')
+        for d in dates:
+            if d.weekday() in (5, 6):  # sábado=5, domingo=6
+                fig.add_vrect(
+                    x0=d - pd.Timedelta(hours=12),
+                    x1=d + pd.Timedelta(hours=12),
+                    fillcolor='rgba(201,169,122,0.06)',
+                    line_width=0, layer='below')
     for i, dish in enumerate(dishes):
         data = (df[df['dish'] == dish].groupby('date')['quantity']
                 .sum().reset_index().sort_values('date'))
         if data.empty: continue
         data['roll'] = data['quantity'].rolling(7, min_periods=1).mean()
         c = colors[i % len(colors)]
-        # Puntos crudos: en hover unificado muestran dato real del día
+        # Fix #4: puntos crudos con hoverinfo='skip' — 16 → 8 entradas en hover unificado
         fig.add_trace(go.Scatter(x=data['date'], y=data['quantity'],
-            mode='markers', marker=dict(size=5, color=c, opacity=0.35),
-            showlegend=False, name=dish,
-            hovertemplate=f'<b>{dish}</b><br>Real: %{{y:.0f}} uds<extra></extra>'))
-        # Línea media móvil 7 días
+            mode='markers', marker=dict(size=5, color=c, opacity=0.30),
+            showlegend=False, name=dish, hoverinfo='skip'))
+        # Línea media móvil: única en hover
         fig.add_trace(go.Scatter(x=data['date'], y=data['roll'], name=dish,
             mode='lines', line=dict(width=2.5, color=c),
             hovertemplate=f'<b>{dish}</b><br>Media 7d: %{{y:.1f}} uds<extra></extra>'))
     layout = {**PLOTLY_BASE}
     layout.update(
-        title=dict(text='Tendencia Fondos — Media móvil 7 días', **PLOTLY_BASE['title']),
-        height=420, hovermode='x unified',
+        title=dict(text='Tendencia Fondos — Media móvil 7 días · sombreado = fin de semana',
+                   **PLOTLY_BASE['title']),
+        height=440, hovermode='x unified',
         xaxis=dict(**PLOTLY_BASE['xaxis'], tickformat='%d/%m'),
         yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades'))
     fig.update_layout(**layout)
@@ -708,39 +725,65 @@ def chart_promo_impact(model, top_n=15):
 
 def chart_weekly_total(df):
     if df.empty: return go.Figure()
-    # Total de producción por semana (todos los días)
-    weekly_tot = (df.groupby(pd.Grouper(key='date', freq='W'))['quantity']
-                  .sum().reset_index())
-    weekly_tot.columns = ['week', 'total']
-    # Flag: ¿tuvo esa semana algún domingo-promo?
-    weekly_promo = (df.groupby(pd.Grouper(key='date', freq='W'))['is_promo']
-                    .any().reset_index())
-    weekly_promo.columns = ['week', 'has_promo']
-    weekly = weekly_tot.merge(weekly_promo, on='week')
+    grp = pd.Grouper(key='date', freq='W')
+    # Fix #7: promedio DIARIO por semana (normaliza semanas con días excluidos)
+    weekly_sum   = df.groupby(grp)['quantity'].sum().reset_index()
+    # nunique() sobre 'date' colisiona con el nombre del grouper — renombrar primero
+    _nd = df.groupby(grp)['date'].nunique(); _nd.name = 'n_days'
+    weekly_days  = _nd.reset_index()
+    weekly_promo = df.groupby(grp)['is_promo'].any().reset_index()
+    weekly_sum.columns  = ['week', 'total']
+    weekly_days.columns = ['week', 'n_days']
+    weekly_promo.columns= ['week', 'has_promo']
+    weekly = weekly_sum.merge(weekly_days, on='week').merge(weekly_promo, on='week')
+    weekly['avg_day'] = weekly['total'] / weekly['n_days']
 
     normal = weekly[~weekly['has_promo']]
     promo  = weekly[ weekly['has_promo']]
 
     fig = go.Figure()
     if not normal.empty:
-        fig.add_trace(go.Scatter(x=normal['week'], y=normal['total'],
+        fig.add_trace(go.Scatter(x=normal['week'], y=normal['avg_day'],
             name='Semana normal', mode='lines+markers',
             line=dict(color='rgba(130,105,65,.65)', width=2),
             marker=dict(size=7, color='rgba(130,105,65,.65)'),
-            hovertemplate='Sem. %{x|%d/%m}: <b>%{y:.0f}</b> uds<extra>Normal</extra>'))
+            hovertemplate='Sem. %{x|%d/%m}<br>Prom. diario: <b>%{y:.0f}</b> uds<extra>Normal</extra>'))
     if not promo.empty:
-        fig.add_trace(go.Scatter(x=promo['week'], y=promo['total'],
+        fig.add_trace(go.Scatter(x=promo['week'], y=promo['avg_day'],
             name='Semana con Dom-Promo ⭐', mode='lines+markers',
             line=dict(color=GOLD, width=2.5),
             marker=dict(size=9, color=GOLD, symbol='star'),
-            hovertemplate='Sem. %{x|%d/%m}: <b>%{y:.0f}</b> uds<extra>Dom-Promo ⭐</extra>'))
+            hovertemplate='Sem. %{x|%d/%m}<br>Prom. diario: <b>%{y:.0f}</b> uds<extra>Dom-Promo ⭐</extra>'))
+
+    # Fix #6: annotation en semanas con días excluidos
+    excluded_weeks = {}
+    for ex_date in EXCLUDED:
+        # Semana ISO: fin de semana (domingo) al que pertenece
+        week_end = ex_date + timedelta(days=(6 - ex_date.weekday()))
+        week_key = pd.Timestamp(week_end)
+        excluded_weeks[week_key] = excluded_weeks.get(week_key, 0) + 1
+
+    annotations = []
+    for wk, n_excl in excluded_weeks.items():
+        match = weekly[weekly['week'] == wk]
+        if not match.empty:
+            y_val = match['avg_day'].iloc[0]
+            annotations.append(dict(
+                x=wk, y=y_val,
+                text=f'⚠ {n_excl}d excluido{"s" if n_excl > 1 else ""}',
+                showarrow=True, arrowhead=2, arrowcolor=_CH_AXIS,
+                arrowsize=1, arrowwidth=1.5, ax=30, ay=-40,
+                font=dict(size=9, color=_CH_AXIS),
+                bgcolor='rgba(9,8,12,.7)', bordercolor=_CH_AXIS, borderwidth=1))
+
     layout = {**PLOTLY_BASE}
     layout.update(
-        title=dict(text='Volumen Semanal Total — producción acumulada por semana',
+        title=dict(text='Volumen Semanal — promedio diario de producción (normalizado)',
                    **PLOTLY_BASE['title']),
-        height=340, hovermode='x unified',
+        height=360, hovermode='x unified',
+        annotations=annotations,
         xaxis=dict(**PLOTLY_BASE['xaxis'], tickformat='%d/%m'),
-        yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades totales'))
+        yaxis=dict(**PLOTLY_BASE['yaxis'], title='Unidades / día'))
     fig.update_layout(**layout)
     return _theme(fig)
 
