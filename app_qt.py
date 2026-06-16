@@ -2350,27 +2350,32 @@ class TabVentas(QWidget):
         fig_cat.add_trace(go.Bar(name='Ingresos YoY %', x=CATS_ANA,
             y=[d['rv'] for d in cat_rows],
             marker_color=[core.GOLD if d['rv'] >= 0 else '#F7A8D0' for d in cat_rows],
-            opacity=0.9,
+            opacity=0.9, cliponaxis=False,
             text=[f"{d['rv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color=core._CH_FONT), outsidetextfont=dict(size=11, color=core._CH_FONT),
+            textposition='outside',
+            textfont=dict(size=10, color=core._CH_FONT),
+            outsidetextfont=dict(size=10, color=core._CH_FONT),
             hovertemplate='%{x}<br>Ingresos: <b>%{y:+.1f}%</b><extra></extra>'))
         fig_cat.add_trace(go.Bar(name='Unidades YoY %', x=CATS_ANA,
             y=[d['qv'] for d in cat_rows],
             marker_color=['#5CE8D4' if d['qv'] >= 0 else '#9F7AEA' for d in cat_rows],
-            opacity=0.85,
+            opacity=0.85, cliponaxis=False,
             text=[f"{d['qv']:+.1f}%" for d in cat_rows],
-            textposition='outside', textfont=dict(size=11, color=core._CH_TICK), outsidetextfont=dict(size=11, color=core._CH_TICK),
+            textposition='outside',
+            textfont=dict(size=10, color=core._CH_TICK),
+            outsidetextfont=dict(size=10, color=core._CH_TICK),
             hovertemplate='%{x}<br>Unidades: <b>%{y:+.1f}%</b><extra></extra>'))
-        fig_cat.add_hline(y=0, line_color='rgba(242,234,224,0.12)', line_width=1)
+        fig_cat.add_hline(y=0, line_color='rgba(201,169,122,0.15)', line_width=1)
         cat_layout = {**core.PLOTLY_BASE}
         cat_layout.update(
             title=dict(text='Variación por categoría — Ingresos vs Unidades (YoY %)',
                        **core.PLOTLY_BASE['title']),
             barmode='group', bargap=0.28, bargroupgap=0.06,
-            yaxis=dict(**core.PLOTLY_BASE['yaxis'], tickformat='+.0f', ticksuffix='%'),
+            yaxis=dict(**core.PLOTLY_BASE['yaxis'], tickformat='+.0f', ticksuffix='%',
+                       automargin=True),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.12),
-            height=380, margin=dict(l=16, r=16, t=72, b=48),
-            uniformtext=dict(mode='hide', minsize=9))
+            height=420, margin=dict(l=16, r=16, t=72, b=56),
+            uniformtext=dict(mode='show', minsize=8))
         fig_cat.update_layout(**cat_layout)
         core._theme(fig_cat)
 
@@ -2525,7 +2530,7 @@ class TabVentas(QWidget):
           </div>
           <div>
             <div class="section-label">VARIACIÓN — INGRESOS VS UNIDADES</div>
-            <div class="chart-box">{_fig_html(fig_cat, 300)}</div>
+            <div class="chart-box">{_fig_html(fig_cat, 420)}</div>
           </div>
         </div>
         <div class="section-label">DETALLE POR CATEGORÍA</div>
