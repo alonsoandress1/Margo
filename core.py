@@ -670,22 +670,29 @@ def chart_promo_impact(model, top_n=15):
                 for name in names]
     factors  = [p/n if n > 0 else 0 for p, n in zip(promo_v, normal_v)]
     fig = go.Figure()
-    fig.add_trace(go.Bar(name='Domingo Normal', y=names, x=normal_v, orientation='h',
-        marker=dict(color='rgba(74,86,104,.7)', cornerradius=4)))
-    fig.add_trace(go.Bar(name='Dom-Promo AMEX', y=names, x=promo_v, orientation='h',
-        marker=dict(color='rgba(201,169,122,.85)', cornerradius=4)))
+    # Barras side-by-side (group) — overlay solapaba y ocultaba una barra
+    fig.add_trace(go.Bar(
+        name='Dom. Normal', y=names, x=normal_v, orientation='h',
+        marker=dict(color='rgba(130,105,65,.52)', cornerradius=4),
+        hovertemplate='<b>%{y}</b><br>Domingo Normal: <b>%{x:.1f}</b> uds<extra></extra>'))
+    fig.add_trace(go.Bar(
+        name='Dom-Promo AMEX ⭐', y=names, x=promo_v, orientation='h',
+        marker=dict(color=GOLD, opacity=0.88, cornerradius=4),
+        hovertemplate='<b>%{y}</b><br>Dom-Promo AMEX: <b>%{x:.1f}</b> uds<extra></extra>'))
     for name, pv, nv, fct in zip(names, promo_v, normal_v, factors):
-        if nv > 0:
-            fig.add_annotation(x=max(pv, nv), y=name, text=f'  {fct:.1f}×',
+        if nv > 0 and fct > 0:
+            fig.add_annotation(
+                x=max(pv, nv), y=name, text=f'  {fct:.1f}×',
                 showarrow=False, xanchor='left',
-                font=dict(size=10, color=GOLD if fct > 1.5 else _CH_AXIS))
+                font=dict(size=10, color=GOLD if fct >= 1.5 else _CH_AXIS))
     layout = {**PLOTLY_BASE}
-    layout.update(barmode='overlay',
-        title=dict(text='Impacto AMEX — Fondos', **PLOTLY_BASE['title']),
-        height=max(400, len(names)*32),
-        margin=dict(l=220, r=80, t=48, b=16),
+    layout.update(
+        barmode='group', bargap=0.32, bargroupgap=0.06,
+        title=dict(text='Impacto AMEX — Fondos (Dom. Normal vs Dom-Promo)', **PLOTLY_BASE['title']),
+        height=max(420, len(names)*52),
+        margin=dict(l=220, r=80, t=56, b=16),
         yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed', 'automargin': True},
-        xaxis={**PLOTLY_BASE['xaxis'], 'title': 'Unidades promedio'})
+        xaxis={**PLOTLY_BASE['xaxis'], 'title': 'Unidades promedio por domingo'})
     fig.update_layout(**layout)
     return _theme(fig)
 
