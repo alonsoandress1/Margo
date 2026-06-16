@@ -163,7 +163,7 @@ QTabWidget#innerTabs > QTabBar {
 }
 QTabWidget#innerTabs > QTabBar::tab {
     background: transparent;
-    color: rgba(240,232,220,0.35);
+    color: rgba(201,169,122,0.35);
     padding: 10px 22px 9px;
     border: none;
     border-bottom: 2px solid transparent;
@@ -177,12 +177,12 @@ QTabWidget#innerTabs > QTabBar::tab:selected {
     background: rgba(201,169,122,0.05);
 }
 QTabWidget#innerTabs > QTabBar::tab:hover:!selected {
-    color: rgba(240,232,220,0.60);
-    background: rgba(240,232,220,0.016);
+    color: rgba(201,169,122,0.60);
+    background: rgba(201,169,122,0.02);
 }
 QTabWidget::pane { border: none; background: #09080C; }
 QTabBar::tab {
-    background: transparent; color: rgba(240,232,220,0.32);
+    background: transparent; color: rgba(201,169,122,0.32);
     padding: 10px 20px; border: none;
     border-bottom: 2px solid transparent; font-size: 11px;
 }
@@ -191,7 +191,7 @@ QTabBar::tab:selected {
     border-bottom: 2px solid rgba(201,169,122,0.68);
     background: rgba(201,169,122,0.04);
 }
-QTabBar::tab:hover:!selected { color: rgba(240,232,220,0.56); }
+QTabBar::tab:hover:!selected { color: rgba(201,169,122,0.56); }
 
 /* ── Scrollbars ───────────────────────────────────────────── */
 QScrollArea { border: none; background: transparent; }
@@ -209,12 +209,12 @@ QScrollBar::handle:horizontal {
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
 
 /* ── Labels ───────────────────────────────────────────────── */
-QLabel { color: #F0E8DC; background: transparent; }
+QLabel { color: rgba(201,169,122,.90); background: transparent; }
 QLabel#subtle {
-    color: rgba(240,232,220,0.26); font-size: 9px;
+    color: rgba(201,169,122,0.26); font-size: 9px;
     letter-spacing: 0.14em; font-weight: 600;
 }
-QLabel#muted  { color: rgba(240,232,220,0.48); }
+QLabel#muted  { color: rgba(201,169,122,0.48); }
 QLabel#gold   { color: #C9A97A; font-weight: 600; }
 QLabel#section {
     color: rgba(201,169,122,0.48);
@@ -275,7 +275,7 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit {
     border: 1px solid rgba(240,228,200,0.09);
     border-radius: 7px;
     padding: 6px 10px;
-    color: #F0E8DC;
+    color: rgba(201,169,122,.90);
     selection-background-color: rgba(201,169,122,0.26);
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus,
@@ -290,7 +290,7 @@ QComboBox QAbstractItemView {
     border: 1px solid rgba(201,169,122,0.16);
     border-radius: 7px;
     selection-background-color: rgba(201,169,122,0.13);
-    color: #F0E8DC; outline: none;
+    color: rgba(201,169,122,.90); outline: none;
 }
 
 /* ── Group boxes ──────────────────────────────────────────── */
@@ -319,7 +319,7 @@ QListWidget {
     border-radius: 10px; outline: none;
 }
 QListWidget::item {
-    padding: 9px 14px; color: rgba(240,232,220,0.56);
+    padding: 9px 14px; color: rgba(201,169,122,0.56);
     font-size: 12px; border-radius: 5px;
 }
 QListWidget::item:selected {
@@ -327,11 +327,11 @@ QListWidget::item:selected {
 }
 QListWidget::item:hover:!selected {
     background: rgba(240,228,200,0.028);
-    color: rgba(240,232,220,0.84);
+    color: rgba(201,169,122,0.84);
 }
 
 /* ── Checkbox ─────────────────────────────────────────────── */
-QCheckBox { color: rgba(240,232,220,0.56); font-size: 11px; spacing: 6px; }
+QCheckBox { color: rgba(201,169,122,0.56); font-size: 11px; spacing: 6px; }
 QCheckBox::indicator {
     width: 14px; height: 14px;
     border: 1px solid rgba(240,228,200,0.18);
@@ -340,7 +340,7 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background: rgba(201,169,122,0.30); border-color: rgba(201,169,122,0.52);
 }
-QCheckBox:hover { color: rgba(240,232,220,0.80); }
+QCheckBox:hover { color: rgba(201,169,122,0.80); }
 
 /* ── Recetas panel izquierdo ──────────────────────────────── */
 /* ── Producción toolbar ───────────────────────────────────── */
@@ -369,10 +369,10 @@ QListWidget#recetasList::item:hover:!selected { background: rgba(242,234,224,0.0
 /* ── Message box / Dialogs ────────────────────────────────── */
 QMessageBox {
     background: #17130E;
-    color: #F0E8DC;
+    color: rgba(201,169,122,.90);
 }
 QMessageBox QLabel {
-    color: #F0E8DC;
+    color: rgba(201,169,122,.90);
     font-size: 13px;
     background: transparent;
 }
@@ -1830,7 +1830,7 @@ class TabProduccion(QWidget):
 
         k_headers = ''.join(
             f'<th style="text-align:center;padding:6px 10px;font-size:10px;'
-            f'letter-spacing:.06em;color:{"#C9A97A" if abs(k-s.k_factor)<.05 else "rgba(242,234,224,.32)"};">'
+            f'letter-spacing:.06em;color:{"#C9A97A" if abs(k-s.k_factor)<.05 else "rgba(201,169,122,.38)"};">'
             f'k={k:.1f}</th>'
             for k in K_COLS)
 
@@ -2180,7 +2180,7 @@ class TabVentas(QWidget):
             y=[v26[m]/1e6 for m in all26], marker_color='#C9A97A'))
         fig_main.add_trace(go.Scatter(name='YoY %', x=[MN[m] for m in common],
             y=[yoy[m] for m in common], yaxis='y2', mode='lines+markers+text',
-            line=dict(color='rgba(242,234,224,.5)', width=1.5, dash='dot'),
+            line=dict(color='rgba(201,169,122,.45)', width=1.5, dash='dot'),
             marker=dict(size=8, color=['#5CE8D4' if yoy[m]>=0 else '#F7A8D0' for m in common]),
             text=[f"{yoy[m]:+.0f}%" for m in common], textposition='top center',
             textfont=dict(size=10, color=core._CH_FONT)))
@@ -2249,7 +2249,7 @@ class TabVentas(QWidget):
                     yoy_txts.append(f'{pv:+.0f}%')
             fig_mm.add_trace(go.Scatter(name='YoY%', x=yoy_xs, y=yoy_ys,
                 mode='lines+markers+text',
-                line=dict(color='rgba(242,234,224,.4)', width=1.2, dash='dot'),
+                line=dict(color='rgba(201,169,122,.38)', width=1.2, dash='dot'),
                 marker=dict(size=6, color=yoy_ms),
                 text=yoy_txts, textposition='top center',
                 textfont=dict(size=9, color=core._CH_TICK), showlegend=show_leg),
@@ -2262,10 +2262,10 @@ class TabVentas(QWidget):
                 **core.PLOTLY_BASE['title']),
             legend=dict(**core.PLOTLY_BASE['legend'], orientation='h', x=0, y=1.04))
         _y_primary = dict(ticksuffix='M', tickformat=',.1f',
-            tickfont=dict(size=9, color='rgba(242,234,224,.3)'),
+            tickfont=dict(size=9, color='rgba(201,169,122,.42)'),
             gridcolor='rgba(242,234,224,.05)', showgrid=True, zeroline=False)
         _y_secondary = dict(tickformat='+.0f', ticksuffix='%',
-            tickfont=dict(size=9, color='rgba(242,234,224,.25)'),
+            tickfont=dict(size=9, color='rgba(201,169,122,.32)'),
             showgrid=False, zeroline=True,
             zerolinecolor='rgba(242,234,224,.07)')
         for ax in ['yaxis','yaxis3','yaxis5','yaxis7']:
@@ -2275,7 +2275,7 @@ class TabVentas(QWidget):
         fig_mm.update_layout(**mm_layout)
         fig_mm.update_annotations(font=dict(
             family="'Palatino Linotype',Georgia,serif", size=12,
-            color='rgba(242,234,224,.8)'))
+            color='rgba(201,169,122,.88)'))
         core._theme(fig_mm)
 
         # Acumulado
@@ -3041,7 +3041,7 @@ class TabRecetas(QWidget):
         self._lbl_sku = QLabel()
         self._lbl_sku.setObjectName("subtle")
         self._lbl_status = QLabel()
-        self._lbl_status.setStyleSheet("font-size:11px;color:rgba(240,232,220,0.62);")
+        self._lbl_status.setStyleSheet("font-size:11px;color:rgba(201,169,122,0.62);")
 
         precio_row = QHBoxLayout()
         precio_row.setSpacing(8)
@@ -3103,7 +3103,7 @@ class TabRecetas(QWidget):
         self._btn_del  = QPushButton("🗑 Borrar receta")
         self._btn_del.setObjectName("danger")
         self._lbl_msg  = QLabel()
-        self._lbl_msg.setStyleSheet("font-size:11px;color:rgba(240,232,220,0.55);")
+        self._lbl_msg.setStyleSheet("font-size:11px;color:rgba(201,169,122,0.55);")
 
         self._btn_add.clicked.connect(self._add_ing)
         self._btn_save.clicked.connect(self._save)
