@@ -2523,16 +2523,10 @@ class TabVentas(QWidget):
 
         # Panel CATEGORÍAS: mix donut + variación + detalle por cat + mes a mes
         p_cats = f"""
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
-          <div>
-            <div class="section-label">MIX POR CATEGORÍA</div>
-            <div class="chart-box">{_fig_html(fig_mix, 300)}</div>
-          </div>
-          <div>
-            <div class="section-label">VARIACIÓN — INGRESOS VS UNIDADES</div>
-            <div class="chart-box">{_fig_html(fig_cat, 420)}</div>
-          </div>
-        </div>
+        <div class="section-label">MIX POR CATEGORÍA</div>
+        <div class="chart-box">{_fig_html(fig_mix, 300)}</div>
+        <div class="section-label">VARIACIÓN — INGRESOS VS UNIDADES</div>
+        <div class="chart-box">{_fig_html(fig_cat, 420)}</div>
         <div class="section-label">DETALLE POR CATEGORÍA</div>
         <div class="chart-box" style="padding:4px 0">{tbl_cat}</div>
         <div class="section-label">CATEGORÍAS MES A MES</div>
