@@ -1310,16 +1310,19 @@ class NavRail(QWidget):
     page_changed = pyqtSignal(int)
 
     _PAGES = [
+        "OPERACIÓN",
         ("🍽", "Producción",  0),
         ("🛒", "Compras",     1),
         ("📦", "Inventario",  8),
         None,
+        "NEGOCIO",
         ("💰", "Ventas",      2),
         ("📈", "Tendencias",  3),
         ("⭐", "AMEX",        4),
         ("📋", "Historial",   5),
-        ("💲", "Costos",      7),
         None,
+        "CONFIGURACIÓN",
+        ("💲", "Costos",      7),
         ("📖", "Recetas",     6),
     ]
 
@@ -1381,6 +1384,10 @@ class NavRail(QWidget):
                 d = QFrame(); d.setObjectName("navDivider")
                 d.setFrameShape(QFrame.Shape.HLine); d.setFixedHeight(1)
                 lay.addWidget(d); lay.addSpacing(4)
+            elif isinstance(item, str):
+                lay.addSpacing(8)
+                sec = QLabel(item); sec.setObjectName("navSection")
+                lay.addWidget(sec)
             else:
                 ico, lbl, idx = item
                 btn = QPushButton(f"  {ico}  {lbl}")
@@ -2069,7 +2076,27 @@ class TabCompras(WebTab):
                       f'receta configurada y están excluidos de esta lista. '
                       f'El costo estimado es <b>parcial</b>.</div>')
 
-        body = f'<h2>Lista de Compras</h2>{banner}{kpi_strip}{_stabs(compras_sections)}'
+        # Aviso Dom-Promo con muy pocas observaciones (n=1 → confianza baja)
+        promo_warn = ''
+        promo_model = s.model.get('Dom-Promo', {})
+        if promo_model:
+            n_promo = min((st.get('n', 0) for st in promo_model.values()), default=0)
+            if n_promo < 3:
+                start_dt = datetime.combine(s.start_date, datetime.min.time())
+                has_promo = any(
+                    core.day_type(start_dt + timedelta(days=i)) == 'Dom-Promo'
+                    for i in range(s.horizon))
+                if has_promo:
+                    promo_warn = (
+                        f'<div style="background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.28);'
+                        f'border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:12px;'
+                        f'color:rgba(167,139,250,.95)">'
+                        f'⚠ <b>Dom-Promo (AMEX)</b> incluido en este período con solo '
+                        f'<b>{n_promo} observación{"es" if n_promo!=1 else ""}</b>. '
+                        f'Las cantidades de ese día tienen <b>baja confianza estadística</b> '
+                        f'hasta acumular ≥3 domingos AMEX.</div>')
+
+        body = f'<h2>Lista de Compras</h2>{promo_warn}{banner}{kpi_strip}{_stabs(compras_sections)}'
         self.render(_page(body))
 
 
@@ -2078,13 +2105,14 @@ class TabCompras(WebTab):
 class TabInventario(QWidget):
     """Stock real vs. necesario según pronóstico. Edición directa en tabla."""
 
-    _COLS = ["ESTADO", "INGREDIENTE", "CATEGORÍA", "STOCK ACTUAL", "NECESARIO", "BALANCE", "UNIDAD", "PROVEEDOR"]
+    _COLS = ["ESTADO", "INGREDIENTE", "CATEGORÍA", "STOCK ACTUAL ✎", "NECESARIO", "BALANCE", "UNIDAD", "PROVEEDOR"]
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
         self._vis_keys: list = []        # claves de las filas visibles en la tabla
         self._all_data: dict = {}        # key → dict con datos de cada ingrediente
+        self._all_ings: dict = {}        # key → ing base (precio_unitario, etc.)
         self._saving   = False           # flag para suprimir cellChanged durante rebuild
         self._build_ui()
         state.changed.connect(self.refresh)
@@ -2121,8 +2149,8 @@ class TabInventario(QWidget):
         tb.addWidget(self._cat_combo)
 
         self._st_combo = QComboBox()
-        self._st_combo.addItems(["Todos", "Quiebre", "Bajo stock", "OK"])
-        self._st_combo.setFixedWidth(115)
+        self._st_combo.addItems(["Todos", "Pendiente", "Quiebre", "Bajo stock", "OK"])
+        self._st_combo.setFixedWidth(120)
         self._st_combo.currentIndexChanged.connect(self._filter)
         tb.addWidget(self._st_combo)
 
@@ -2131,6 +2159,11 @@ class TabInventario(QWidget):
         self._lbl_saved = QLabel("")
         self._lbl_saved.setObjectName("navMeta")
         tb.addWidget(self._lbl_saved)
+
+        btn_export = QPushButton("⬇ Exportar")
+        btn_export.setObjectName("navSmallBtn")
+        btn_export.clicked.connect(self._export)
+        tb.addWidget(btn_export)
 
         btn_clear = QPushButton("Limpiar filtros")
         btn_clear.setObjectName("navSmallBtn")
@@ -2152,20 +2185,17 @@ class TabInventario(QWidget):
         self._tbl.setHorizontalHeaderLabels(self._COLS)
         self._tbl.verticalHeader().setVisible(False)
         self._tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._tbl.setEditTriggers(
-            QTableWidget.EditTrigger.DoubleClicked |
-            QTableWidget.EditTrigger.SelectedClicked)
+        self._tbl.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked)
         self._tbl.setAlternatingRowColors(True)
         self._tbl.setSortingEnabled(False)
-        self._tbl.setColumnWidth(0, 105)   # Estado
+        self._tbl.setColumnWidth(0, 115)   # Estado
         self._tbl.setColumnWidth(1, 210)   # Ingrediente
-        self._tbl.setColumnWidth(2, 155)   # Categoría
-        self._tbl.setColumnWidth(3, 115)   # Stock Actual
+        self._tbl.setColumnWidth(2, 185)   # Categoría
+        self._tbl.setColumnWidth(3, 120)   # Stock Actual ✎
         self._tbl.setColumnWidth(4, 100)   # Necesario
         self._tbl.setColumnWidth(5, 90)    # Balance
         self._tbl.setColumnWidth(6, 68)    # Unidad
         self._tbl.horizontalHeader().setStretchLastSection(True)
-        self._tbl.setRowHeight(0, 34)
         self._tbl.verticalHeader().setDefaultSectionSize(32)
         self._tbl.cellChanged.connect(self._on_cell_changed)
         lay.addWidget(self._tbl)
@@ -2180,7 +2210,7 @@ class TabInventario(QWidget):
                 "<span style='color:rgba(201,169,122,0.40)'>Sin recetas cargadas.</span>")
             return
 
-        all_ings = core.build_all_ingredients(s.recetas)
+        self._all_ings = core.build_all_ingredients(s.recetas)
 
         needed: dict = {}
         if s.history and s.model:
@@ -2190,11 +2220,14 @@ class TabInventario(QWidget):
 
         inv = s.inventario
         self._all_data = {}
-        for key, ing in all_ings.items():
-            stock     = float(inv.get(key, {}).get('stock', 0.0))
-            needed_q  = needed.get(key, {}).get('total', 0.0)
-            balance   = stock - needed_q
-            if stock == 0:
+        for key, ing in self._all_ings.items():
+            in_inv   = key in inv
+            stock    = float(inv[key].get('stock', 0.0)) if in_inv else 0.0
+            needed_q = needed.get(key, {}).get('total', 0.0)
+            balance  = stock - needed_q
+            if not in_inv:
+                status = 'PENDIENTE'
+            elif stock == 0 and needed_q > 0:
                 status = 'QUIEBRE'
             elif needed_q > 0 and stock < needed_q:
                 status = 'BAJO'
@@ -2211,6 +2244,14 @@ class TabInventario(QWidget):
                 'status':    status,
             }
 
+        # Actualizar header columna Necesario con el horizonte actual
+        hdr_item = self._tbl.horizontalHeaderItem(4)
+        needed_label = f"NECESARIO ({s.horizon}d)" if s.horizon else "NECESARIO"
+        if hdr_item:
+            hdr_item.setText(needed_label)
+        else:
+            self._tbl.setHorizontalHeaderItem(4, QTableWidgetItem(needed_label))
+
         # Rebuild category combo preservando selección
         cats = sorted({v['categoria'] for v in self._all_data.values() if v['categoria']})
         cur  = self._cat_combo.currentText()
@@ -2226,23 +2267,51 @@ class TabInventario(QWidget):
         self._filter()
 
     def _update_kpi(self):
+        n_p  = sum(1 for v in self._all_data.values() if v['status'] == 'PENDIENTE')
         n_q  = sum(1 for v in self._all_data.values() if v['status'] == 'QUIEBRE')
         n_b  = sum(1 for v in self._all_data.values() if v['status'] == 'BAJO')
         n_ok = sum(1 for v in self._all_data.values() if v['status'] == 'OK')
+
+        valor_inv = sum(
+            v['stock'] * self._all_ings.get(k, {}).get('precio_unitario', 0)
+            for k, v in self._all_data.items()
+            if v['stock'] > 0 and self._all_ings.get(k, {}).get('precio_unitario', 0) > 0
+        )
+
+        inv = self.state.inventario
+        ultimo_str = ''
+        if inv:
+            fechas = [v.get('updated', '') for v in inv.values() if v.get('updated')]
+            if fechas:
+                try:
+                    dt_ult = datetime.fromisoformat(max(fechas))
+                    ultimo_str = f"&nbsp;&nbsp;·&nbsp;&nbsp;<span style='color:rgba(201,169,122,.38)'>ÚLTIMO CONTEO</span>&nbsp;<b style='color:rgba(201,169,122,.7)'>{dt_ult.strftime('%d/%m %H:%M')}</b>"
+                except Exception:
+                    pass
+
         parts = [
             f"<span style='color:rgba(201,169,122,.48)'>INSUMOS</span>&nbsp;"
             f"<b style='color:#C9A97A'>{len(self._all_data)}</b>",
+            f"<span style='color:#6B7280'>○</span>&nbsp;"
+            f"<span style='color:rgba(201,169,122,.48)'>PENDIENTE</span>&nbsp;"
+            f"<b style='color:#9CA3AF'>{n_p}</b>",
             f"<span style='color:#F87171'>⬤</span>&nbsp;"
             f"<span style='color:rgba(201,169,122,.48)'>QUIEBRE</span>&nbsp;"
             f"<b style='color:#F87171'>{n_q}</b>",
             f"<span style='color:#FBBF24'>⬤</span>&nbsp;"
-            f"<span style='color:rgba(201,169,122,.48)'>BAJO STOCK</span>&nbsp;"
+            f"<span style='color:rgba(201,169,122,.48)'>BAJO</span>&nbsp;"
             f"<b style='color:#FBBF24'>{n_b}</b>",
             f"<span style='color:#A5D6A7'>⬤</span>&nbsp;"
             f"<span style='color:rgba(201,169,122,.48)'>OK</span>&nbsp;"
             f"<b style='color:#A5D6A7'>{n_ok}</b>",
         ]
-        self._kpi.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(parts))
+        if valor_inv:
+            clp = f"${valor_inv:,.0f}".replace(',', '.')
+            parts.append(
+                f"<span style='color:rgba(201,169,122,.48)'>VALOR INVENTARIO</span>&nbsp;"
+                f"<b style='color:#C9A97A'>{clp}</b>"
+            )
+        self._kpi.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(parts) + ultimo_str)
 
     # ── Filtering & rendering ─────────────────────────────────────────────────
 
@@ -2250,7 +2319,7 @@ class TabInventario(QWidget):
         q       = self._search.text().strip().lower()
         sel_cat = self._cat_combo.currentText()
         sel_st  = self._st_combo.currentText()
-        st_map  = {"Quiebre": "QUIEBRE", "Bajo stock": "BAJO", "OK": "OK"}
+        st_map  = {"Pendiente": "PENDIENTE", "Quiebre": "QUIEBRE", "Bajo stock": "BAJO", "OK": "OK"}
 
         keys = [
             k for k, v in sorted(
@@ -2269,9 +2338,10 @@ class TabInventario(QWidget):
         self._tbl.setRowCount(len(keys))
 
         _ST = {
-            'QUIEBRE': ('#F87171', '⬤  QUIEBRE'),
-            'BAJO':    ('#FBBF24', '⬤  BAJO'),
-            'OK':      ('#A5D6A7', '⬤  OK'),
+            'PENDIENTE': ('#6B7280', '○  PENDIENTE'),
+            'QUIEBRE':   ('#F87171', '⬤  QUIEBRE'),
+            'BAJO':      ('#FBBF24', '⬤  BAJO'),
+            'OK':        ('#A5D6A7', '⬤  OK'),
         }
 
         def _ro(text, color=None, align=None):
@@ -2352,7 +2422,7 @@ class TabInventario(QWidget):
             # Revertir a valor anterior
             self._saving = True
             old = self._all_data.get(key, {}).get('stock', 0.0)
-            item.setText(f"{old:.0f}" if old == int(old) else f"{old:.1f}")
+            item.setText(f"{old:.0f}" if old % 1 == 0 else f"{old:.1f}")
             self._saving = False
             return
 
@@ -2360,7 +2430,8 @@ class TabInventario(QWidget):
         d = self._all_data[key]
         d['stock']   = val
         d['balance'] = val - d['needed']
-        if val == 0:
+        # Al editar por primera vez un PENDIENTE, pasa a un estado real
+        if val == 0 and d['needed'] > 0:
             d['status'] = 'QUIEBRE'
         elif d['needed'] > 0 and val < d['needed']:
             d['status'] = 'BAJO'
@@ -2377,9 +2448,10 @@ class TabInventario(QWidget):
         core.save_inventario(inv)
 
         # Actualizar solo las celdas que cambian (sin rebuild completo)
-        _ST = {'QUIEBRE': ('#F87171', '⬤  QUIEBRE'),
-               'BAJO':    ('#FBBF24', '⬤  BAJO'),
-               'OK':      ('#A5D6A7', '⬤  OK')}
+        _ST = {'PENDIENTE': ('#6B7280', '○  PENDIENTE'),
+               'QUIEBRE':   ('#F87171', '⬤  QUIEBRE'),
+               'BAJO':      ('#FBBF24', '⬤  BAJO'),
+               'OK':        ('#A5D6A7', '⬤  OK')}
         clr, label = _ST[d['status']]
         _R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
@@ -2407,6 +2479,77 @@ class TabInventario(QWidget):
 
         self._update_kpi()
         self._lbl_saved.setText(f"Guardado {datetime.now().strftime('%H:%M:%S')}")
+
+    def _export(self):
+        if not self._all_data:
+            return
+        default = f"Inventario_{datetime.now().strftime('%d-%m-%Y')}.xlsx"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Exportar Inventario", default,
+            "Excel (*.xlsx);;CSV (*.csv)")
+        if not path:
+            return
+        try:
+            if path.endswith('.xlsx'):
+                try:
+                    import openpyxl
+                    from openpyxl.styles import Font, PatternFill, Alignment
+                    wb = openpyxl.Workbook()
+                    ws = wb.active; ws.title = 'Inventario'
+                    HDR_FILL = PatternFill('solid', fgColor='1E1912')
+                    HDR_FONT = Font(bold=True, color='C9A97A', size=9)
+                    headers = ['Estado','Ingrediente','Categoría','Stock Actual',
+                               f'Necesario ({self.state.horizon}d)','Balance','Unidad','Proveedor']
+                    for c, h in enumerate(headers, 1):
+                        cell = ws.cell(1, c, h)
+                        cell.font = HDR_FONT; cell.fill = HDR_FILL
+                        cell.alignment = Alignment(horizontal='center')
+                    ST_COLORS = {'PENDIENTE':'9CA3AF','QUIEBRE':'F87171',
+                                 'BAJO':'FBBF24','OK':'A5D6A7'}
+                    for r, key in enumerate(self._vis_keys, 2):
+                        d = self._all_data[key]
+                        bal = (f"+{d['balance']:.0f}" if d['balance'] >= 0 else f"{d['balance']:.0f}") if d['needed'] > 0 else ''
+                        row_data = [d['status'], d['nombre'], d['categoria'],
+                                    d['stock'],
+                                    round(d['needed'], 1) if d['needed'] > 0 else '',
+                                    bal, d['unidad'], d.get('proveedor','')]
+                        for c, val in enumerate(row_data, 1):
+                            cell = ws.cell(r, c, val)
+                            if c == 1:
+                                cell.font = Font(color=ST_COLORS.get(d['status'], 'FFFFFF'), bold=True)
+                    ws.column_dimensions['A'].width = 14
+                    ws.column_dimensions['B'].width = 30
+                    ws.column_dimensions['C'].width = 22
+                    for col in ['D','E','F','G']: ws.column_dimensions[col].width = 14
+                    ws.column_dimensions['H'].width = 22
+                    wb.save(path)
+                except ImportError:
+                    QMessageBox.warning(self, "Sin openpyxl",
+                        "openpyxl no está instalado. Guardando como CSV.")
+                    path = path.replace('.xlsx', '.csv')
+                    self._export_csv(path)
+                    return
+            else:
+                self._export_csv(path)
+                return
+            QMessageBox.information(self, "Exportado", f"Inventario guardado:\n{path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error al exportar", str(e))
+
+    def _export_csv(self, path: str):
+        import csv
+        with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+            w = csv.writer(f)
+            w.writerow(['Estado','Ingrediente','Categoría','Stock Actual',
+                        f'Necesario ({self.state.horizon}d)','Balance','Unidad','Proveedor'])
+            for key in self._vis_keys:
+                d = self._all_data[key]
+                bal = (f"+{d['balance']:.0f}" if d['balance'] >= 0 else f"{d['balance']:.0f}") if d['needed'] > 0 else ''
+                w.writerow([d['status'], d['nombre'], d['categoria'],
+                            d['stock'],
+                            round(d['needed'],1) if d['needed'] > 0 else '',
+                            bal, d['unidad'], d.get('proveedor','')])
+        QMessageBox.information(None, "Exportado", f"CSV guardado:\n{path}")
 
     def _clear_filters(self):
         self._search.clear()

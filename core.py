@@ -171,8 +171,14 @@ def load_config() -> dict:
         return {}
 
 def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    _atomic_write(CONFIG_PATH, cfg)
+
+
+def _atomic_write(path: str, data: dict) -> None:
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
 
 def get_folder() -> str:
     folder = load_config().get("reportes_folder", DEFAULT_FOLDER)
@@ -214,6 +220,19 @@ FERIADOS = {
     datetime(2026, 12,  8): "Inmaculada Concepción",
     datetime(2026, 12, 25): "Navidad",
     datetime(2027,  1,  1): "Año Nuevo",
+    datetime(2027,  4, 26): "Viernes Santo",
+    datetime(2027,  5,  1): "Día del Trabajo",
+    datetime(2027,  5, 21): "Glorias Navales",
+    datetime(2027,  6, 28): "San Pedro y San Pablo",
+    datetime(2027,  7, 16): "Virgen del Carmen",
+    datetime(2027,  8, 15): "Asunción de la Virgen",
+    datetime(2027,  9, 18): "Fiestas Patrias",
+    datetime(2027,  9, 19): "Glorias del Ejército",
+    datetime(2027, 10, 12): "Encuentro de Dos Mundos",
+    datetime(2027, 10, 31): "Iglesias Evangélicas",
+    datetime(2027, 11,  1): "Todos los Santos",
+    datetime(2027, 12,  8): "Inmaculada Concepción",
+    datetime(2027, 12, 25): "Navidad",
 }
 
 PREFIXES = {
@@ -250,7 +269,7 @@ def day_type(date):
         return 'Dom-Promo'
     return DAYS_ES[date.weekday()]
 
-def parse_report(path):
+def parse_report(path, errors=None):
     result = {}
     def handle_row(code, name, raw):
         code = str(code or '').strip()
@@ -285,7 +304,9 @@ def parse_report(path):
             if ws.ncols > 9:
                 for r in range(22, ws.nrows):
                     handle_row(ws.cell_value(r, 0), ws.cell_value(r, 1), ws.cell_value(r, 9))
-    except Exception:
+    except Exception as e:
+        if errors is not None:
+            errors.append(f"Error leyendo {os.path.basename(path)}: {type(e).__name__}: {e}")
         return {}
     return result
 
@@ -310,7 +331,7 @@ def load_history(folder: str, errors: list | None = None,
             continue
         if date in _excluded:
             continue
-        data = parse_report(os.path.join(folder, fname))
+        data = parse_report(os.path.join(folder, fname), errors)
         if data:
             history[date] = data
         elif errors is not None:
@@ -351,7 +372,14 @@ def make_forecast(model, start, horizon, k=K_SAFETY):
     for i in range(horizon):
         d  = start + timedelta(days=i)
         dt = day_type(d)
-        dm = model.get(dt) or model.get('Domingo', {})
+        if dt in model:
+            dm = model[dt]
+        elif dt == 'Dom-Promo':
+            dm = model.get('Domingo', {})
+        elif dt == 'Domingo':
+            dm = model.get('Dom-Promo', {})
+        else:
+            dm = {}
         day_details.append((d, dt, dm, dt not in model))
         for dish, stats in dm.items():
             mean   = stats['mean']
@@ -907,8 +935,7 @@ def load_recetas():
         return {}, {}
 
 def save_recetas(raw: dict):
-    with open(RECETAS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(raw, f, ensure_ascii=False, indent=2)
+    _atomic_write(RECETAS_PATH, raw)
 
 def calc_costos(recetas_raw: dict, model: dict, df=None) -> list[dict]:
     """Calcula food cost por plato. Retorna lista de dicts ordenada por nombre."""
@@ -1112,5 +1139,4 @@ def load_inventario() -> dict:
 
 
 def save_inventario(data: dict):
-    with open(INVENTARIO_PATH, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    _atomic_write(INVENTARIO_PATH, data)
