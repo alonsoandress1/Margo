@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QDateEdit, QSpinBox, QDoubleSpinBox, QLineEdit,
     QComboBox, QListWidget, QListWidgetItem, QStackedWidget,
     QGroupBox, QCheckBox, QButtonGroup,
+    QTableWidget, QTableWidgetItem, QHeaderView,
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineSettings
@@ -434,6 +435,46 @@ QDateEdit::drop-down:hover { background: rgba(201,169,122,0.12); }
 QDateEdit::down-arrow {
     width: 7px; height: 5px;
 }
+
+/* ── QTableWidget (Tab Inventario) ─────────────────────────── */
+QTableWidget {
+    background-color: #09080C;
+    alternate-background-color: rgba(201,169,122,0.025);
+    color: rgba(201,169,122,.88);
+    gridline-color: rgba(250,235,200,0.04);
+    border: none;
+    selection-background-color: rgba(201,169,122,0.12);
+    selection-color: rgba(220,195,155,.94);
+    outline: none;
+}
+QTableWidget::item {
+    padding: 5px 10px;
+    border: none;
+}
+QTableWidget::item:selected {
+    background: rgba(201,169,122,0.12);
+    color: rgba(220,195,155,.94);
+}
+QTableWidget::item:focus {
+    border: 1px solid rgba(201,169,122,0.40);
+    background: rgba(201,169,122,0.08);
+}
+QHeaderView {
+    background: #0E0C12;
+    border: none;
+}
+QHeaderView::section {
+    background: #0E0C12;
+    color: rgba(201,169,122,0.52);
+    border: none;
+    border-right: 1px solid rgba(250,235,200,0.04);
+    border-bottom: 1px solid rgba(250,235,200,0.07);
+    padding: 7px 10px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+}
+QHeaderView::section:last { border-right: none; }
 
 """
 
@@ -1185,6 +1226,7 @@ class AppState(QObject):
         self._recetas_raw : dict = {}
         self.recetas      : dict = {}
         self.load_errors  : list = []
+        self.inventario   : dict = core.load_inventario()
 
     def _save_prefs(self):
         cfg = core.load_config()
@@ -1270,6 +1312,7 @@ class NavRail(QWidget):
     _PAGES = [
         ("🍽", "Producción",  0),
         ("🛒", "Compras",     1),
+        ("📦", "Inventario",  8),
         None,
         ("💰", "Ventas",      2),
         ("📈", "Tendencias",  3),
@@ -2030,6 +2073,347 @@ class TabCompras(WebTab):
         self.render(_page(body))
 
 
+# ── Tab: INVENTARIO ────────────────────────────────────────────────────────────
+
+class TabInventario(QWidget):
+    """Stock real vs. necesario según pronóstico. Edición directa en tabla."""
+
+    _COLS = ["ESTADO", "INGREDIENTE", "CATEGORÍA", "STOCK ACTUAL", "NECESARIO", "BALANCE", "UNIDAD", "PROVEEDOR"]
+
+    def __init__(self, state: AppState, parent=None):
+        super().__init__(parent)
+        self.state = state
+        self._vis_keys: list = []        # claves de las filas visibles en la tabla
+        self._all_data: dict = {}        # key → dict con datos de cada ingrediente
+        self._saving   = False           # flag para suprimir cellChanged durante rebuild
+        self._build_ui()
+        state.changed.connect(self.refresh)
+        self.refresh()
+
+    # ── UI ────────────────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Toolbar
+        toolbar = QWidget()
+        toolbar.setObjectName("prodToolbar")
+        tb = QHBoxLayout(toolbar)
+        tb.setContentsMargins(16, 10, 16, 10)
+        tb.setSpacing(10)
+
+        lbl = QLabel("INVENTARIO")
+        lbl.setObjectName("subtle")
+        tb.addWidget(lbl)
+        tb.addSpacing(12)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Buscar ingrediente…")
+        self._search.setFixedWidth(200)
+        self._search.textChanged.connect(self._filter)
+        tb.addWidget(self._search)
+
+        self._cat_combo = QComboBox()
+        self._cat_combo.setFixedWidth(170)
+        self._cat_combo.currentIndexChanged.connect(self._filter)
+        tb.addWidget(self._cat_combo)
+
+        self._st_combo = QComboBox()
+        self._st_combo.addItems(["Todos", "Quiebre", "Bajo stock", "OK"])
+        self._st_combo.setFixedWidth(115)
+        self._st_combo.currentIndexChanged.connect(self._filter)
+        tb.addWidget(self._st_combo)
+
+        tb.addStretch()
+
+        self._lbl_saved = QLabel("")
+        self._lbl_saved.setObjectName("navMeta")
+        tb.addWidget(self._lbl_saved)
+
+        btn_clear = QPushButton("Limpiar filtros")
+        btn_clear.setObjectName("navSmallBtn")
+        btn_clear.clicked.connect(self._clear_filters)
+        tb.addWidget(btn_clear)
+
+        lay.addWidget(toolbar)
+
+        # KPI strip
+        self._kpi = QLabel()
+        self._kpi.setStyleSheet(
+            "padding:8px 18px;background:#0A0906;"
+            "border-bottom:1px solid rgba(201,169,122,0.06);font-size:12px;")
+        lay.addWidget(self._kpi)
+
+        # Tabla
+        self._tbl = QTableWidget()
+        self._tbl.setColumnCount(len(self._COLS))
+        self._tbl.setHorizontalHeaderLabels(self._COLS)
+        self._tbl.verticalHeader().setVisible(False)
+        self._tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked |
+            QTableWidget.EditTrigger.SelectedClicked)
+        self._tbl.setAlternatingRowColors(True)
+        self._tbl.setSortingEnabled(False)
+        self._tbl.setColumnWidth(0, 105)   # Estado
+        self._tbl.setColumnWidth(1, 210)   # Ingrediente
+        self._tbl.setColumnWidth(2, 155)   # Categoría
+        self._tbl.setColumnWidth(3, 115)   # Stock Actual
+        self._tbl.setColumnWidth(4, 100)   # Necesario
+        self._tbl.setColumnWidth(5, 90)    # Balance
+        self._tbl.setColumnWidth(6, 68)    # Unidad
+        self._tbl.horizontalHeader().setStretchLastSection(True)
+        self._tbl.setRowHeight(0, 34)
+        self._tbl.verticalHeader().setDefaultSectionSize(32)
+        self._tbl.cellChanged.connect(self._on_cell_changed)
+        lay.addWidget(self._tbl)
+
+    # ── Data refresh ──────────────────────────────────────────────────────────
+
+    def refresh(self):
+        s = self.state
+        if not s.recetas:
+            self._tbl.setRowCount(0)
+            self._kpi.setText(
+                "<span style='color:rgba(201,169,122,0.40)'>Sin recetas cargadas.</span>")
+            return
+
+        all_ings = core.build_all_ingredients(s.recetas)
+
+        needed: dict = {}
+        if s.history and s.model:
+            start = datetime.combine(s.start_date, datetime.min.time())
+            needed = core.build_needed_ingredients(
+                s.model, start, s.horizon, s.k_factor, s.recetas, s.name_to_sku)
+
+        inv = s.inventario
+        self._all_data = {}
+        for key, ing in all_ings.items():
+            stock     = float(inv.get(key, {}).get('stock', 0.0))
+            needed_q  = needed.get(key, {}).get('total', 0.0)
+            balance   = stock - needed_q
+            if stock == 0:
+                status = 'QUIEBRE'
+            elif needed_q > 0 and stock < needed_q:
+                status = 'BAJO'
+            else:
+                status = 'OK'
+            self._all_data[key] = {
+                'nombre':    ing['nombre'],
+                'categoria': ing['categoria'],
+                'unidad':    ing['unidad'],
+                'proveedor': ing.get('proveedor', ''),
+                'stock':     stock,
+                'needed':    needed_q,
+                'balance':   balance,
+                'status':    status,
+            }
+
+        # Rebuild category combo preservando selección
+        cats = sorted({v['categoria'] for v in self._all_data.values() if v['categoria']})
+        cur  = self._cat_combo.currentText()
+        self._cat_combo.blockSignals(True)
+        self._cat_combo.clear()
+        self._cat_combo.addItem("Todas las categorías")
+        self._cat_combo.addItems(cats)
+        if cur in cats:
+            self._cat_combo.setCurrentText(cur)
+        self._cat_combo.blockSignals(False)
+
+        self._update_kpi()
+        self._filter()
+
+    def _update_kpi(self):
+        n_q  = sum(1 for v in self._all_data.values() if v['status'] == 'QUIEBRE')
+        n_b  = sum(1 for v in self._all_data.values() if v['status'] == 'BAJO')
+        n_ok = sum(1 for v in self._all_data.values() if v['status'] == 'OK')
+        parts = [
+            f"<span style='color:rgba(201,169,122,.48)'>INSUMOS</span>&nbsp;"
+            f"<b style='color:#C9A97A'>{len(self._all_data)}</b>",
+            f"<span style='color:#F87171'>⬤</span>&nbsp;"
+            f"<span style='color:rgba(201,169,122,.48)'>QUIEBRE</span>&nbsp;"
+            f"<b style='color:#F87171'>{n_q}</b>",
+            f"<span style='color:#FBBF24'>⬤</span>&nbsp;"
+            f"<span style='color:rgba(201,169,122,.48)'>BAJO STOCK</span>&nbsp;"
+            f"<b style='color:#FBBF24'>{n_b}</b>",
+            f"<span style='color:#A5D6A7'>⬤</span>&nbsp;"
+            f"<span style='color:rgba(201,169,122,.48)'>OK</span>&nbsp;"
+            f"<b style='color:#A5D6A7'>{n_ok}</b>",
+        ]
+        self._kpi.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(parts))
+
+    # ── Filtering & rendering ─────────────────────────────────────────────────
+
+    def _filter(self):
+        q       = self._search.text().strip().lower()
+        sel_cat = self._cat_combo.currentText()
+        sel_st  = self._st_combo.currentText()
+        st_map  = {"Quiebre": "QUIEBRE", "Bajo stock": "BAJO", "OK": "OK"}
+
+        keys = [
+            k for k, v in sorted(
+                self._all_data.items(),
+                key=lambda x: (x[1]['categoria'], x[1]['nombre']))
+            if (not q or q in v['nombre'].lower())
+            and (sel_cat == "Todas las categorías" or v['categoria'] == sel_cat)
+            and (sel_st == "Todos" or v['status'] == st_map.get(sel_st))
+        ]
+        self._render_table(keys)
+
+    def _render_table(self, keys: list):
+        self._saving = True
+        self._vis_keys = keys
+        self._tbl.setRowCount(0)
+        self._tbl.setRowCount(len(keys))
+
+        _ST = {
+            'QUIEBRE': ('#F87171', '⬤  QUIEBRE'),
+            'BAJO':    ('#FBBF24', '⬤  BAJO'),
+            'OK':      ('#A5D6A7', '⬤  OK'),
+        }
+
+        def _ro(text, color=None, align=None):
+            it = QTableWidgetItem(str(text))
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if color:
+                it.setForeground(QColor(color))
+            if align:
+                it.setTextAlignment(align)
+            return it
+
+        _R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+
+        for r, key in enumerate(keys):
+            d = self._all_data[key]
+            clr, label = _ST.get(d['status'], ('#C9A97A', d['status']))
+
+            # 0 Estado
+            it0 = QTableWidgetItem(label)
+            it0.setForeground(QColor(clr))
+            it0.setFlags(it0.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            it0.setData(Qt.ItemDataRole.UserRole, key)
+            self._tbl.setItem(r, 0, it0)
+
+            # 1 Ingrediente
+            self._tbl.setItem(r, 1, _ro(d['nombre']))
+
+            # 2 Categoría
+            self._tbl.setItem(r, 2, _ro(d['categoria'], "rgba(201,169,122,0.50)"))
+
+            # 3 Stock Actual — editable
+            s_val = d['stock']
+            s_txt = f"{s_val:.0f}" if s_val == int(s_val) else f"{s_val:.1f}"
+            it3 = QTableWidgetItem(s_txt)
+            it3.setForeground(QColor('#C9A97A'))
+            it3.setTextAlignment(_R)
+            self._tbl.setItem(r, 3, it3)
+
+            # 4 Necesario
+            if d['needed'] > 0:
+                n_val = d['needed']
+                n_txt = f"{n_val:.0f}" if n_val == int(n_val) else f"{n_val:.1f}"
+                self._tbl.setItem(r, 4, _ro(n_txt, "rgba(201,169,122,0.48)", _R))
+            else:
+                self._tbl.setItem(r, 4, _ro("—", "rgba(201,169,122,0.22)", _R))
+
+            # 5 Balance
+            if d['needed'] == 0:
+                self._tbl.setItem(r, 5, _ro("—", "rgba(201,169,122,0.22)", _R))
+            else:
+                sign   = "+" if d['balance'] >= 0 else ""
+                b_clr  = '#A5D6A7' if d['balance'] >= 0 else '#F87171'
+                self._tbl.setItem(r, 5, _ro(f"{sign}{d['balance']:.0f}", b_clr, _R))
+
+            # 6 Unidad
+            self._tbl.setItem(r, 6, _ro(d['unidad'], "rgba(201,169,122,0.40)"))
+
+            # 7 Proveedor
+            self._tbl.setItem(r, 7, _ro(d.get('proveedor', ''), "rgba(201,169,122,0.42)"))
+
+        self._saving = False
+
+    # ── Cell editing ──────────────────────────────────────────────────────────
+
+    def _on_cell_changed(self, row: int, col: int):
+        if self._saving or col != 3 or row >= len(self._vis_keys):
+            return
+        key  = self._vis_keys[row]
+        item = self._tbl.item(row, 3)
+        if not item:
+            return
+
+        try:
+            val = float(item.text().replace(',', '.'))
+            if val < 0:
+                val = 0.0
+        except ValueError:
+            # Revertir a valor anterior
+            self._saving = True
+            old = self._all_data.get(key, {}).get('stock', 0.0)
+            item.setText(f"{old:.0f}" if old == int(old) else f"{old:.1f}")
+            self._saving = False
+            return
+
+        # Actualizar datos en memoria
+        d = self._all_data[key]
+        d['stock']   = val
+        d['balance'] = val - d['needed']
+        if val == 0:
+            d['status'] = 'QUIEBRE'
+        elif d['needed'] > 0 and val < d['needed']:
+            d['status'] = 'BAJO'
+        else:
+            d['status'] = 'OK'
+
+        # Persistir en disco
+        inv           = dict(self.state.inventario)
+        entry         = dict(inv.get(key, {}))
+        entry['stock']   = val
+        entry['updated'] = datetime.now().isoformat(timespec='seconds')
+        inv[key]         = entry
+        self.state.inventario = inv
+        core.save_inventario(inv)
+
+        # Actualizar solo las celdas que cambian (sin rebuild completo)
+        _ST = {'QUIEBRE': ('#F87171', '⬤  QUIEBRE'),
+               'BAJO':    ('#FBBF24', '⬤  BAJO'),
+               'OK':      ('#A5D6A7', '⬤  OK')}
+        clr, label = _ST[d['status']]
+        _R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+
+        self._saving = True
+
+        it0 = self._tbl.item(row, 0)
+        if it0:
+            it0.setText(label)
+            it0.setForeground(QColor(clr))
+
+        if d['needed'] == 0:
+            b_txt, b_clr = "—", "rgba(201,169,122,0.22)"
+        else:
+            sign  = "+" if d['balance'] >= 0 else ""
+            b_txt = f"{sign}{d['balance']:.0f}"
+            b_clr = '#A5D6A7' if d['balance'] >= 0 else '#F87171'
+
+        it5 = self._tbl.item(row, 5)
+        if it5:
+            it5.setText(b_txt)
+            it5.setForeground(QColor(b_clr))
+            it5.setTextAlignment(_R)
+
+        self._saving = False
+
+        self._update_kpi()
+        self._lbl_saved.setText(f"Guardado {datetime.now().strftime('%H:%M:%S')}")
+
+    def _clear_filters(self):
+        self._search.clear()
+        self._cat_combo.setCurrentIndex(0)
+        self._st_combo.setCurrentIndex(0)
+
+
 # ── Tab: VENTAS ────────────────────────────────────────────────────────────────
 
 class TabVentas(QWidget):
@@ -2563,14 +2947,17 @@ class TabTendencias(WebTab):
             self.render(_page('<h2>Tendencias</h2><p style="color:var(--t3)">Sin datos.</p>'))
             return
         top = (s.df[s.df['category']=='Fondo'].groupby('dish')['quantity']
-               .mean().sort_values(ascending=False).head(8).index.tolist())
+               .mean().sort_values(ascending=False).head(5).index.tolist())
         fig_heat  = core.chart_heatmap(s.df)
         fig_trend = core.chart_trend(s.df, top)
         fig_week  = core.chart_weekly_total(s.df)
         tend_tabs = _stabs([
-            ('HEATMAP',   'heat',  f'<div class="chart-box">{_fig_html(fig_heat,  380)}</div>'),
-            ('TENDENCIA', 'trend', f'<div class="chart-box">{_fig_html(fig_trend, 460)}</div>'),
-            ('VOLUMEN',   'vol',   f'<div class="chart-box">{_fig_html(fig_week,  340)}</div>'),
+            ('POR DÍA',    'heat',
+             f'<div class="chart-box">{_fig_html(fig_heat, 420)}</div>'),
+            ('EVOLUCIÓN',  'trend',
+             f'<div class="chart-box">{_fig_html(fig_trend, 460)}</div>'),
+            ('POR SEMANA', 'vol',
+             f'<div class="chart-box">{_fig_html(fig_week, 380)}</div>'),
         ])
         self.render(_page(f'<h2>Tendencias</h2>{tend_tabs}'))
 
@@ -3618,6 +4005,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(TabHistorial(self.state))    # 5 – Historial
         self.stack.addWidget(TabRecetas(self.state))      # 6 – Recetas
         self.stack.addWidget(TabCostos(self.state))       # 7 – Costos
+        self.stack.addWidget(TabInventario(self.state))   # 8 – Inventario
 
         self.nav.page_changed.connect(self.stack.setCurrentIndex)
         _lay.addWidget(self.stack, 1)
