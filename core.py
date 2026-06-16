@@ -538,8 +538,9 @@ def chart_forecast_bars(totals, dish_stats, cat='Fondo', top_n=20, horizon=1):
             xanchor='left', xshift=8, font=dict(size=11, color=color))
     layout = {**PLOTLY_BASE}
     layout.update(barmode='stack', height=max(380, len(names)*32),
+        margin=dict(l=220, r=64, t=48, b=16),
         title=dict(text=f'Forecast — {cat} · {dias_lbl}', **PLOTLY_BASE['title']),
-        yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed'},
+        yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed', 'automargin': True},
         xaxis={**PLOTLY_BASE['xaxis'], 'title': f'Unidades totales a producir ({dias_lbl})'})
     fig.update_layout(**layout)
     return _theme(fig)
@@ -650,7 +651,8 @@ def chart_variability(model, cat='Fondo', top_n=18):
     layout.update(
         title=dict(text=f'Variabilidad — {cat}{subtitle}', **PLOTLY_BASE['title']),
         height=max(380, len(agg) * 30), showlegend=False,
-        yaxis=dict(**PLOTLY_BASE['yaxis'], autorange='reversed'),
+        margin=dict(l=220, r=64, t=48, b=16),
+        yaxis=dict(**PLOTLY_BASE['yaxis'], autorange='reversed', automargin=True),
         xaxis=dict(**PLOTLY_BASE['xaxis'], title='Unidades promedio por día'))
     fig.update_layout(**layout)
     return _theme(fig)
@@ -681,7 +683,8 @@ def chart_promo_impact(model, top_n=15):
     layout.update(barmode='overlay',
         title=dict(text='Impacto AMEX — Fondos', **PLOTLY_BASE['title']),
         height=max(400, len(names)*32),
-        yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed'},
+        margin=dict(l=220, r=80, t=48, b=16),
+        yaxis={**PLOTLY_BASE['yaxis'], 'autorange': 'reversed', 'automargin': True},
         xaxis={**PLOTLY_BASE['xaxis'], 'title': 'Unidades promedio'})
     fig.update_layout(**layout)
     return _theme(fig)
