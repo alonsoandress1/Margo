@@ -1140,3 +1140,47 @@ def load_inventario() -> dict:
 
 def save_inventario(data: dict):
     _atomic_write(INVENTARIO_PATH, data)
+
+
+# ── Odoo integration ───────────────────────────────────────────────────────────
+
+ODOO_MAPPING_PATH = os.path.join(BASE_DIR, "odoo_mapping.json")
+
+
+def load_odoo_mapping() -> dict:
+    try:
+        with open(ODOO_MAPPING_PATH, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_odoo_mapping(data: dict) -> None:
+    _atomic_write(ODOO_MAPPING_PATH, data)
+
+
+def sync_prices_from_odoo_mapping(mapping: dict) -> int:
+    """
+    Actualiza precio_unitario en recetas.json desde el mapping Odoo.
+    Solo actualiza ingredientes con price > 0 en el mapping.
+    Retorna cantidad de ingredientes actualizados.
+    """
+    raw, _ = load_recetas()
+    count = 0
+    for sku, receta in raw.items():
+        if sku.startswith('_'):
+            continue
+        for ing in receta.get('ingredientes', []):
+            nombre = ing.get('nombre', '').strip()
+            if not nombre:
+                continue
+            key = f"{nombre}||{ing.get('unidad', 'g')}"
+            entry = mapping.get(key, {})
+            price = float(entry.get('price', 0) or 0)
+            if price > 0:
+                ing['precio_unitario'] = price
+                if entry.get('supplier_name') and not ing.get('proveedor'):
+                    ing['proveedor'] = entry['supplier_name']
+                count += 1
+    save_recetas(raw)
+    return count

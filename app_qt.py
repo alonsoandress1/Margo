@@ -46,6 +46,12 @@ from PyQt6.QtGui import (
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 
+try:
+    from odoo_connector import OdooClient
+    HAS_ODOO = True
+except ImportError:
+    HAS_ODOO = False
+
 # ── Design System v3 — Nav Rail Architecture ──────────────────────────────────
 QSS = """
 /* ═══════════════════════════════════════════════════════════
@@ -1227,6 +1233,7 @@ class AppState(QObject):
         self.recetas      : dict = {}
         self.load_errors  : list = []
         self.inventario   : dict = core.load_inventario()
+        self.odoo_mapping : dict = core.load_odoo_mapping()
 
     def _save_prefs(self):
         cfg = core.load_config()
@@ -1324,6 +1331,7 @@ class NavRail(QWidget):
         "CONFIGURACIÓN",
         ("💲", "Costos",      7),
         ("📖", "Recetas",     6),
+        ("🔗", "Odoo",        9),
     ]
 
     def __init__(self, state: AppState, parent=None):
@@ -4116,6 +4124,742 @@ class TabCostos(QWidget):
         </body></html>"""
 
 
+# ── Tab: ODOO ──────────────────────────────────────────────────────────────────
+
+class _OdooSyncWorker(QThread):
+    """Ejecuta operaciones Odoo en hilo secundario para no bloquear la UI."""
+    done    = pyqtSignal(bool, str, object)   # ok, msg, data
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__()
+        self._fn   = fn
+        self._args = args
+        self._kw   = kwargs
+
+    def run(self):
+        try:
+            result = self._fn(*self._args, **self._kw)
+            self.done.emit(True, '', result)
+        except Exception as e:
+            self.done.emit(False, str(e), None)
+
+
+class TabOdoo(QWidget):
+    """Integración con Odoo: conexión XML-RPC, mapeo de ingredientes y propuesta de OC."""
+
+    _MAP_COLS = ["INGREDIENTE", "UNIDAD", "REF. ODOO ✎", "PRECIO ODOO", "PROVEEDOR", "ÚLT. SYNC"]
+
+    def __init__(self, state: AppState, parent=None):
+        super().__init__(parent)
+        self.state   = state
+        self._client = None           # OdooClient activo
+        self._map_saving = False      # suprime cellChanged al reconstruir tabla
+        self._proposal_data: dict = {}  # {partner_name: {partner_id, lines: [...]}}
+        self._build_ui()
+        state.changed.connect(self._refresh_mapeo)
+        state.changed.connect(self._refresh_propuesta)
+
+    # ── Build ─────────────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Toolbar global
+        toolbar = QWidget(); toolbar.setObjectName("prodToolbar")
+        tb = QHBoxLayout(toolbar); tb.setContentsMargins(16, 10, 16, 10)
+        lbl = QLabel("ODOO"); lbl.setObjectName("subtle")
+        tb.addWidget(lbl)
+        tb.addSpacing(16)
+        self._conn_badge = QLabel("● Sin conexión")
+        self._conn_badge.setStyleSheet("color:#6B7280;font-size:12px")
+        tb.addWidget(self._conn_badge)
+        tb.addStretch()
+        lay.addWidget(toolbar)
+
+        # Inner tabs
+        self._tabs = QTabWidget(); self._tabs.setObjectName("innerTabs")
+        self._tabs.addTab(self._build_conexion(),  "🔌  Conexión")
+        self._tabs.addTab(self._build_mapeo(),     "🗂  Mapeo de ingredientes")
+        self._tabs.addTab(self._build_propuesta(), "📋  Propuesta OC")
+        self._tabs.currentChanged.connect(self._on_tab_change)
+        lay.addWidget(self._tabs, 1)
+
+    # ── Panel Conexión ────────────────────────────────────────────────────────
+
+    def _build_conexion(self):
+        w   = QWidget()
+        out = QVBoxLayout(w)
+        out.setContentsMargins(0, 0, 0, 0); out.setSpacing(0)
+
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        vl    = QVBoxLayout(inner); vl.setContentsMargins(32, 28, 32, 28); vl.setSpacing(16)
+
+        # Form
+        form = QFormLayout(); form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        cfg = core.load_config().get('odoo', {})
+
+        self._f_url  = QLineEdit(cfg.get('url', ''))
+        self._f_url.setPlaceholderText("https://miempresa.odoo.com")
+        self._f_db   = QLineEdit(cfg.get('db', ''))
+        self._f_db.setPlaceholderText("nombre-de-la-base-de-datos")
+        self._f_user = QLineEdit(cfg.get('user', ''))
+        self._f_user.setPlaceholderText("usuario@empresa.cl")
+        self._f_key  = QLineEdit(cfg.get('api_key', ''))
+        self._f_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._f_key.setPlaceholderText("Configuración → Técnico → Claves de API")
+
+        for label, field in [
+            ("URL del servidor", self._f_url),
+            ("Base de datos",    self._f_db),
+            ("Usuario",          self._f_user),
+            ("API Key",          self._f_key),
+        ]:
+            lbl_w = QLabel(label); lbl_w.setObjectName("navMeta")
+            form.addRow(lbl_w, field)
+
+        vl.addLayout(form)
+
+        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
+        self._btn_test = QPushButton("🔌 Probar conexión")
+        self._btn_test.clicked.connect(self._test_connect)
+        btn_save = QPushButton("Guardar")
+        btn_save.clicked.connect(self._save_credentials)
+        btn_row.addWidget(self._btn_test); btn_row.addWidget(btn_save); btn_row.addStretch()
+        vl.addLayout(btn_row)
+
+        self._conn_result = QLabel("")
+        self._conn_result.setWordWrap(True)
+        self._conn_result.setTextFormat(Qt.TextFormat.RichText)
+        vl.addWidget(self._conn_result)
+
+        # Instrucciones
+        guide = QLabel(
+            "<b style='color:rgba(201,169,122,.55);font-size:9px;letter-spacing:.1em'>"
+            "CÓMO OBTENER LA API KEY EN ODOO</b><br>"
+            "<span style='color:rgba(201,169,122,.45);font-size:12px'>"
+            "Configuración → Usuarios → tu usuario → pestaña <i>Seguridad</i> → "
+            "<i>Claves de API</i> → Nueva clave<br>"
+            "La base de datos está en la URL: <code>https://empresa.<b>odoo.com</b></code> "
+            "→ nombre antes del punto.</span>")
+        guide.setWordWrap(True)
+        guide.setTextFormat(Qt.TextFormat.RichText)
+        guide.setStyleSheet(
+            "background:rgba(201,169,122,.04);border:1px solid rgba(201,169,122,.10);"
+            "border-radius:10px;padding:14px 18px;margin-top:8px")
+        vl.addWidget(guide)
+        vl.addStretch()
+
+        scroll.setWidget(inner)
+        out.addWidget(scroll)
+        return w
+
+    # ── Panel Mapeo ───────────────────────────────────────────────────────────
+
+    def _build_mapeo(self):
+        w  = QWidget()
+        vl = QVBoxLayout(w); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(0)
+
+        tb_w = QWidget(); tb_w.setObjectName("prodToolbar")
+        tb   = QHBoxLayout(tb_w); tb.setContentsMargins(16, 8, 16, 8); tb.setSpacing(8)
+
+        self._map_search = QLineEdit()
+        self._map_search.setPlaceholderText("Filtrar ingrediente…")
+        self._map_search.setFixedWidth(200)
+        self._map_search.textChanged.connect(self._filter_mapeo)
+        tb.addWidget(self._map_search)
+        tb.addStretch()
+
+        self._lbl_map_status = QLabel("")
+        self._lbl_map_status.setObjectName("navMeta")
+        tb.addWidget(self._lbl_map_status)
+
+        btn_buscar = QPushButton("🔍 Autocompletar desde Odoo")
+        btn_buscar.setToolTip("Busca en Odoo por nombre cada ingrediente sin referencia")
+        btn_buscar.clicked.connect(self._auto_fill_refs)
+        tb.addWidget(btn_buscar)
+
+        self._btn_sync_prices = QPushButton("🔄 Sincronizar precios")
+        self._btn_sync_prices.clicked.connect(self._sync_prices)
+        tb.addWidget(self._btn_sync_prices)
+
+        vl.addWidget(tb_w)
+
+        # KPI strip
+        self._map_kpi = QLabel()
+        self._map_kpi.setStyleSheet(
+            "padding:7px 18px;background:#0A0906;"
+            "border-bottom:1px solid rgba(201,169,122,0.06);font-size:12px;")
+        vl.addWidget(self._map_kpi)
+
+        # Tabla mapeo
+        self._map_tbl = QTableWidget()
+        self._map_tbl.setColumnCount(len(self._MAP_COLS))
+        self._map_tbl.setHorizontalHeaderLabels(self._MAP_COLS)
+        self._map_tbl.verticalHeader().setVisible(False)
+        self._map_tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._map_tbl.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked)
+        self._map_tbl.setAlternatingRowColors(True)
+        self._map_tbl.setColumnWidth(0, 210)
+        self._map_tbl.setColumnWidth(1, 68)
+        self._map_tbl.setColumnWidth(2, 130)
+        self._map_tbl.setColumnWidth(3, 115)
+        self._map_tbl.setColumnWidth(5, 130)
+        self._map_tbl.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Stretch)
+        self._map_tbl.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeMode.Fixed)
+        self._map_tbl.verticalHeader().setDefaultSectionSize(30)
+        self._map_tbl.cellChanged.connect(self._on_map_cell_changed)
+        vl.addWidget(self._map_tbl)
+
+        return w
+
+    # ── Panel Propuesta OC ────────────────────────────────────────────────────
+
+    def _build_propuesta(self):
+        w  = QWidget()
+        vl = QVBoxLayout(w); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(0)
+
+        tb_w = QWidget(); tb_w.setObjectName("prodToolbar")
+        tb   = QHBoxLayout(tb_w); tb.setContentsMargins(16, 8, 16, 8); tb.setSpacing(8)
+
+        self._prop_info = QLabel("Basada en el pronóstico activo")
+        self._prop_info.setObjectName("navMeta")
+        tb.addWidget(self._prop_info)
+        tb.addStretch()
+
+        self._prop_supplier_combo = QComboBox()
+        self._prop_supplier_combo.setFixedWidth(220)
+        self._prop_supplier_combo.setPlaceholderText("Seleccionar proveedor")
+        tb.addWidget(self._prop_supplier_combo)
+
+        self._btn_create_oc = QPushButton("✓ Crear OC en Odoo")
+        self._btn_create_oc.clicked.connect(self._create_purchase_order)
+        tb.addWidget(self._btn_create_oc)
+
+        vl.addWidget(tb_w)
+
+        self._prop_web = WebTab()
+        vl.addWidget(self._prop_web, 1)
+
+        return w
+
+    # ── Slots: Conexión ───────────────────────────────────────────────────────
+
+    def _save_credentials(self):
+        cfg = core.load_config()
+        cfg['odoo'] = {
+            'url':     self._f_url.text().strip(),
+            'db':      self._f_db.text().strip(),
+            'user':    self._f_user.text().strip(),
+            'api_key': self._f_key.text().strip(),
+        }
+        core.save_config(cfg)
+        self._conn_result.setText(
+            "<span style='color:rgba(201,169,122,.7)'>Credenciales guardadas.</span>")
+
+    def _test_connect(self):
+        if not HAS_ODOO:
+            self._conn_result.setText(
+                "<span style='color:#F87171'>odoo_connector.py no encontrado.</span>")
+            return
+        self._btn_test.setEnabled(False)
+        self._btn_test.setText("Conectando…")
+        self._save_credentials()
+
+        cfg = core.load_config().get('odoo', {})
+        client = OdooClient(
+            cfg.get('url', ''), cfg.get('db', ''),
+            cfg.get('user', ''), cfg.get('api_key', ''))
+
+        def _do():
+            return client.connect()
+
+        self._worker = _OdooSyncWorker(_do)
+        self._worker.done.connect(self._on_connect_done)
+        self._worker.start()
+
+    def _on_connect_done(self, ok: bool, err: str, result):
+        self._btn_test.setEnabled(True)
+        self._btn_test.setText("🔌 Probar conexión")
+        ok_flag, msg = result if result else (False, err)
+        if ok_flag:
+            cfg = core.load_config().get('odoo', {})
+            self._client = OdooClient(
+                cfg.get('url', ''), cfg.get('db', ''),
+                cfg.get('user', ''), cfg.get('api_key', ''))
+            self._client.connect()
+            self._conn_badge.setText("● Conectado")
+            self._conn_badge.setStyleSheet("color:#A5D6A7;font-size:12px")
+            self._conn_result.setText(
+                f"<span style='color:#A5D6A7'>✓ {msg}</span>")
+        else:
+            self._client = None
+            self._conn_badge.setText("● Sin conexión")
+            self._conn_badge.setStyleSheet("color:#F87171;font-size:12px")
+            self._conn_result.setText(
+                f"<span style='color:#F87171'>✗ {msg}</span>")
+
+    # ── Slots: Mapeo ──────────────────────────────────────────────────────────
+
+    def _refresh_mapeo(self):
+        if not self.state.recetas:
+            self._map_tbl.setRowCount(0)
+            self._map_kpi.setText(
+                "<span style='color:rgba(201,169,122,.4)'>Sin recetas cargadas.</span>")
+            return
+
+        all_ings = core.build_all_ingredients(self.state.recetas)
+        mapping  = self.state.odoo_mapping
+        keys     = sorted(all_ings.keys(),
+                          key=lambda k: (all_ings[k]['categoria'], all_ings[k]['nombre']))
+
+        n_mapped   = sum(1 for k in keys if mapping.get(k, {}).get('ref', ''))
+        n_with_price = sum(1 for k in keys if float(mapping.get(k, {}).get('price', 0) or 0) > 0)
+
+        parts = [
+            f"<span style='color:rgba(201,169,122,.48)'>TOTAL</span>&nbsp;<b style='color:#C9A97A'>{len(keys)}</b>",
+            f"<span style='color:rgba(201,169,122,.48)'>MAPEADOS</span>&nbsp;<b style='color:#C9A97A'>{n_mapped}</b>",
+            f"<span style='color:rgba(201,169,122,.48)'>CON PRECIO</span>&nbsp;<b style='color:#A5D6A7'>{n_with_price}</b>",
+            f"<span style='color:rgba(201,169,122,.48)'>SIN MAPEAR</span>&nbsp;<b style='color:#FBBF24'>{len(keys)-n_mapped}</b>",
+        ]
+        self._map_kpi.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(parts))
+
+        self._map_search.clear()
+        self._render_mapeo(keys, all_ings)
+
+    def _filter_mapeo(self):
+        if not self.state.recetas:
+            return
+        q       = self._map_search.text().strip().lower()
+        all_ings = core.build_all_ingredients(self.state.recetas)
+        keys     = [k for k in sorted(all_ings.keys(),
+                        key=lambda k: (all_ings[k]['categoria'], all_ings[k]['nombre']))
+                    if not q or q in all_ings[k]['nombre'].lower()]
+        self._render_mapeo(keys, all_ings)
+
+    def _render_mapeo(self, keys: list, all_ings: dict):
+        mapping = self.state.odoo_mapping
+        self._map_saving = True
+        self._map_tbl.setRowCount(0)
+        self._map_tbl.setRowCount(len(keys))
+
+        def _ro(txt, color=None, align=None):
+            it = QTableWidgetItem(str(txt))
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if color:
+                it.setForeground(QColor(color))
+            if align:
+                it.setTextAlignment(align)
+            return it
+
+        _R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+
+        for r, key in enumerate(keys):
+            ing   = all_ings[key]
+            entry = mapping.get(key, {})
+            ref   = entry.get('ref', '')
+            price = float(entry.get('price', 0) or 0)
+            prov  = entry.get('supplier_name', '')
+            sync  = entry.get('last_sync', '')
+            if sync:
+                try:
+                    sync = datetime.fromisoformat(sync).strftime('%d/%m %H:%M')
+                except Exception:
+                    pass
+
+            # 0 Ingrediente
+            self._map_tbl.setItem(r, 0, _ro(ing['nombre']))
+
+            # 1 Unidad
+            self._map_tbl.setItem(r, 1, _ro(ing['unidad'], 'rgba(201,169,122,0.42)'))
+
+            # 2 Ref Odoo — editable
+            it_ref = QTableWidgetItem(ref)
+            it_ref.setForeground(QColor('#C9A97A' if ref else 'rgba(201,169,122,0.28)'))
+            if not ref:
+                it_ref.setText('—  doble-clic para editar')
+            it_ref.setData(Qt.ItemDataRole.UserRole, key)
+            self._map_tbl.setItem(r, 2, it_ref)
+
+            # 3 Precio Odoo
+            price_txt = f"${price:,.0f}".replace(',', '.') if price else '—'
+            self._map_tbl.setItem(r, 3, _ro(price_txt,
+                '#A5D6A7' if price else 'rgba(201,169,122,0.28)', _R))
+
+            # 4 Proveedor
+            self._map_tbl.setItem(r, 4, _ro(prov, 'rgba(201,169,122,0.50)'))
+
+            # 5 Últ. sync
+            self._map_tbl.setItem(r, 5, _ro(sync, 'rgba(201,169,122,0.30)'))
+
+        self._map_saving = False
+
+    def _on_map_cell_changed(self, row: int, col: int):
+        if self._map_saving or col != 2:
+            return
+        item = self._map_tbl.item(row, 2)
+        if not item:
+            return
+        key = item.data(Qt.ItemDataRole.UserRole)
+        if not key:
+            return
+        txt = item.text().strip()
+        if txt in ('—', '—  doble-clic para editar', ''):
+            txt = ''
+
+        mapping = dict(self.state.odoo_mapping)
+        entry   = dict(mapping.get(key, {}))
+        entry['ref'] = txt
+        mapping[key] = entry
+        self.state.odoo_mapping = mapping
+        core.save_odoo_mapping(mapping)
+        self._lbl_map_status.setText(f"Guardado {datetime.now().strftime('%H:%M:%S')}")
+
+    def _auto_fill_refs(self):
+        """Busca en Odoo por nombre cada ingrediente sin referencia y auto-completa."""
+        if not self._client:
+            QMessageBox.information(self, "Sin conexión",
+                "Conecta con Odoo primero desde la pestaña Conexión.")
+            return
+        if not self.state.recetas:
+            return
+
+        all_ings = core.build_all_ingredients(self.state.recetas)
+        mapping  = dict(self.state.odoo_mapping)
+        pending  = [(k, v['nombre']) for k, v in all_ings.items()
+                    if not mapping.get(k, {}).get('ref', '')]
+        if not pending:
+            QMessageBox.information(self, "Sin pendientes",
+                "Todos los ingredientes ya tienen referencia Odoo.")
+            return
+
+        self._lbl_map_status.setText("Buscando en Odoo…")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        def _do():
+            filled = 0
+            for key, nombre in pending:
+                try:
+                    results = self._client.search_products(nombre, limit=1)
+                    if results and results[0].get('ref'):
+                        entry       = dict(mapping.get(key, {}))
+                        entry['ref']       = results[0]['ref']
+                        entry['odoo_id']   = results[0]['id']
+                        entry['odoo_name'] = results[0]['name']
+                        mapping[key] = entry
+                        filled += 1
+                except Exception:
+                    pass
+            return filled, mapping
+
+        self._worker = _OdooSyncWorker(_do)
+        self._worker.done.connect(self._on_auto_fill_done)
+        self._worker.start()
+
+    def _on_auto_fill_done(self, ok: bool, err: str, result):
+        QApplication.restoreOverrideCursor()
+        if not ok or result is None:
+            self._lbl_map_status.setText(f"Error: {err}")
+            return
+        filled, new_mapping = result
+        self.state.odoo_mapping = new_mapping
+        core.save_odoo_mapping(new_mapping)
+        self._lbl_map_status.setText(f"Auto-completados: {filled} ingredientes")
+        self._refresh_mapeo()
+
+    def _sync_prices(self):
+        """Obtiene precios desde Odoo para todos los ingredientes con ref mapeada."""
+        if not self._client:
+            QMessageBox.information(self, "Sin conexión",
+                "Conecta con Odoo primero desde la pestaña Conexión.")
+            return
+
+        mapping  = dict(self.state.odoo_mapping)
+        refs     = [v['ref'] for v in mapping.values() if v.get('ref')]
+        if not refs:
+            QMessageBox.information(self, "Sin referencias",
+                "Asigna referencias de Odoo en la tabla de mapeo primero.")
+            return
+
+        self._btn_sync_prices.setEnabled(False)
+        self._btn_sync_prices.setText("Sincronizando…")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        def _do():
+            client   = self._client
+            products = client.get_products_by_ref(refs)
+            ids_list = [p['id'] for p in products.values()]
+            prices   = client.get_supplier_prices(ids_list)
+            ref_to_id = {code: p['id'] for code, p in products.items()}
+            now_iso   = datetime.now().isoformat(timespec='seconds')
+
+            new_map = dict(mapping)
+            for key, entry in new_map.items():
+                ref = entry.get('ref', '')
+                if not ref or ref not in ref_to_id:
+                    continue
+                odoo_id = ref_to_id[ref]
+                prod    = products.get(ref, {})
+                entry   = dict(entry)
+                entry['odoo_id']   = odoo_id
+                entry['odoo_name'] = prod.get('name', '')
+                entry['odoo_uom_id'] = prod.get('uom_id')
+                entry['last_sync'] = now_iso
+                plist = prices.get(odoo_id, [])
+                if plist:
+                    best = min(plist, key=lambda p: p['price'] if p['price'] > 0 else 9e9)
+                    entry['price']         = best['price']
+                    entry['currency']      = best['currency']
+                    entry['supplier_id']   = best['partner_id']
+                    entry['supplier_name'] = best['partner_name']
+                    entry['min_qty']       = best['min_qty']
+                    entry['delay']         = best['delay']
+                new_map[key] = entry
+            return new_map
+
+        self._worker = _OdooSyncWorker(_do)
+        self._worker.done.connect(self._on_sync_prices_done)
+        self._worker.start()
+
+    def _on_sync_prices_done(self, ok: bool, err: str, result):
+        QApplication.restoreOverrideCursor()
+        self._btn_sync_prices.setEnabled(True)
+        self._btn_sync_prices.setText("🔄 Sincronizar precios")
+        if not ok or result is None:
+            QMessageBox.warning(self, "Error de sincronización", err)
+            return
+        new_map = result
+        self.state.odoo_mapping = new_map
+        core.save_odoo_mapping(new_map)
+        n_updated = core.sync_prices_from_odoo_mapping(new_map)
+        self._refresh_mapeo()
+        self._lbl_map_status.setText(
+            f"Sincronizado · {n_updated} precios actualizados en recetas")
+        self.state.changed.emit()
+
+    # ── Slots: Propuesta OC ───────────────────────────────────────────────────
+
+    def _on_tab_change(self, idx: int):
+        if idx == 2:
+            self._refresh_propuesta()
+
+    def _refresh_propuesta(self):
+        s = self.state
+        if not s.history or not s.recetas or not s.odoo_mapping:
+            self._prop_web.render(_page(
+                '<h2>Propuesta de Órdenes de Compra</h2>'
+                '<p style="color:var(--t3);margin-top:12px">'
+                'Necesitas datos de historia, recetas y al menos un ingrediente mapeado en Odoo.</p>'))
+            return
+
+        start   = datetime.combine(s.start_date, datetime.min.time())
+        needed  = core.build_needed_ingredients(
+            s.model, start, s.horizon, s.k_factor, s.recetas, s.name_to_sku)
+        mapping = s.odoo_mapping
+
+        # Agrupar por proveedor
+        by_prov: dict = {}   # partner_name → {partner_id, lines: [...]}
+        unmapped = []
+
+        for key, nd in needed.items():
+            entry = mapping.get(key, {})
+            if not entry.get('ref') or not entry.get('odoo_id'):
+                unmapped.append({'nombre': nd['nombre'], 'total': nd['total'],
+                                 'unidad': nd['unidad']})
+                continue
+            pname = entry.get('supplier_name', 'Sin proveedor asignado')
+            pid   = entry.get('supplier_id', 0)
+            price = float(entry.get('price', 0) or 0)
+            if pname not in by_prov:
+                by_prov[pname] = {'partner_id': pid, 'lines': []}
+            by_prov[pname]['lines'].append({
+                'product_id':  entry['odoo_id'],
+                'name':        nd['nombre'],
+                'product_qty': round(nd['total'], 2),
+                'price_unit':  price,
+                'product_uom': entry.get('odoo_uom_id'),
+                'unidad':      nd['unidad'],
+                'min_qty':     float(entry.get('min_qty', 0) or 0),
+                'delay':       int(entry.get('delay', 0) or 0),
+            })
+
+        self._proposal_data = by_prov
+
+        # Actualizar combo de proveedores
+        self._prop_supplier_combo.blockSignals(True)
+        self._prop_supplier_combo.clear()
+        for pname in sorted(by_prov.keys()):
+            self._prop_supplier_combo.addItem(pname, pname)
+        self._prop_supplier_combo.blockSignals(False)
+
+        # Actualizar info
+        n_map = sum(len(v['lines']) for v in by_prov.values())
+        self._prop_info.setText(
+            f"Pronóstico: {s.start_date.strftime('%d/%m/%y')} · {s.horizon}d · "
+            f"{n_map} productos mapeados en {len(by_prov)} proveedor(es)")
+
+        # Renderizar HTML
+        def _fmt(v): return f"${v:,.0f}".replace(',', '.')
+
+        prov_sections = ''
+        for pname in sorted(by_prov.keys()):
+            data  = by_prov[pname]
+            lines = data['lines']
+            total = sum(l['product_qty'] * l['price_unit'] for l in lines)
+            rows  = ''
+            for l in sorted(lines, key=lambda x: -x['product_qty'] * x['price_unit']):
+                sub  = l['product_qty'] * l['price_unit']
+                rows += (
+                    f'<tr>'
+                    f'<td>{_html_mod.escape(l["name"])}</td>'
+                    f'<td class="num">{l["product_qty"]:.1f} {l["unidad"]}</td>'
+                    f'<td class="num">'
+                    f'{_fmt(l["price_unit"]) if l["price_unit"] else "<span style=\'color:rgba(201,169,122,.3)\'>—</span>"}'
+                    f'</td>'
+                    f'<td class="num">'
+                    f'{_fmt(sub) if sub else "<span style=\'color:rgba(201,169,122,.3)\'>—</span>"}'
+                    f'</td>'
+                    f'</tr>')
+            delay_txt = f'Plazo: {lines[0]["delay"]}d  ·  ' if lines and lines[0].get('delay') else ''
+            prov_sections += f"""
+            <div class="prov-card">
+              <div class="prov-head">
+                <span class="prov-name">{_html_mod.escape(pname)}</span>
+                <span class="prov-total">{_fmt(total) if total else "Sin precios"}</span>
+              </div>
+              <table class="prop-tbl">
+                <thead>
+                  <tr><th>Ingrediente</th><th>Cantidad</th><th>Precio unit.</th><th>Subtotal</th></tr>
+                </thead>
+                <tbody>{rows}</tbody>
+              </table>
+              <div class="prov-foot">{delay_txt}{len(lines)} producto(s)</div>
+            </div>"""
+
+        # Sección sin mapear
+        if unmapped:
+            unmap_rows = ''.join(
+                f'<li>{_html_mod.escape(u["nombre"])} — {u["total"]:.1f} {u["unidad"]}</li>'
+                for u in sorted(unmapped, key=lambda x: x['nombre']))
+            prov_sections += f"""
+            <div class="prov-card" style="border-color:rgba(251,191,36,.18)">
+              <div class="prov-head">
+                <span class="prov-name" style="color:#FBBF24">⚠ Sin proveedor Odoo</span>
+                <span class="prov-total" style="color:#FBBF24">{len(unmapped)} ingredientes</span>
+              </div>
+              <ul style="padding:0 0 0 18px;margin:8px 0;color:rgba(201,169,122,.55);font-size:12px;line-height:1.9">
+                {unmap_rows}
+              </ul>
+              <div class="prov-foot">Asigna referencias Odoo en la pestaña <b>Mapeo de ingredientes</b></div>
+            </div>"""
+
+        css = """<style>
+        .prov-card{background:rgba(242,234,224,.025);border:1px solid rgba(242,234,224,.07);
+          border-radius:14px;padding:18px 20px;margin-bottom:16px}
+        .prov-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+        .prov-name{font-family:'Palatino Linotype',serif;font-size:17px;color:rgba(201,169,122,.88)}
+        .prov-total{font-size:22px;font-weight:700;color:#C9A97A}
+        .prop-tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:8px}
+        .prop-tbl thead th{font-size:8px;letter-spacing:.12em;
+          color:rgba(201,169,122,.35);padding:5px 10px;text-align:left;
+          border-bottom:1px solid rgba(242,234,224,.07)}
+        .prop-tbl tbody tr:hover{background:rgba(201,169,122,.03)}
+        .prop-tbl td{padding:7px 10px;border-bottom:1px solid rgba(242,234,224,.03)}
+        .num{text-align:right;font-variant-numeric:tabular-nums}
+        .prov-foot{font-size:11px;color:rgba(201,169,122,.35);padding-top:8px;
+          border-top:1px solid rgba(242,234,224,.05);margin-top:4px}
+        </style>"""
+
+        body = (f'<h2>Propuesta de Órdenes de Compra</h2>'
+                f'<p style="color:var(--t3);font-size:12px;margin:4px 0 20px">'
+                f'Selecciona un proveedor en la barra superior y haz clic en '
+                f'<b>Crear OC en Odoo</b> para generar el borrador.</p>'
+                f'{css}{prov_sections}')
+        self._prop_web.render(_page(body))
+
+    def _create_purchase_order(self):
+        if not self._client:
+            QMessageBox.information(self, "Sin conexión",
+                "Conecta con Odoo primero desde la pestaña Conexión.")
+            return
+        pname = self._prop_supplier_combo.currentText()
+        if not pname or pname not in self._proposal_data:
+            QMessageBox.information(self, "Sin selección",
+                "Selecciona un proveedor de la lista.")
+            return
+
+        data      = self._proposal_data[pname]
+        partner_id = data['partner_id']
+        lines      = data['lines']
+
+        if not partner_id:
+            QMessageBox.warning(self, "Sin ID de proveedor",
+                f"El proveedor '{pname}' no tiene ID de Odoo.\n"
+                "Sincroniza precios desde la pestaña Mapeo para obtenerlo.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Confirmar OC",
+            f"¿Crear borrador de OC en Odoo para <b>{pname}</b>?<br>"
+            f"{len(lines)} producto(s) · "
+            f"${sum(l['product_qty']*l['price_unit'] for l in lines):,.0f} estimado",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._btn_create_oc.setEnabled(False)
+        self._btn_create_oc.setText("Creando…")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        notes = (f"Generado por Margo·Nelí — pronóstico "
+                 f"{self.state.start_date.strftime('%d/%m/%Y')} "
+                 f"({self.state.horizon} días)")
+        oc_lines = [{
+            'product_id': l['product_id'],
+            'name':       l['name'],
+            'product_qty': l['product_qty'],
+            'price_unit':  l['price_unit'],
+            'product_uom': l.get('product_uom'),
+        } for l in lines]
+
+        def _do():
+            return self._client.create_purchase_order(partner_id, oc_lines, notes)
+
+        self._worker = _OdooSyncWorker(_do)
+        self._worker.done.connect(self._on_oc_created)
+        self._worker.start()
+
+    def _on_oc_created(self, ok: bool, err: str, result):
+        QApplication.restoreOverrideCursor()
+        self._btn_create_oc.setEnabled(True)
+        self._btn_create_oc.setText("✓ Crear OC en Odoo")
+        if not ok or result is None:
+            QMessageBox.warning(self, "Error al crear OC", err)
+            return
+        po_id, po_name = result
+        cfg = core.load_config().get('odoo', {})
+        odoo_url = cfg.get('url', '').rstrip('/')
+        msg = (f"<b>OC creada exitosamente</b><br><br>"
+               f"Número: <b style='color:#C9A97A'>{po_name}</b><br>"
+               f"ID: {po_id}")
+        if odoo_url:
+            msg += (f"<br><br>"
+                    f"<a href='{odoo_url}/web#model=purchase.order&id={po_id}' "
+                    f"style='color:#7EB8F7'>Abrir en Odoo →</a>")
+        box = QMessageBox(self)
+        box.setWindowTitle("OC Creada")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(msg)
+        box.exec()
+
+
 # ── Main Window ────────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -4149,6 +4893,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(TabRecetas(self.state))      # 6 – Recetas
         self.stack.addWidget(TabCostos(self.state))       # 7 – Costos
         self.stack.addWidget(TabInventario(self.state))   # 8 – Inventario
+        self.stack.addWidget(TabOdoo(self.state))         # 9 – Odoo
 
         self.nav.page_changed.connect(self.stack.setCurrentIndex)
         _lay.addWidget(self.stack, 1)
