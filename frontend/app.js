@@ -352,6 +352,27 @@ async function renderMermas(el, s) {
   }
 }
 
+function showDetalleModal(pedido, nombreLocal) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <h3>Detalle del pedido — ${nombreLocal}</h3>
+      <p class="placeholder" style="margin-bottom:1rem">${pedido.fecha} · ${pedido.estado}</p>
+      <table>
+        <thead><tr><th>Insumo</th><th>Cantidad</th><th>Unidad</th></tr></thead>
+        <tbody>
+          ${(pedido.items || []).map(i => `
+            <tr><td>${i.ingrediente}</td><td>${i.cantidad}</td><td>${i.unidad}</td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:1.25rem"><button type="button" class="btn">Cerrar</button></div>
+    </div>`;
+  overlay.querySelector('button').onclick = () => overlay.remove();
+  document.body.appendChild(overlay);
+}
+
 async function renderPedidos(el, s) {
   const locales = await api('/locales');
   state.locales = locales;
@@ -382,25 +403,29 @@ async function renderPedidos(el, s) {
       </div>` : ''}
     <div class="card">
       <table>
-        <thead><tr><th>Local</th><th>Fecha</th><th>Insumos</th><th>Estado</th><th>Orden de Compra</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr><th></th><th>Local</th><th>Fecha</th><th>Insumos</th><th>Estado</th><th>Orden de Compra</th><th>Acciones</th></tr></thead>
         <tbody>
           ${pedidos.map(p => `
             <tr>
+              <td>${editable
+                ? `<button class="btn-link" data-fav="${p.id}" data-val="${!p.favorito}" title="Favorito">${p.favorito ? '★' : '☆'}</button>`
+                : (p.favorito ? '★' : '')}</td>
               <td>${nombreLocal(p.local_id)}</td>
               <td>${p.fecha}</td>
-              <td>${(p.items || []).length}</td>
+              <td><button class="btn-link" data-ver="${p.id}">${(p.items || []).length} insumo(s)</button></td>
               <td><span class="badge ${badgeClass[p.estado] || ''}">${p.estado}</span></td>
               <td>
                 ${p.po_name ? p.po_name : (editable && p.estado === 'aprobado'
                   ? `<button class="btn-link" data-oc="${p.id}">Generar OC</button>`
                   : '—')}
               </td>
-              ${editable ? `<td>
-                ${p.estado === 'pendiente' ? `
+              <td>
+                ${editable && p.estado === 'pendiente' ? `
                   <button class="btn btn-approve" data-id="${p.id}" data-estado="aprobado">Aprobar</button>
                   <button class="btn btn-reject" data-id="${p.id}" data-estado="rechazado">Rechazar</button>
                 ` : ''}
-              </td>` : ''}
+                ${editable && !p.po_name ? `<button class="btn btn-reject" data-del="${p.id}">Eliminar</button>` : ''}
+              </td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -408,6 +433,37 @@ async function renderPedidos(el, s) {
 
   el.querySelectorAll('button[data-oc]').forEach(btn => {
     btn.onclick = () => openOcModal(btn.dataset.oc);
+  });
+
+  el.querySelectorAll('button[data-ver]').forEach(btn => {
+    const p = pedidos.find(x => x.id === btn.dataset.ver);
+    btn.onclick = () => showDetalleModal(p, nombreLocal(p.local_id));
+  });
+
+  el.querySelectorAll('button[data-fav]').forEach(btn => {
+    btn.onclick = async () => {
+      try {
+        await api(`/pedidos/${btn.dataset.fav}/favorito`, {
+          method: 'PATCH',
+          body: JSON.stringify({ favorito: btn.dataset.val === 'true' }),
+        });
+        renderView();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  });
+
+  el.querySelectorAll('button[data-del]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('¿Eliminar este pedido? Esta acción no se puede deshacer.')) return;
+      try {
+        await api(`/pedidos/${btn.dataset.del}`, { method: 'DELETE' });
+        renderView();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
   });
 
   if (editable) {

@@ -82,10 +82,15 @@ class PedidoOut(BaseModel):
     fecha: str
     estado: str
     items: list[dict[str, Any]]
+    favorito: bool = False
     creado_por: str | None = None
     revisado_por: str | None = None
     po_id: int | None = None
     po_name: str | None = None
+
+
+class FavoritoIn(BaseModel):
+    favorito: bool
 
 
 class GenerarOCIn(BaseModel):

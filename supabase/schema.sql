@@ -107,6 +107,7 @@ create table pedidos (
     estado        text not null default 'pendiente'
                   check (estado in ('pendiente', 'aprobado', 'rechazado', 'editado')),
     items         jsonb not null,       -- [{ingrediente_key, cantidad_sugerida, cantidad_final, precio}, ...]
+    favorito      boolean not null default false,
     creado_por    uuid references usuarios(id),
     revisado_por  uuid references usuarios(id),
     revisado_at   timestamptz,

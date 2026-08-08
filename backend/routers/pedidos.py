@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..db import get_db
 from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
-from ..schemas import GenerarOCIn, GenerarOCOut, PedidoEstadoIn, PedidoIn, PedidoOut, SugerenciaItem
+from ..schemas import FavoritoIn, GenerarOCIn, GenerarOCOut, PedidoEstadoIn, PedidoIn, PedidoOut, SugerenciaItem
 
 # odoo_connector.py vive en la raiz del repo (lo comparte tambien la app de
 # escritorio y los scripts de terminal) -- se agrega esa ruta para poder
@@ -141,6 +141,42 @@ def actualizar_estado(pedido_id: str, body: PedidoEstadoIn, claims: dict = Depen
 
     res = db.table("pedidos").update(update).eq("id", pedido_id).execute()
     return res.data[0]
+
+
+@router.patch("/{pedido_id}/favorito", response_model=PedidoOut)
+def marcar_favorito(pedido_id: str, body: FavoritoIn, claims: dict = Depends(get_current_claims)):
+    if claims["rol"] == "observador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede marcar favoritos")
+
+    db = get_db()
+    existente = db.table("pedidos").select("local_id").eq("id", pedido_id).execute()
+    if not existente.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pedido no encontrado")
+    verificar_acceso_local(claims, existente.data[0]["local_id"])
+
+    res = db.table("pedidos").update({"favorito": body.favorito}).eq("id", pedido_id).execute()
+    return _con_po_tracking(db, res.data)[0]
+
+
+@router.delete("/{pedido_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_pedido(pedido_id: str, claims: dict = Depends(get_current_claims)):
+    if claims["rol"] == "observador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede eliminar pedidos")
+
+    db = get_db()
+    existente = db.table("pedidos").select("local_id").eq("id", pedido_id).execute()
+    if not existente.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pedido no encontrado")
+    verificar_acceso_local(claims, existente.data[0]["local_id"])
+
+    con_oc = db.table("po_tracking").select("po_name").eq("pedido_id", pedido_id).execute()
+    if con_oc.data:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"No se puede eliminar: ya generó la OC {con_oc.data[0]['po_name']} en Odoo",
+        )
+
+    db.table("pedidos").delete().eq("id", pedido_id).execute()
 
 
 @router.post("/{pedido_id}/generar-oc", response_model=GenerarOCOut)
