@@ -34,6 +34,13 @@ config.json
 # Datos de negocio (no van al repo — son sensibles)
 Reportes/
 Ventas/
+Mermas*.xlsx
+Par Stock*.xlsx
+bodega_movimientos.json
+locales.json
+odoo_mapping.json
+par_stock.json
+po_tracking.json
 
 # Assets grandes que no son código
 dist/
@@ -43,3 +50,7 @@ dist/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Claude Code (local, por máquina — settings y skills descargadas)
+.claude/
+.agents/

@@ -136,7 +136,7 @@
     "nombre": "Filete Salteado Fritas",
     "ingredientes": [
       {
-        "nombre": "Filete de res",
+        "nombre": "Filete Salteado",
         "cantidad": 180,
         "unidad": "g",
         "categoria": "Carnes",
@@ -314,7 +314,7 @@
     "nombre": "Plateada Pastelera",
     "ingredientes": [
       {
-        "nombre": "Plateada (p/mechar)",
+        "nombre": "Plateada",
         "cantidad": 230,
         "unidad": "g",
         "categoria": "Carnes",
@@ -390,7 +390,7 @@
         ]
       },
       {
-        "nombre": "Plateada (p/mechar)",
+        "nombre": "Plateada",
         "cantidad": 90,
         "unidad": "g",
         "categoria": "Carnes",
@@ -753,7 +753,7 @@
     "nombre": "Chupe de salmón ahumado",
     "ingredientes": [
       {
-        "nombre": "Salmón ahumado",
+        "nombre": "Salmón Ahumado en caliente",
         "cantidad": 80,
         "unidad": "g",
         "categoria": "Proteínas del mar",
@@ -946,7 +946,7 @@
     "nombre": "Carne Desmechada con Ñoquis",
     "ingredientes": [
       {
-        "nombre": "Plateada (p/mechar)",
+        "nombre": "Plateada",
         "cantidad": 110,
         "unidad": "g",
         "categoria": "Carnes",
@@ -989,7 +989,7 @@
     "nombre": "Paila de Carne Mechada",
     "ingredientes": [
       {
-        "nombre": "Plateada (p/mechar)",
+        "nombre": "Plateada",
         "cantidad": 150,
         "unidad": "g",
         "categoria": "Carnes",
@@ -1049,7 +1049,7 @@
     "nombre": "Hojaldre de Carne Desmechada",
     "ingredientes": [
       {
-        "nombre": "Plateada (p/mechar)",
+        "nombre": "Plateada",
         "cantidad": 100,
         "unidad": "g",
         "categoria": "Carnes",
@@ -1097,7 +1097,7 @@
     "nombre": "Carpaccio Filete Res",
     "ingredientes": [
       {
-        "nombre": "Filete de res",
+        "nombre": "Carpaccio",
         "cantidad": 70,
         "unidad": "g",
         "categoria": "Carnes",
@@ -1187,7 +1187,7 @@
     "nombre": "Emp Frita Mechada",
     "ingredientes": [
       {
-        "nombre": "Plateada (p/mechar)",
+        "nombre": "Plateada",
         "cantidad": 65,
         "unidad": "g",
         "categoria": "Carnes",
@@ -1672,7 +1672,7 @@
     "nombre": "Ens Salmon Q.Cabra",
     "ingredientes": [
       {
-        "nombre": "Salmón ahumado",
+        "nombre": "Salmón Ahumado en caliente",
         "cantidad": 80,
         "unidad": "g",
         "categoria": "Proteínas del mar",

@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "skills": {
+    "auth-implementation-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/auth-implementation-patterns/SKILL.md",
+      "computedHash": "43b53312c6bbc9ca6d4a7f1ae97804cb2520a9aec7d7903004eed3b622d7e0d9"
+    },
+    "backend-development": {
+      "source": "mrgoonie/claudekit-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/backend-development/SKILL.md",
+      "computedHash": "dedbc6bb7afa2c16ac6b3451a435a198af0e5d3786b30a15d40910ba207fd6e3"
+    },
+    "email-smtp-send": {
+      "source": "tiangong-ai/skills",
+      "sourceType": "github",
+      "skillPath": "email-smtp-send/SKILL.md",
+      "computedHash": "2210acf94b62325f6cee4a42abd3d55e31f4ffbf83abd52de0276df43c492751"
+    },
+    "github-actions": {
+      "source": "bobmatnyc/claude-mpm-skills",
+      "sourceType": "github",
+      "skillPath": "toolchains/universal/infrastructure/github-actions/SKILL.md",
+      "computedHash": "f0e55c5a43583424491a1e44ec8f6b69202cac21346d5878c0a335a354221f72"
+    },
+    "odoo-development": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "odoo-development/SKILL.md",
+      "computedHash": "14dd05775e04659845f67455ff741aa8203c337390971f6bce6b8c8083209222"
+    },
+    "odoo-l10n-compliance": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/odoo-l10n-compliance/SKILL.md",
+      "computedHash": "b05a22b9dd34befb106f7d476228bd43b022346d6f0c79486282a532119c52ea"
+    },
+    "procurement-optimizer": {
+      "source": "alirezarezvani/claude-skills",
+      "sourceType": "github",
+      "skillPath": "business-operations/skills/procurement-optimizer/SKILL.md",
+      "computedHash": "fa23452f01dfa39ae49b23b77887a08e764efcae33359b5d0ed48d1892f0d641"
+    },
+    "pytest-skill": {
+      "source": "lambdatest/agent-skills",
+      "sourceType": "github",
+      "skillPath": "pytest-skill/SKILL.md",
+      "computedHash": "69e4a43bf5a049aae3f387b4f03a08a457c0225b159cb01e91cfbbea2d90e28f"
+    },
+    "render-deploy": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/render-deploy/SKILL.md",
+      "computedHash": "5ccf3f9d94511258cc568484b8ebee170e8dbec4a74428acae948fe6021ff8d8"
+    },
+    "render-web-services": {
+      "source": "render-oss/skills",
+      "sourceType": "github",
+      "skillPath": "skills/render-web-services/SKILL.md",
+      "computedHash": "4381c095ba7fec9d4a9130bd6ac76c58f5c4b30fd8ae56036bffe789307e6ba2"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "128fac78002d916c8ca908245d398e634f540d8bcf20915b2b2359aeb18eba59"
+    }
+  }
+}

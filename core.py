@@ -1142,6 +1142,294 @@ def save_inventario(data: dict):
     _atomic_write(INVENTARIO_PATH, data)
 
 
+# ── Locales ────────────────────────────────────────────────────────────────────
+# Cada local define su propio Par Stock de bodega. Este archivo es el registro
+# de qué locales existen — hoy solo "Doña Delfina", pensado para escalar a 8.
+
+LOCALES_PATH = os.path.join(BASE_DIR, "locales.json")
+
+
+def load_locales() -> list[str]:
+    try:
+        with open(LOCALES_PATH, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_locales(locales: list[str]) -> None:
+    _atomic_write(LOCALES_PATH, locales)
+
+
+def add_local(nombre: str) -> None:
+    nombre = nombre.strip()
+    if not nombre:
+        return
+    locales = load_locales()
+    if nombre not in locales:
+        locales.append(nombre)
+        save_locales(locales)
+
+
+# ── Par Stock de Bodega (por local) ─────────────────────────────────────────────
+#
+# Modelo (ver checkpoint_automatizacion_compras.md):
+#   BODEGA (por local) — el Par Stock se compara contra esto.
+#     ↑ ingresa con: factura de proveedor aceptada
+#     ↓ sale con: entrega a cocina
+#     → Stock Bodega = suma de movimientos (100% calculado, sin conteo físico)
+#   Par Stock = nivel mínimo objetivo por insumo, definido a mano por el Administrador.
+#
+# `bodega_movimientos.json` es un libro append-only (nunca se edita/borra un
+# movimiento ya registrado — una corrección se hace agregando un ajuste nuevo,
+# para conservar trazabilidad completa).
+
+PAR_STOCK_PATH  = os.path.join(BASE_DIR, "par_stock.json")
+BODEGA_MOV_PATH = os.path.join(BASE_DIR, "bodega_movimientos.json")
+
+_MOV_TIPOS = ('ingreso', 'egreso', 'ajuste')
+
+
+def load_par_stock() -> dict:
+    """Retorna {local: {key: {'par': float, 'updated': iso}}}."""
+    try:
+        with open(PAR_STOCK_PATH, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_par_stock(data: dict) -> None:
+    _atomic_write(PAR_STOCK_PATH, data)
+
+
+def get_par_stock(local: str) -> dict:
+    """Retorna {key: {'par': float, 'updated': iso}} para un local."""
+    return load_par_stock().get(local, {})
+
+
+def set_par_stock_item(local: str, key: str, par: float) -> None:
+    """Define/actualiza el nivel Par Stock de un insumo para un local."""
+    if par < 0:
+        raise ValueError("Par Stock no puede ser negativo")
+    data = load_par_stock()
+    data.setdefault(local, {})
+    data[local][key] = {'par': float(par), 'updated': datetime.now().isoformat()}
+    save_par_stock(data)
+
+
+def delete_par_stock_item(local: str, key: str) -> None:
+    data = load_par_stock()
+    if local in data and key in data[local]:
+        del data[local][key]
+        save_par_stock(data)
+
+
+def par_stock_pendientes(local: str, recetas: dict) -> list[dict]:
+    """Insumos que existen en las recetas pero aún no tienen Par Stock definido
+    para este local — checklist de lo que le falta configurar al Administrador."""
+    todos      = build_all_ingredients(recetas)
+    definidos  = set(get_par_stock(local).keys())
+    faltantes  = [{'key': k, **v} for k, v in todos.items() if k not in definidos]
+    faltantes.sort(key=lambda x: x['nombre'])
+    return faltantes
+
+
+def load_bodega_movimientos() -> dict:
+    """Retorna {local: [movimiento, ...]}."""
+    try:
+        with open(BODEGA_MOV_PATH, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_bodega_movimientos(data: dict) -> None:
+    _atomic_write(BODEGA_MOV_PATH, data)
+
+
+def registrar_movimiento_bodega(local: str, key: str, tipo: str, cantidad: float,
+                                 origen: str = '', ref: str = '', nota: str = '',
+                                 fecha: str | None = None) -> None:
+    """
+    Agrega un movimiento al libro de bodega de un local.
+      tipo='ingreso' → factura de proveedor aceptada (siempre suma, cantidad >= 0)
+      tipo='egreso'  → entrega a cocina / salida de bodega (siempre resta, cantidad >= 0)
+      tipo='ajuste'  → corrección manual / conteo físico (cantidad con signo: + o -)
+    `origen`/`ref` sirven para trazabilidad (ej. origen='factura', ref='PO00123').
+    """
+    if tipo not in _MOV_TIPOS:
+        raise ValueError(f"tipo de movimiento inválido: {tipo!r} (usar {_MOV_TIPOS})")
+    if not key:
+        raise ValueError("key de insumo requerida ('nombre||unidad')")
+    if tipo in ('ingreso', 'egreso') and cantidad < 0:
+        raise ValueError(f"cantidad debe ser >= 0 para tipo={tipo!r}")
+
+    data = load_bodega_movimientos()
+    data.setdefault(local, [])
+    data[local].append({
+        'key':      key,
+        'tipo':     tipo,
+        'cantidad': float(cantidad),
+        'fecha':    fecha or datetime.now().isoformat(),
+        'origen':   origen,
+        'ref':      ref,
+        'nota':     nota,
+    })
+    save_bodega_movimientos(data)
+
+
+def compute_bodega_stock(local: str) -> dict:
+    """Calcula el stock actual de bodega por insumo, sumando TODO el libro de
+    movimientos del local. Retorna {key: stock_actual}. Nunca lee un conteo
+    físico — es 100% derivado (ver modelo Bodega vs Cocina)."""
+    movimientos = load_bodega_movimientos().get(local, [])
+    stock: dict = defaultdict(float)
+    for m in movimientos:
+        key = m.get('key')
+        if not key:
+            continue
+        cant = float(m.get('cantidad', 0) or 0)
+        tipo = m.get('tipo')
+        if tipo == 'egreso':
+            stock[key] -= cant
+        else:  # 'ingreso' siempre suma; 'ajuste' ya trae el signo correcto
+            stock[key] += cant
+    return dict(stock)
+
+
+def compute_compra_sugerida_bodega(local: str, model: dict, start, horizon: int,
+                                    k_factor: float, recetas: dict,
+                                    name_to_sku: dict,
+                                    stock_cocina: dict | None = None) -> dict:
+    """
+    Sugerencia de compra para reponer la bodega de un local, combinando:
+      - Par Stock: nivel mínimo objetivo por insumo (definido a mano por Admin)
+      - Stock de Bodega actual: calculado desde el libro de movimientos
+      - Stock de Cocina actual: conteo manual (ver load_stock_cocina) —
+        confirmado 2026-08-07 que SÍ resta de lo que hace falta comprar,
+        junto con la bodega (disponible_total = bodega + cocina)
+      - Demanda proyectada: pronóstico de ventas explotado a insumos (ya existe
+        vía build_needed_ingredients) para los próximos `horizon` días
+
+    El objetivo a cubrir es el MAYOR entre el Par Stock fijo y la demanda
+    proyectada — así nunca se sugiere menos de lo que hace falta para no
+    quebrar stock, aunque el Par Stock esté desactualizado.
+
+    Retorna {key: {nombre, unidad, categoria, proveedor, precio_unitario,
+                   par, stock_bodega, stock_cocina, demanda_proyectada, sugerido}}
+    Insumos con par=0 y sugerido<=0 se omiten (no aportan nada a la decisión).
+    """
+    par          = get_par_stock(local)
+    stock_bodega = compute_bodega_stock(local)
+    stock_cocina = stock_cocina or {}
+    necesario    = build_needed_ingredients(model, start, horizon, k_factor,
+                                             recetas, name_to_sku)
+
+    result: dict = {}
+    for key in set(par) | set(stock_bodega) | set(stock_cocina) | set(necesario):
+        par_val    = float(par.get(key, {}).get('par', 0) or 0)
+        en_bodega  = float(stock_bodega.get(key, 0) or 0)
+        en_cocina  = float(stock_cocina.get(key, 0) or 0)
+        disponible = en_bodega + en_cocina
+        proyeccion = necesario.get(key, {})
+        demanda    = float(proyeccion.get('total', 0) or 0)
+        objetivo   = max(par_val, demanda)
+        sugerido   = max(0.0, objetivo - disponible)
+
+        if par_val <= 0 and sugerido <= 0:
+            continue
+
+        nombre, _, unidad = key.partition('||')
+        result[key] = {
+            'nombre':             proyeccion.get('nombre', nombre),
+            'unidad':             proyeccion.get('unidad', unidad or 'g'),
+            'categoria':          proyeccion.get('categoria', ''),
+            'proveedor':          proyeccion.get('proveedor', ''),
+            'precio_unitario':    proyeccion.get('precio_unitario', 0),
+            'par':                par_val,
+            'stock_bodega':       round(en_bodega, 2),
+            'stock_cocina':       round(en_cocina, 2),
+            'demanda_proyectada': round(demanda, 2),
+            'sugerido':           round(sugerido, 2),
+        }
+    return result
+
+
+# ── Stock de Cocina (desde Excel de Mermas — Drive pendiente de permisos) ──────
+#
+# El Excel de Mermas trae, por día, una sección "Control de stock" con la
+# columna "Stock Informado" = conteo físico de COCINA (manual, lo llena el
+# Solicitante). Mientras no haya acceso real a Drive, se lee un archivo
+# local (copia/ejemplo). El nombre del insumo en esa sección NO siempre
+# coincide con la key de recetas.json/par_stock.json — se resuelve vía
+# EXCEL_STOCK_MAP (mapeo explícito, no fuzzy-match — más seguro).
+#
+# EXCEL_STOCK_MAP hoy solo cubre los 4 insumos del piloto (Doña Delfina).
+# Ampliar a medida que se sumen más insumos al Par Stock.
+
+EXCEL_STOCK_MAP = {
+    # key en recetas.json/par_stock.json -> nombre exacto en la sección
+    # "Control de stock" del Excel de Mermas (columna D)
+    'Salmón Ahumado en caliente||g': 'Salmón ahumado',   # OJO: no confundir con "Salmon ahumado en frío" (producto distinto)
+    'Filete Salteado||g':            'Filete Salteado',
+    'Carpaccio||g':                  'Carpaccio de res',
+    'Plateada||g':                   'Plateada',
+}
+
+_STOCK_ROW_RANGES    = [(4, 29), (33, 54)]  # (inicio, fin_exclusivo) de cada sub-tabla de la hoja diaria
+_STOCK_COL_NOMBRE    = 4    # columna D
+_STOCK_COL_INFORMADO = 10   # columna J
+_SHEET_DAYS          = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']  # sin tildes: así vienen los nombres de hoja en el Excel
+
+
+def parse_stock_cocina_excel(path: str, sheet_name: str) -> dict:
+    """Lee la sección 'Control de stock' de una hoja diaria del Excel de
+    Mermas. Retorna {nombre_excel: stock_informado}."""
+    if not HAS_OPENPYXL or not os.path.isfile(path):
+        return {}
+    wb = openpyxl.load_workbook(path, data_only=True)
+    try:
+        if sheet_name not in wb.sheetnames:
+            return {}
+        ws = wb[sheet_name]
+        result = {}
+        for start, end in _STOCK_ROW_RANGES:
+            for r in range(start, end):
+                nombre = ws.cell(row=r, column=_STOCK_COL_NOMBRE).value
+                if not nombre:
+                    continue
+                informado = ws.cell(row=r, column=_STOCK_COL_INFORMADO).value
+                result[str(nombre).strip()] = float(informado or 0)
+        return result
+    finally:
+        wb.close()
+
+
+def load_stock_cocina(local: str, fecha, excel_path: str | None = None,
+                       semana: int = 1) -> dict:
+    """
+    Retorna {key: stock_cocina} para un local, mapeando los nombres del
+    Excel a las keys de recetas.json/par_stock.json vía EXCEL_STOCK_MAP.
+
+    `excel_path`: ruta del Excel de Mermas de ese local. HOY es un archivo
+    local (mientras se autoriza el acceso a Drive) — mañana será el archivo
+    sincronizado desde Drive, misma función, solo cambia de dónde viene el path.
+    `semana`: 1-5, la semana del mes dentro del archivo (sheets "Sx Día") —
+    hoy el archivo de ejemplo solo tiene S1, así que se usa por defecto.
+    """
+    if not excel_path:
+        return {}
+    dia_nombre = _SHEET_DAYS[fecha.weekday()]
+    sheet_name = f"S{semana} {dia_nombre}"
+    excel_stock = parse_stock_cocina_excel(excel_path, sheet_name)
+    result = {}
+    for key, excel_nombre in EXCEL_STOCK_MAP.items():
+        if excel_nombre in excel_stock:
+            result[key] = excel_stock[excel_nombre]
+    return result
+
+
 # ── Odoo integration ───────────────────────────────────────────────────────────
 
 ODOO_MAPPING_PATH = os.path.join(BASE_DIR, "odoo_mapping.json")
@@ -1184,3 +1472,41 @@ def sync_prices_from_odoo_mapping(mapping: dict) -> int:
                 count += 1
     save_recetas(raw)
     return count
+
+
+# ── PO Tracking (local↔Odoo) ────────────────────────────────────────────────
+#
+# Única fuente de verdad de "a qué local pertenece esta PO" — ver checkpoint
+# de automatización de compras. Hoy JSON local; migra a Supabase con la
+# tarea #3 sin cambiar la forma de uso (mismas funciones, otro backend).
+
+PO_TRACKING_PATH = os.path.join(BASE_DIR, "po_tracking.json")
+
+
+def load_po_tracking() -> list[dict]:
+    try:
+        with open(PO_TRACKING_PATH, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_po_tracking(data: list[dict]) -> None:
+    _atomic_write(PO_TRACKING_PATH, data)
+
+
+def registrar_po_tracking(po_id: int, po_name: str, local: str, proveedor: str,
+                           categoria: str = '', creado_por: str = '') -> None:
+    """Registra una PO recién creada en Odoo — vincula po_id al local que la
+    originó. Append-only, igual que bodega_movimientos."""
+    data = load_po_tracking()
+    data.append({
+        'po_id':      int(po_id),
+        'po_name':    po_name,
+        'local':      local,
+        'proveedor':  proveedor,
+        'categoria':  categoria,
+        'creado_por': creado_por,
+        'fecha':      datetime.now().isoformat(),
+    })
+    save_po_tracking(data)

@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-odoo_connector.py — Cliente XML-RPC para Odoo
+odoo_connector.py — Clientes para Odoo (dos modos)
 Compatible con Odoo 14, 15, 16, 17 (Community y Enterprise).
-Sin dependencias externas — usa xmlrpc.client de la stdlib.
+Sin dependencias externas — usa stdlib únicamente.
+
+  OdooClient    — API externa clásica (/xmlrpc/2/*). Requiere saber el
+                  nombre exacto de la base de datos (db).
+  OdooWebSession — autentica igual que un humano en el navegador
+                  (POST a /web/login con usuario+contraseña). NO requiere
+                  el nombre de la base de datos — Odoo la resuelve solo
+                  según el dominio (dbfilter). Preferir este modo salvo
+                  que se conozca el db name con certeza.
 """
 
 import xmlrpc.client
 import socket
+import re
+import json as _json
+import http.cookiejar
+import urllib.request
+import urllib.parse
+import urllib.error
 from typing import Optional
 
 
@@ -207,3 +221,164 @@ class OdooClient:
         except Exception:
             name = f'PO#{po_id}'
         return int(po_id), name
+
+
+class OdooWebSession:
+    """
+    Cliente que autentica EXACTAMENTE como un humano en el navegador —
+    usuario + contraseña, sin necesitar el nombre de la base de datos.
+    Odoo la resuelve solo en el servidor según el dominio (dbfilter),
+    igual que cuando alguien entra por /web/login sin ver ningún selector.
+
+    Uso:
+        session = OdooWebSession(url)
+        ok, msg = session.connect(user, password)
+        if ok:
+            po_id = session.call_kw('purchase.order', 'create', [[vals]])
+
+    Internamente usa las mismas rutas que el propio cliente web de Odoo
+    (/web/login para autenticar, /web/dataset/call_kw para operar) — no es
+    automatización de navegador (no hay browser real ni parseo de UI), son
+    los mismos requests HTTP/JSON-RPC que el navegador manda por detrás.
+    """
+
+    def __init__(self, url: str, timeout: int = 20):
+        self.url     = url.rstrip('/')
+        self.timeout = timeout
+        self.uid: Optional[int] = None
+        self._cookiejar = http.cookiejar.CookieJar()
+        self._opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self._cookiejar))
+        self._csrf_token: Optional[str] = None
+
+    def _get_csrf_token(self) -> str:
+        req = urllib.request.Request(f'{self.url}/web/login')
+        with self._opener.open(req, timeout=self.timeout) as resp:
+            html = resp.read().decode('utf-8', errors='replace')
+        m = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
+        if not m:
+            raise RuntimeError("No se encontró csrf_token en la página de login "
+                                "— ¿la URL es correcta?")
+        return m.group(1)
+
+    def connect(self, user: str, password: str) -> tuple[bool, str]:
+        """Autentica. Retorna (éxito, mensaje). No requiere db."""
+        try:
+            self._csrf_token = self._get_csrf_token()
+            data = urllib.parse.urlencode({
+                'csrf_token': self._csrf_token,
+                'login':      user,
+                'password':   password,
+                'type':       'password',
+                'redirect':   '',
+            }).encode()
+            req = urllib.request.Request(f'{self.url}/web/login', data=data)
+            with self._opener.open(req, timeout=self.timeout) as resp:
+                html = resp.read().decode('utf-8', errors='replace')
+
+            if 'alert-danger' in html:
+                m = re.search(r'alert-danger"[^>]*>\s*([^<]+)', html)
+                motivo = m.group(1).strip() if m else "credenciales inválidas"
+                return False, f"Login rechazado: {motivo}"
+
+            info = self._call_raw('/web/session/get_session_info', {})
+            uid = (info or {}).get('uid')
+            if not uid:
+                return False, "No se pudo confirmar la sesión tras el login."
+            self.uid = int(uid)
+            return True, f"Conectado — usuario #{self.uid} (sesión web, sin db explícita)"
+        except urllib.error.URLError as e:
+            return False, f"Error de red: {e}"
+        except Exception as e:
+            return False, str(e)
+
+    def _call_raw(self, path: str, payload: dict):
+        body = _json.dumps({'jsonrpc': '2.0', 'method': 'call', 'params': payload}).encode()
+        headers = {'Content-Type': 'application/json'}
+        if self._csrf_token:
+            headers['X-CSRF-Token'] = self._csrf_token
+        req = urllib.request.Request(f'{self.url}{path}', data=body, headers=headers)
+        with self._opener.open(req, timeout=self.timeout) as resp:
+            raw = resp.read().decode('utf-8')
+        result = _json.loads(raw)
+        if result.get('error'):
+            err  = result['error']
+            data = err.get('data', {})
+            raise RuntimeError(data.get('message') or err.get('message') or str(err))
+        return result.get('result')
+
+    def call_kw(self, model: str, method: str, args: list, kwargs: dict | None = None):
+        """Llama a cualquier método de modelo Odoo vía /web/dataset/call_kw
+        (equivalente funcional a OdooClient._call, pero sobre la sesión web)."""
+        if not self.uid:
+            raise RuntimeError("No autenticado — llama connect() primero.")
+        return self._call_raw('/web/dataset/call_kw', {
+            'model': model, 'method': method, 'args': args, 'kwargs': kwargs or {},
+        })
+
+    def create_purchase_order(self, partner_id: int, lines: list[dict],
+                               notes: str = '') -> tuple[int, str]:
+        """Igual que OdooClient.create_purchase_order pero sobre la sesión web."""
+        from datetime import datetime, timedelta
+        default_planned = (datetime.now() + timedelta(days=2)).strftime('%Y-%m-%d %H:%M:%S')
+        order_lines = []
+        for l in lines:
+            lv: dict = {
+                'product_id':   int(l['product_id']),
+                'name':         str(l.get('name', '')),
+                'product_qty':  float(l.get('product_qty', 1)),
+                'price_unit':   float(l.get('price_unit', 0)),
+                'date_planned': l.get('date_planned', default_planned),
+            }
+            if l.get('product_uom'):
+                lv['product_uom'] = int(l['product_uom'])
+            order_lines.append((0, 0, lv))
+        vals: dict = {'partner_id': int(partner_id), 'order_line': order_lines}
+        if notes:
+            vals['notes'] = notes
+        po_id = self.call_kw('purchase.order', 'create', [vals])
+        try:
+            rec  = self.call_kw('purchase.order', 'read', [[int(po_id)]], {'fields': ['name']})
+            name = rec[0]['name'] if rec else f'PO#{po_id}'
+        except Exception:
+            name = f'PO#{po_id}'
+        return int(po_id), name
+
+
+# ── CLI de prueba: pide credenciales, prueba conexión, no guarda nada ─────────
+#
+# Uso: python odoo_connector.py
+# Este es el mismo patrón que usará el sistema real (tarea #7): la contraseña
+# se pide con getpass (no queda en pantalla, no se loguea), se usa solo para
+# esta llamada y se descarta al terminar el script — nunca se escribe a disco.
+#
+# Por defecto usa OdooWebSession (sin necesitar el nombre de la base de
+# datos). Solo pide "modo clásico" (OdooClient + db explícita) si el
+# usuario lo pide a propósito.
+if __name__ == '__main__':
+    import getpass
+
+    print("Prueba de conexión Odoo — las credenciales NO se guardan en ningún lado.\n")
+    url = input("URL de Odoo (ej. https://margo.odoo.com): ").strip()
+
+    modo = input(
+        "¿Modo? [1] Como un usuario normal, sin base de datos (recomendado)  "
+        "[2] Clásico, con base de datos explícita  → "
+    ).strip()
+
+    user = input("Usuario (email): ").strip()
+    password = getpass.getpass("Contraseña (no se muestra en pantalla): ")
+
+    if modo == '2':
+        db = input("Base de datos: ").strip()
+        client = OdooClient(url, db, user, password)
+        ok, msg = client.connect()
+    else:
+        session = OdooWebSession(url)
+        ok, msg = session.connect(user, password)
+
+    # A partir de aquí `password` ya no se usa más — sale de scope al terminar
+    # el script, sin haber tocado disco ni logs en ningún momento.
+    print()
+    print(("✓ " if ok else "✗ ") + msg)
+    input("\nPresiona Enter para cerrar...")
