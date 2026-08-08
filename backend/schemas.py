@@ -30,6 +30,7 @@ class SugerenciaItem(BaseModel):
     sugerido: float
     precio: float = 0
     proveedor: str | None = None
+    tamano_empaque: float | None = None
 
 
 class MovimientoIn(BaseModel):
@@ -74,6 +75,44 @@ class MermaItem(BaseModel):
     categoria: str | None = None
     cantidad_informada: float | None = None
     fecha: str | None = None
+
+
+class ParStockItem(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad: str
+    categoria: str | None = None
+    par_cantidad: float
+    odoo_name: str | None = None
+    ref: str | None = None
+    supplier_name: str | None = None
+    precio: float = 0
+    tamano_empaque: float | None = None  # None = a granel
+
+
+class ParStockIn(BaseModel):
+    local_id: str
+    nombre: str
+    unidad: str
+    categoria: str | None = None
+    par_cantidad: float
+    odoo_id: int
+    odoo_name: str
+    ref: str | None = None
+    supplier_id: int
+    supplier_name: str
+    precio: float = 0
+    a_granel: bool = False
+    tamano_empaque: float | None = None
+
+
+class ParStockUpdateIn(BaseModel):
+    local_id: str
+    ingrediente_key: str
+    par_cantidad: float | None = None
+    precio: float | None = None
+    a_granel: bool = False
+    tamano_empaque: float | None = None
 
 
 class PedidoOut(BaseModel):

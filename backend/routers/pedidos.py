@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -20,6 +21,16 @@ from odoo_connector import OdooWebSession  # noqa: E402
 router = APIRouter(prefix="/pedidos", tags=["pedidos"])
 
 ESTADOS_VALIDOS = ("aprobado", "rechazado", "editado")
+
+
+def _redondear_a_empaque(cantidad: float, tamano_empaque: float | None) -> float:
+    """Redondea hacia arriba al multiplo del tamano de empaque -- no se
+    puede pedir una cantidad que el proveedor no despacha tal cual
+    (ej. Filete Salteado viene en paquetes de 1.6 kg)."""
+    if not tamano_empaque or tamano_empaque <= 0 or cantidad <= 0:
+        return cantidad
+    paquetes = math.ceil(round(cantidad / tamano_empaque, 6))
+    return round(paquetes * tamano_empaque, 3)
 
 
 def _con_po_tracking(db, pedidos: list[dict]) -> list[dict]:
@@ -74,10 +85,12 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
         disponible = en_bodega + en_cocina
         sugerido = max(0.0, r["par_cantidad"] - disponible)
         m = mapping.get(key, {})
+        sugerido = _redondear_a_empaque(sugerido, m.get("tamano_empaque"))
         resultado.append(SugerenciaItem(
             ingrediente_key=key, nombre=nombre, unidad=r["unidad"], categoria=r["categoria"],
             par=r["par_cantidad"], stock_bodega=en_bodega, stock_cocina=en_cocina,
             sugerido=sugerido, precio=m.get("price", 0), proveedor=m.get("supplier_name"),
+            tamano_empaque=m.get("tamano_empaque"),
         ))
     return resultado
 
@@ -216,6 +229,10 @@ def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_cur
         cantidad = float(item.get("cantidad", 0))
         unidad = (item.get("unidad") or "").lower()
         cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
+        # redondeo defensivo -- por si el item viene de edicion manual y no
+        # respeta el tamano de empaque (la sugerencia ya redondea, pero un
+        # insumo agregado a mano o editado despues no pasa por ahi)
+        cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
         po_lines.append({
             "product_id": m["odoo_id"],
             "name": m["odoo_name"],

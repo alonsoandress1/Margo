@@ -169,6 +169,7 @@ async function renderView() {
     if (state.section === 'locales') return renderLocales(el, s);
     if (state.section === 'inventario') return renderInventario(el, s);
     if (state.section === 'mermas') return renderMermas(el, s);
+    if (state.section === 'parstock') return renderParStock(el, s);
     return renderPlaceholder(el, s);
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -196,6 +197,141 @@ async function renderLocales(el, s) {
         </tbody>
       </table>
     </div>`;
+}
+
+async function renderParStock(el, s) {
+  const locales = await api('/locales');
+  if (!locales.length) {
+    el.innerHTML = '<h2>Par Stock</h2><div class="card"><p class="placeholder">No tienes locales asignados.</p></div>';
+    return;
+  }
+  const editable = puedeEditar(s);
+  const localId = state.parStockLocal && locales.some(l => l.id === state.parStockLocal) ? state.parStockLocal : locales[0].id;
+  state.parStockLocal = localId;
+
+  const items = await api(`/par-stock?local_id=${localId}`);
+
+  el.innerHTML = `
+    <h2>Par Stock</h2>
+    <label class="field-label">Local</label>
+    <select id="ps-local" class="field" style="margin-bottom:1.25rem;width:100%;max-width:280px">
+      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+    </select>
+    ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
+    ${editable ? `
+      <div class="card">
+        <h3>Agregar insumo nuevo</h3>
+        <p class="placeholder" style="margin-bottom:1rem">El nombre/ID/referencia en Odoo debes verificarlos tú mismo en Odoo — el sistema nunca crea productos ni proveedores nuevos, solo registra la referencia.</p>
+        <form id="ps-form">
+          <div class="item-row">
+            <input class="field" id="ps-nombre" placeholder="Nombre insumo" style="flex:2" required>
+            <input class="field" id="ps-unidad" placeholder="Unidad (kg/un)" value="kg" required>
+            <input class="field" id="ps-categoria" placeholder="Categoría (opcional)">
+          </div>
+          <div class="item-row">
+            <input class="field" id="ps-par" type="number" step="0.01" placeholder="Par Stock" required>
+            <input class="field" id="ps-precio" type="number" step="1" placeholder="Precio unitario">
+          </div>
+          <div class="item-row">
+            <input class="field" id="ps-odoo-id" type="number" placeholder="ID producto Odoo" required>
+            <input class="field" id="ps-odoo-name" placeholder="Nombre en Odoo" style="flex:2" required>
+            <input class="field" id="ps-ref" placeholder="Referencia (opcional)">
+          </div>
+          <div class="item-row">
+            <input class="field" id="ps-supplier-id" type="number" placeholder="ID proveedor Odoo" required>
+            <input class="field" id="ps-supplier-name" placeholder="Nombre proveedor" style="flex:2" required>
+          </div>
+          <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.75rem">
+            <input type="checkbox" id="ps-granel"> Se compra a granel (sin empaque fijo)
+          </label>
+          <input class="field" id="ps-empaque" type="number" step="0.01" placeholder="Tamaño de empaque (kg)" style="max-width:220px;margin-bottom:.75rem">
+          <br>
+          <button type="submit" class="btn btn-primary">Agregar insumo</button>
+          <p id="ps-error" class="error-msg"></p>
+        </form>
+      </div>` : ''}
+    <div class="card">
+      <table>
+        <thead><tr><th>Insumo</th><th>Par Stock</th><th>Nombre Odoo</th><th>Proveedor</th><th>Precio</th><th>Empaque</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <tbody>
+          ${items.map(i => `
+            <tr>
+              <td>${i.nombre} (${i.unidad})</td>
+              <td>${editable ? `<input class="field ps-edit-par" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.par_cantidad}">` : i.par_cantidad}</td>
+              <td>${i.odoo_name || '—'}</td>
+              <td>${i.supplier_name || '—'}</td>
+              <td>${editable ? `<input class="field ps-edit-precio" data-key="${i.ingrediente_key}" type="number" style="width:90px" value="${i.precio}">` : i.precio}</td>
+              <td>
+                ${editable
+                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" placeholder="A granel" value="${i.tamano_empaque ?? ''}">`
+                  : (i.tamano_empaque ? `${i.tamano_empaque} kg/paquete` : 'A granel')}
+              </td>
+              ${editable ? `<td><button class="btn" data-guardar="${i.ingrediente_key}">Guardar</button></td>` : ''}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('ps-local').addEventListener('change', (e) => {
+    state.parStockLocal = e.target.value;
+    renderView();
+  });
+
+  if (editable) {
+    document.getElementById('ps-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('ps-error');
+      const granel = document.getElementById('ps-granel').checked;
+      try {
+        await api('/par-stock', {
+          method: 'POST',
+          body: JSON.stringify({
+            local_id: localId,
+            nombre: document.getElementById('ps-nombre').value.trim(),
+            unidad: document.getElementById('ps-unidad').value.trim(),
+            categoria: document.getElementById('ps-categoria').value.trim() || null,
+            par_cantidad: parseFloat(document.getElementById('ps-par').value) || 0,
+            odoo_id: parseInt(document.getElementById('ps-odoo-id').value, 10),
+            odoo_name: document.getElementById('ps-odoo-name').value.trim(),
+            ref: document.getElementById('ps-ref').value.trim() || null,
+            supplier_id: parseInt(document.getElementById('ps-supplier-id').value, 10),
+            supplier_name: document.getElementById('ps-supplier-name').value.trim(),
+            precio: parseFloat(document.getElementById('ps-precio').value) || 0,
+            a_granel: granel,
+            tamano_empaque: granel ? null : (parseFloat(document.getElementById('ps-empaque').value) || null),
+          }),
+        });
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    el.querySelectorAll('button[data-guardar]').forEach(btn => {
+      btn.onclick = async () => {
+        const key = btn.dataset.guardar;
+        const par = el.querySelector(`.ps-edit-par[data-key="${key}"]`).value;
+        const precio = el.querySelector(`.ps-edit-precio[data-key="${key}"]`).value;
+        const empaqueVal = el.querySelector(`.ps-edit-empaque[data-key="${key}"]`).value;
+        try {
+          await api('/par-stock', {
+            method: 'PATCH',
+            body: JSON.stringify({
+              local_id: localId,
+              ingrediente_key: key,
+              par_cantidad: parseFloat(par) || 0,
+              precio: parseFloat(precio) || 0,
+              a_granel: empaqueVal === '',
+              tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
+            }),
+          });
+          renderView();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+  }
 }
 
 async function renderInventario(el, s) {

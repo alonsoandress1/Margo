@@ -96,6 +96,7 @@ create table odoo_mapping (
     supplier_name    text not null,
     price            numeric not null default 0,
     currency         text not null default 'CLP',
+    tamano_empaque   numeric,  -- null = a granel; ej. 1.6 = viene en paquetes de 1.6 kg
     last_sync        timestamptz
 );
 
