@@ -30,6 +30,7 @@ claude --resume*.txt
 
 # Config local (ruta de máquina específica — cada usuario configura la suya)
 config.json
+backend/.env
 
 # Datos de negocio (no van al repo — son sensibles)
 Reportes/
