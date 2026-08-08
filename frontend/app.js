@@ -162,14 +162,14 @@ async function renderPedidos(el, s) {
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
     ${editable ? `
       <div class="card">
-        <h3 style="margin-top:0">Nuevo pedido</h3>
+        <h3>Nuevo pedido</h3>
         <form id="pedido-form">
-          <label>Local</label><br>
-          <select id="pedido-local" required style="padding:0.4rem;border-radius:6px;border:1px solid #d9d9de;margin-bottom:0.75rem">
+          <label class="field-label">Local</label>
+          <select id="pedido-local" required class="field" style="margin-bottom:1rem;width:100%;max-width:280px">
             ${locales.map(l => `<option value="${l.id}">${l.nombre}</option>`).join('')}
           </select>
           <div id="items-rows"></div>
-          <button type="button" id="add-item-btn" class="btn" style="background:#e5e7eb">+ Agregar insumo</button>
+          <button type="button" id="add-item-btn" class="btn">+ Agregar insumo</button>
           <br><br>
           <button type="submit" class="btn btn-primary">Crear pedido</button>
           <p id="pedido-error" class="error-msg"></p>
@@ -200,11 +200,11 @@ async function renderPedidos(el, s) {
     const rowsEl = document.getElementById('items-rows');
     const addRow = () => {
       const row = document.createElement('div');
-      row.style = 'display:flex;gap:0.5rem;margin-bottom:0.4rem';
+      row.className = 'item-row';
       row.innerHTML = `
-        <input placeholder="Insumo" class="item-nombre" style="flex:2;padding:0.4rem;border-radius:6px;border:1px solid #d9d9de">
-        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad" style="flex:1;padding:0.4rem;border-radius:6px;border:1px solid #d9d9de">
-        <input placeholder="Unidad (g/kg/un)" class="item-unidad" style="flex:1;padding:0.4rem;border-radius:6px;border:1px solid #d9d9de">`;
+        <input placeholder="Insumo" class="item-nombre field" style="flex:2">
+        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field">
+        <input placeholder="Unidad (g/kg/un)" class="item-unidad field">`;
       rowsEl.appendChild(row);
     };
     addRow();
