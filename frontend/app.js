@@ -72,7 +72,10 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   const errorEl = document.getElementById('login-error');
+  const btn = e.target.querySelector('button[type=submit]');
   errorEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Ingresando… (puede tardar hasta 1 min si el servidor estaba dormido)';
   try {
     const data = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
     state.token = data.access_token;
@@ -81,7 +84,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     localStorage.setItem('usuario', JSON.stringify(state.usuario));
     showApp();
   } catch (err) {
-    errorEl.textContent = 'Email o contraseña incorrectos.';
+    errorEl.textContent = err.message === 'Failed to fetch'
+      ? 'No se pudo conectar con el servidor. Intenta de nuevo en unos segundos.'
+      : 'Email o contraseña incorrectos.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Ingresar';
   }
 });
 
