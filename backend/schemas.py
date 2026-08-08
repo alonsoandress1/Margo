@@ -19,6 +19,19 @@ class PedidoEstadoIn(BaseModel):
     items: list[dict[str, Any]] | None = None  # solo si estado == editado
 
 
+class SugerenciaItem(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad: str
+    categoria: str | None = None
+    par: float
+    stock_bodega: float
+    stock_cocina: float
+    sugerido: float
+    precio: float = 0
+    proveedor: str | None = None
+
+
 class PedidoOut(BaseModel):
     id: str
     local_id: str

@@ -170,6 +170,7 @@ async function renderPedidos(el, s) {
           </select>
           <div id="items-rows"></div>
           <button type="button" id="add-item-btn" class="btn">+ Agregar insumo</button>
+          <button type="button" id="sugerencia-btn" class="btn">Cargar sugerencia (Par Stock)</button>
           <br><br>
           <button type="submit" class="btn btn-primary">Crear pedido</button>
           <p id="pedido-error" class="error-msg"></p>
@@ -198,17 +199,35 @@ async function renderPedidos(el, s) {
 
   if (editable) {
     const rowsEl = document.getElementById('items-rows');
-    const addRow = () => {
+    const addRow = (nombre = '', cantidad = '', unidad = '') => {
       const row = document.createElement('div');
       row.className = 'item-row';
       row.innerHTML = `
-        <input placeholder="Insumo" class="item-nombre field" style="flex:2">
-        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field">
-        <input placeholder="Unidad (g/kg/un)" class="item-unidad field">`;
+        <input placeholder="Insumo" class="item-nombre field" style="flex:2" value="${nombre}">
+        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field" value="${cantidad}">
+        <input placeholder="Unidad (g/kg/un)" class="item-unidad field" value="${unidad}">`;
       rowsEl.appendChild(row);
     };
     addRow();
-    document.getElementById('add-item-btn').onclick = addRow;
+    document.getElementById('add-item-btn').onclick = () => addRow();
+
+    document.getElementById('sugerencia-btn').onclick = async () => {
+      const local_id = document.getElementById('pedido-local').value;
+      const errorEl = document.getElementById('pedido-error');
+      errorEl.textContent = '';
+      try {
+        const sugerencia = await api(`/pedidos/sugerencia?local_id=${local_id}`);
+        const conCompra = sugerencia.filter(i => i.sugerido > 0);
+        if (!conCompra.length) {
+          errorEl.textContent = 'Según el Par Stock actual, no hace falta comprar nada.';
+          return;
+        }
+        rowsEl.innerHTML = '';
+        conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad));
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    };
 
     document.getElementById('pedido-form').addEventListener('submit', async (e) => {
       e.preventDefault();

@@ -37,6 +37,12 @@
       "skillPath": "skills/odoo-l10n-compliance/SKILL.md",
       "computedHash": "b05a22b9dd34befb106f7d476228bd43b022346d6f0c79486282a532119c52ea"
     },
+    "penpot-uiux-design": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/penpot-uiux-design/SKILL.md",
+      "computedHash": "cd29e08bb7d2d4b9212582bcd9b70823619fbc6397078b8ba853962054ba4230"
+    },
     "procurement-optimizer": {
       "source": "alirezarezvani/claude-skills",
       "sourceType": "github",
@@ -66,6 +72,12 @@
       "sourceType": "github",
       "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
       "computedHash": "128fac78002d916c8ca908245d398e634f540d8bcf20915b2b2359aeb18eba59"
+    },
+    "ui-ux-designer": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ui-ux-designer/SKILL.md",
+      "computedHash": "7051bce861581a88407970edf78fc3f448fd3f0d176566cdfbc16abe7fff8211"
     }
   }
 }
