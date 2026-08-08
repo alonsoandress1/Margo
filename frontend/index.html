@@ -39,6 +39,22 @@
   </main>
 </div>
 
+<div id="oc-modal" class="modal-overlay" hidden>
+  <form id="oc-form" class="modal-box">
+    <h3>Generar Orden de Compra en Odoo</h3>
+    <p class="placeholder">Tus credenciales de Odoo se usan solo para esta acción y no se guardan en ningún lado.</p>
+    <label class="field-label">Email Odoo</label>
+    <input type="email" id="oc-email" class="field" style="width:100%" required autocomplete="off">
+    <label class="field-label" style="margin-top:.75rem">Contraseña Odoo</label>
+    <input type="password" id="oc-password" class="field" style="width:100%" required autocomplete="off">
+    <div style="margin-top:1.25rem">
+      <button type="submit" class="btn btn-primary">Crear OC</button>
+      <button type="button" id="oc-cancel" class="btn">Cancelar</button>
+    </div>
+    <p id="oc-error" class="error-msg"></p>
+  </form>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

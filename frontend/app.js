@@ -95,6 +95,54 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
 document.getElementById('logout-btn').addEventListener('click', logout);
 
+// ---------- Modal: Generar OC ----------
+
+let ocPedidoId = null;
+
+function openOcModal(pedidoId) {
+  ocPedidoId = pedidoId;
+  document.getElementById('oc-email').value = '';
+  document.getElementById('oc-password').value = '';
+  document.getElementById('oc-error').textContent = '';
+  document.getElementById('oc-modal').hidden = false;
+}
+
+function closeOcModal() {
+  document.getElementById('oc-modal').hidden = true;
+  ocPedidoId = null;
+}
+
+document.getElementById('oc-cancel').addEventListener('click', closeOcModal);
+
+document.getElementById('oc-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('oc-error');
+  const btn = e.target.querySelector('button[type=submit]');
+  const email = document.getElementById('oc-email').value.trim();
+  const password = document.getElementById('oc-password').value;
+  errorEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Creando…';
+  try {
+    const res = await api(`/pedidos/${ocPedidoId}/generar-oc`, {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    closeOcModal();
+    let msg = `OC creada: ${res.po_name}`;
+    if (res.omitidos && res.omitidos.length) {
+      msg += `\n\nInsumos omitidos (sin mapeo a Odoo): ${res.omitidos.join(', ')}`;
+    }
+    alert(msg);
+    renderView();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Crear OC';
+  }
+});
+
 // ---------- Nav ----------
 
 function renderNav() {
@@ -334,7 +382,7 @@ async function renderPedidos(el, s) {
       </div>` : ''}
     <div class="card">
       <table>
-        <thead><tr><th>Local</th><th>Fecha</th><th>Insumos</th><th>Estado</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr><th>Local</th><th>Fecha</th><th>Insumos</th><th>Estado</th><th>Orden de Compra</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${pedidos.map(p => `
             <tr>
@@ -342,6 +390,11 @@ async function renderPedidos(el, s) {
               <td>${p.fecha}</td>
               <td>${(p.items || []).length}</td>
               <td><span class="badge ${badgeClass[p.estado] || ''}">${p.estado}</span></td>
+              <td>
+                ${p.po_name ? p.po_name : (editable && p.estado === 'aprobado'
+                  ? `<button class="btn-link" data-oc="${p.id}">Generar OC</button>`
+                  : '—')}
+              </td>
               ${editable ? `<td>
                 ${p.estado === 'pendiente' ? `
                   <button class="btn btn-approve" data-id="${p.id}" data-estado="aprobado">Aprobar</button>
@@ -353,11 +406,16 @@ async function renderPedidos(el, s) {
       </table>
     </div>`;
 
+  el.querySelectorAll('button[data-oc]').forEach(btn => {
+    btn.onclick = () => openOcModal(btn.dataset.oc);
+  });
+
   if (editable) {
     const rowsEl = document.getElementById('items-rows');
-    const addRow = (nombre = '', cantidad = '', unidad = '') => {
+    const addRow = (nombre = '', cantidad = '', unidad = '', key = '') => {
       const row = document.createElement('div');
       row.className = 'item-row';
+      row.dataset.key = key;
       row.innerHTML = `
         <input placeholder="Insumo" class="item-nombre field" style="flex:2" value="${nombre}">
         <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field" value="${cantidad}">
@@ -379,7 +437,7 @@ async function renderPedidos(el, s) {
           return;
         }
         rowsEl.innerHTML = '';
-        conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad));
+        conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad, i.ingrediente_key));
       } catch (err) {
         errorEl.textContent = err.message;
       }
@@ -392,6 +450,7 @@ async function renderPedidos(el, s) {
         ingrediente: row.querySelector('.item-nombre').value.trim(),
         cantidad: parseFloat(row.querySelector('.item-cantidad').value) || 0,
         unidad: row.querySelector('.item-unidad').value.trim(),
+        ingrediente_key: row.dataset.key || null,
       })).filter(i => i.ingrediente);
 
       if (!items.length) {

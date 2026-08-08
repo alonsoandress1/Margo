@@ -84,6 +84,19 @@ class PedidoOut(BaseModel):
     items: list[dict[str, Any]]
     creado_por: str | None = None
     revisado_por: str | None = None
+    po_id: int | None = None
+    po_name: str | None = None
+
+
+class GenerarOCIn(BaseModel):
+    email: str
+    password: str
+
+
+class GenerarOCOut(BaseModel):
+    po_id: int
+    po_name: str
+    omitidos: list[str] = []
 
 
 class LoginRequest(BaseModel):

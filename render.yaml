@@ -14,3 +14,5 @@ services:
         sync: false
       - key: JWT_EXPIRE_MINUTES
         value: "480"
+      - key: ODOO_URL
+        value: "https://margo.odoo.com"

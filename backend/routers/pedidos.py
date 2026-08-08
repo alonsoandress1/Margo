@@ -1,14 +1,38 @@
+import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..db import get_db
 from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
-from ..schemas import PedidoEstadoIn, PedidoIn, PedidoOut, SugerenciaItem
+from ..schemas import GenerarOCIn, GenerarOCOut, PedidoEstadoIn, PedidoIn, PedidoOut, SugerenciaItem
+
+# odoo_connector.py vive en la raiz del repo (lo comparte tambien la app de
+# escritorio y los scripts de terminal) -- se agrega esa ruta para poder
+# importarlo sin duplicar el archivo dentro del paquete backend.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from odoo_connector import OdooWebSession  # noqa: E402
 
 router = APIRouter(prefix="/pedidos", tags=["pedidos"])
 
 ESTADOS_VALIDOS = ("aprobado", "rechazado", "editado")
+
+
+def _con_po_tracking(db, pedidos: list[dict]) -> list[dict]:
+    if not pedidos:
+        return pedidos
+    ids = [p["id"] for p in pedidos]
+    tracking = db.table("po_tracking").select("pedido_id,po_id,po_name").in_("pedido_id", ids).execute().data or []
+    por_pedido = {t["pedido_id"]: t for t in tracking}
+    for p in pedidos:
+        t = por_pedido.get(p["id"])
+        p["po_id"] = t["po_id"] if t else None
+        p["po_name"] = t["po_name"] if t else None
+    return pedidos
 
 
 @router.get("/sugerencia", response_model=list[SugerenciaItem])
@@ -75,7 +99,7 @@ def listar_pedidos(local_id: str | None = None, claims: dict = Depends(get_curre
             q = db.table("pedidos").select("*")
 
     res = q.order("created_at", desc=True).execute()
-    return res.data or []
+    return _con_po_tracking(db, res.data or [])
 
 
 @router.post("", response_model=PedidoOut, status_code=status.HTTP_201_CREATED)
@@ -117,3 +141,69 @@ def actualizar_estado(pedido_id: str, body: PedidoEstadoIn, claims: dict = Depen
 
     res = db.table("pedidos").update(update).eq("id", pedido_id).execute()
     return res.data[0]
+
+
+@router.post("/{pedido_id}/generar-oc", response_model=GenerarOCOut)
+def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_current_claims)):
+    """Crea la Orden de Compra real en Odoo para un pedido ya aprobado.
+    Las credenciales de Odoo viajan solo en este request, se usan una vez
+    y se descartan -- nunca se guardan, ni siquiera encriptadas."""
+    if claims["rol"] == "observador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede generar OC")
+
+    db = get_db()
+    pedido_res = db.table("pedidos").select("*").eq("id", pedido_id).execute()
+    if not pedido_res.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pedido no encontrado")
+    pedido = pedido_res.data[0]
+    verificar_acceso_local(claims, pedido["local_id"])
+
+    if pedido["estado"] != "aprobado":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Solo se puede generar la OC de un pedido aprobado")
+
+    ya_existe = db.table("po_tracking").select("po_name").eq("pedido_id", pedido_id).execute()
+    if ya_existe.data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Ya existe una OC para este pedido: {ya_existe.data[0]['po_name']}")
+
+    keys = [i["ingrediente_key"] for i in pedido["items"] if i.get("ingrediente_key")]
+    mapping_rows = db.table("odoo_mapping").select("*").in_("ingrediente_key", keys).execute().data if keys else []
+    mapping = {m["ingrediente_key"]: m for m in mapping_rows}
+
+    po_lines = []
+    omitidos = []
+    for item in pedido["items"]:
+        key = item.get("ingrediente_key")
+        m = mapping.get(key) if key else None
+        if not m:
+            omitidos.append(item.get("ingrediente", "?"))
+            continue
+        cantidad = float(item.get("cantidad", 0))
+        unidad = (item.get("unidad") or "").lower()
+        cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
+        po_lines.append({
+            "product_id": m["odoo_id"],
+            "name": m["odoo_name"],
+            "product_qty": round(cantidad_kg, 2),
+            "price_unit": m.get("price", 0) or 0,
+        })
+
+    if not po_lines:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ningun insumo del pedido tiene mapeo a Odoo -- nada que generar")
+
+    partner_id = next(iter(mapping.values()))["supplier_id"]
+    proveedor = next(iter(mapping.values()))["supplier_name"]
+
+    session = OdooWebSession(os.environ["ODOO_URL"])
+    ok, msg = session.connect(body.email, body.password)
+    if not ok:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"No se pudo conectar a Odoo: {msg}")
+
+    po_id, po_name = session.create_purchase_order(
+        partner_id, po_lines, notes=f"Generado automaticamente -- pedido {pedido_id}")
+
+    db.table("po_tracking").insert({
+        "po_id": po_id, "po_name": po_name, "local_id": pedido["local_id"], "pedido_id": pedido_id,
+        "proveedor": proveedor, "creado_por": claims["sub"],
+    }).execute()
+
+    return GenerarOCOut(po_id=po_id, po_name=po_name, omitidos=omitidos)
