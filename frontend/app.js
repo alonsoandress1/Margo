@@ -119,6 +119,8 @@ async function renderView() {
   try {
     if (state.section === 'pedidos') return renderPedidos(el, s);
     if (state.section === 'locales') return renderLocales(el, s);
+    if (state.section === 'inventario') return renderInventario(el, s);
+    if (state.section === 'mermas') return renderMermas(el, s);
     return renderPlaceholder(el, s);
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -146,6 +148,160 @@ async function renderLocales(el, s) {
         </tbody>
       </table>
     </div>`;
+}
+
+async function renderInventario(el, s) {
+  const locales = await api('/locales');
+  if (!locales.length) {
+    el.innerHTML = '<h2>Inventario</h2><div class="card"><p class="placeholder">No tienes locales asignados.</p></div>';
+    return;
+  }
+  const editable = puedeEditar(s);
+  const localId = state.invLocal && locales.some(l => l.id === state.invLocal) ? state.invLocal : locales[0].id;
+  state.invLocal = localId;
+
+  const items = await api(`/inventario?local_id=${localId}`);
+
+  el.innerHTML = `
+    <h2>Inventario de Bodega</h2>
+    <label class="field-label">Local</label>
+    <select id="inv-local" class="field" style="margin-bottom:1.25rem;width:100%;max-width:280px">
+      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+    </select>
+    ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
+    ${editable ? `
+      <div class="card">
+        <h3>Registrar movimiento</h3>
+        <form id="mov-form">
+          <div class="item-row">
+            <select id="mov-insumo" class="field" style="flex:2" required>
+              ${items.map(i => `<option value="${i.ingrediente_key}">${i.nombre} (${i.unidad})</option>`).join('')}
+            </select>
+            <select id="mov-tipo" class="field">
+              <option value="ingreso">Ingreso</option>
+              <option value="egreso">Egreso</option>
+              <option value="ajuste">Ajuste</option>
+            </select>
+            <input id="mov-cantidad" class="field" type="number" step="0.01" placeholder="Cantidad" required>
+          </div>
+          <input id="mov-nota" class="field" style="width:100%;margin-bottom:.75rem" placeholder="Nota (opcional)">
+          <button type="submit" class="btn btn-primary">Registrar</button>
+          <p id="mov-error" class="error-msg"></p>
+        </form>
+      </div>` : ''}
+    <div class="card">
+      <table>
+        <thead><tr><th>Insumo</th><th>Unidad</th><th>Par Stock</th><th>Stock Bodega actual</th></tr></thead>
+        <tbody>
+          ${items.map(i => `
+            <tr>
+              <td>${i.nombre}</td>
+              <td>${i.unidad}</td>
+              <td>${i.par}</td>
+              <td>${i.stock_bodega}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('inv-local').addEventListener('change', (e) => {
+    state.invLocal = e.target.value;
+    renderView();
+  });
+
+  if (editable) {
+    document.getElementById('mov-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('mov-error');
+      try {
+        await api('/inventario/movimiento', {
+          method: 'POST',
+          body: JSON.stringify({
+            local_id: localId,
+            ingrediente_key: document.getElementById('mov-insumo').value,
+            tipo: document.getElementById('mov-tipo').value,
+            cantidad: parseFloat(document.getElementById('mov-cantidad').value) || 0,
+            nota: document.getElementById('mov-nota').value.trim() || null,
+          }),
+        });
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  }
+}
+
+async function renderMermas(el, s) {
+  const locales = await api('/locales');
+  if (!locales.length) {
+    el.innerHTML = '<h2>Mermas</h2><div class="card"><p class="placeholder">No tienes locales asignados.</p></div>';
+    return;
+  }
+  const editable = puedeEditar(s);
+  const localId = state.mermasLocal && locales.some(l => l.id === state.mermasLocal) ? state.mermasLocal : locales[0].id;
+  state.mermasLocal = localId;
+
+  const items = await api(`/mermas?local_id=${localId}`);
+  const hoy = items[0]?.fecha || new Date().toISOString().slice(0, 10);
+
+  el.innerHTML = `
+    <h2>Mermas — Stock de Cocina</h2>
+    <label class="field-label">Local</label>
+    <select id="mermas-local" class="field" style="margin-bottom:.5rem;width:100%;max-width:280px">
+      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+    </select>
+    <p class="placeholder" style="margin-bottom:1.25rem">Conteo de hoy (${hoy}) — lo que informa cocina cada mañana.</p>
+    ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
+    <div class="card">
+      <form id="mermas-form">
+        <table>
+          <thead><tr><th>Insumo</th><th>Unidad</th><th>Stock informado hoy</th></tr></thead>
+          <tbody>
+            ${items.map(i => `
+              <tr>
+                <td>${i.nombre}</td>
+                <td>${i.unidad}</td>
+                <td>
+                  ${editable
+                    ? `<input class="field merma-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:120px" value="${i.cantidad_informada ?? ''}">`
+                    : (i.cantidad_informada ?? '—')}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${editable ? '<br><button type="submit" class="btn btn-primary">Guardar mermas de hoy</button>' : ''}
+        <p id="mermas-error" class="error-msg"></p>
+      </form>
+    </div>`;
+
+  document.getElementById('mermas-local').addEventListener('change', (e) => {
+    state.mermasLocal = e.target.value;
+    renderView();
+  });
+
+  if (editable) {
+    document.getElementById('mermas-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('mermas-error');
+      const inputs = Array.from(document.querySelectorAll('.merma-input')).filter(inp => inp.value !== '');
+      try {
+        for (const inp of inputs) {
+          await api('/mermas', {
+            method: 'POST',
+            body: JSON.stringify({
+              local_id: localId,
+              ingrediente_key: inp.dataset.key,
+              cantidad_informada: parseFloat(inp.value) || 0,
+            }),
+          });
+        }
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  }
 }
 
 async function renderPedidos(el, s) {

@@ -30,3 +30,9 @@ def locales_permitidos(claims: dict) -> list[str] | None:
     db = get_db()
     rel = db.table("usuario_locales").select("local_id").eq("usuario_id", claims["sub"]).execute()
     return [r["local_id"] for r in (rel.data or [])]
+
+
+def verificar_acceso_local(claims: dict, local_id: str):
+    permitidos = locales_permitidos(claims)
+    if permitidos is not None and local_id not in permitidos:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes acceso a ese local")

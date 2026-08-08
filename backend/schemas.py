@@ -32,6 +32,50 @@ class SugerenciaItem(BaseModel):
     proveedor: str | None = None
 
 
+class MovimientoIn(BaseModel):
+    local_id: str
+    ingrediente_key: str
+    tipo: str  # ingreso | egreso | ajuste
+    cantidad: float
+    nota: str | None = None
+
+
+class MovimientoOut(BaseModel):
+    id: str
+    local_id: str
+    ingrediente_key: str
+    tipo: str
+    cantidad: float
+    nota: str | None = None
+    fecha: str
+    created_by: str | None = None
+
+
+class InventarioItem(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad: str
+    categoria: str | None = None
+    par: float
+    stock_bodega: float
+
+
+class StockCocinaIn(BaseModel):
+    local_id: str
+    ingrediente_key: str
+    fecha: str | None = None  # default: hoy
+    cantidad_informada: float
+
+
+class MermaItem(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad: str
+    categoria: str | None = None
+    cantidad_informada: float | None = None
+    fecha: str | None = None
+
+
 class PedidoOut(BaseModel):
     id: str
     local_id: str

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..db import get_db
-from ..deps import get_current_claims, locales_permitidos
+from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
 from ..schemas import PedidoEstadoIn, PedidoIn, PedidoOut, SugerenciaItem
 
 router = APIRouter(prefix="/pedidos", tags=["pedidos"])
@@ -11,18 +11,12 @@ router = APIRouter(prefix="/pedidos", tags=["pedidos"])
 ESTADOS_VALIDOS = ("aprobado", "rechazado", "editado")
 
 
-def _verificar_acceso_local(claims: dict, local_id: str):
-    permitidos = locales_permitidos(claims)
-    if permitidos is not None and local_id not in permitidos:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes acceso a ese local")
-
-
 @router.get("/sugerencia", response_model=list[SugerenciaItem])
 def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims)):
     """Sugerencia basada en Par Stock - stock actual (bodega + cocina).
     Todavia no incluye demanda proyectada por pronostico de ventas (fase 2:
     requiere migrar el historial de ventas a Supabase)."""
-    _verificar_acceso_local(claims, local_id)
+    verificar_acceso_local(claims, local_id)
     db = get_db()
 
     par_rows = db.table("par_stock").select("*").eq("local_id", local_id).execute().data or []
@@ -70,7 +64,7 @@ def listar_pedidos(local_id: str | None = None, claims: dict = Depends(get_curre
     permitidos = locales_permitidos(claims)
 
     if local_id:
-        _verificar_acceso_local(claims, local_id)
+        verificar_acceso_local(claims, local_id)
         q = db.table("pedidos").select("*").eq("local_id", local_id)
     else:
         if permitidos is not None:
@@ -88,7 +82,7 @@ def listar_pedidos(local_id: str | None = None, claims: dict = Depends(get_curre
 def crear_pedido(body: PedidoIn, claims: dict = Depends(get_current_claims)):
     if claims["rol"] == "observador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede crear pedidos")
-    _verificar_acceso_local(claims, body.local_id)
+    verificar_acceso_local(claims, body.local_id)
 
     db = get_db()
     res = db.table("pedidos").insert({
@@ -111,7 +105,7 @@ def actualizar_estado(pedido_id: str, body: PedidoEstadoIn, claims: dict = Depen
     existente = db.table("pedidos").select("local_id").eq("id", pedido_id).execute()
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Pedido no encontrado")
-    _verificar_acceso_local(claims, existente.data[0]["local_id"])
+    verificar_acceso_local(claims, existente.data[0]["local_id"])
 
     update = {
         "estado": body.estado,
