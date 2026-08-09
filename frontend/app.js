@@ -52,7 +52,10 @@ async function api(path, options = {}) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Error ${res.status}`);
+    let msg = `Error ${res.status}`;
+    if (typeof body.detail === 'string') msg = body.detail;
+    else if (Array.isArray(body.detail)) msg = body.detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+    throw new Error(msg);
   }
   return res.status === 204 ? null : res.json();
 }
@@ -1284,7 +1287,7 @@ async function renderFacturas(el, s) {
               ${!f.lineas.length ? '<tr><td colspan="3" class="placeholder">Sin líneas de producto.</td></tr>' : ''}
             </tbody>
           </table>
-          <button type="button" class="btn btn-primary" data-aceptar-factura="${f.odoo_invoice_id}" style="margin-top:1rem">Aceptar e ingresar a Bodega</button>
+          ${editable ? `<button type="button" class="btn btn-primary" data-aceptar-factura="${f.odoo_invoice_id}" style="margin-top:1rem">Aceptar e ingresar a Bodega</button>` : ''}
         </div>`).join(''))}
 
     <div class="card">
@@ -1314,6 +1317,8 @@ async function renderFacturas(el, s) {
         const localId = el.querySelector(`.factura-local-sel[data-invoice="${invoiceId}"]`).value;
         if (!localId) { alert('Selecciona un local antes de aceptar.'); return; }
         if (!confirm(`¿Aceptar ${factura.odoo_invoice_name}? Se registrará el ingreso a Bodega de los insumos reconocidos.`)) return;
+        btn.disabled = true;
+        btn.textContent = 'Aceptando…';
         try {
           await api('/facturas/aceptar', {
             method: 'POST',
@@ -1327,6 +1332,8 @@ async function renderFacturas(el, s) {
           renderView();
         } catch (err) {
           alert(err.message);
+          btn.disabled = false;
+          btn.textContent = 'Aceptar e ingresar a Bodega';
         }
       };
     });

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
@@ -85,6 +86,22 @@ def aceptar(body: FacturaAceptarIn, claims: dict = Depends(get_current_claims)):
     if not reconocidas:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ningun insumo de esta factura esta registrado en el catalogo -- nada que ingresar")
 
+    # factura_tracking se inserta ANTES que los movimientos de bodega:
+    # odoo_invoice_id es unique, asi que si dos clicks (o dos admins) intentan
+    # aceptar la misma factura casi al mismo tiempo, el segundo insert falla
+    # aca y nunca llega a crear un ingreso duplicado en bodega_movimientos.
+    try:
+        res = db.table("factura_tracking").insert({
+            "odoo_invoice_id": body.odoo_invoice_id, "odoo_invoice_name": body.odoo_invoice_name,
+            "proveedor": body.proveedor, "local_id": body.local_id,
+            "items": [l.model_dump() for l in body.lineas],
+            "procesada_por": claims["sub"],
+        }).execute()
+    except APIError as e:
+        if e.code == "23505":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Esta factura ya fue procesada") from e
+        raise
+
     ahora = datetime.now(timezone.utc).isoformat()
     for l in reconocidas:
         db.table("bodega_movimientos").insert({
@@ -94,12 +111,6 @@ def aceptar(body: FacturaAceptarIn, claims: dict = Depends(get_current_claims)):
             "fecha": ahora, "created_by": claims["sub"],
         }).execute()
 
-    res = db.table("factura_tracking").insert({
-        "odoo_invoice_id": body.odoo_invoice_id, "odoo_invoice_name": body.odoo_invoice_name,
-        "proveedor": body.proveedor, "local_id": body.local_id,
-        "items": [l.model_dump() for l in body.lineas],
-        "procesada_por": claims["sub"],
-    }).execute()
     return res.data[0]
 
 
