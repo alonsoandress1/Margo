@@ -187,6 +187,7 @@ tbody tr:hover{background:rgba(201,169,122,.03)}
   transition:border-color .2s var(--ease),box-shadow .2s var(--ease);
 }
 .field:focus{outline:none;border-color:var(--gold);box-shadow:var(--glow-xs)}
+select.field option{background:var(--s2);color:var(--t1)}
 .field-label{
   font-family:var(--font-sans);font-size:8px;letter-spacing:.16em;text-transform:uppercase;
   color:var(--t3);display:block;margin-bottom:.4rem;
