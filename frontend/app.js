@@ -1023,7 +1023,7 @@ function showDetalleModal(pedido, nombreLocal) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal-box">
+    <div class="modal-box" style="width:520px">
       <h3>Detalle del pedido — ${nombreLocal}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${pedido.fecha} · ${pedido.estado}</p>
       <table>
