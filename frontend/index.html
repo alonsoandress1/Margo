@@ -33,10 +33,31 @@
   <main class="content">
     <header class="topbar">
       <span id="user-info"></span>
-      <button id="logout-btn">Cerrar sesión</button>
+      <span>
+        <button id="cambiar-password-btn" class="btn-link" style="margin-right:1rem">Cambiar contraseña</button>
+        <button id="logout-btn">Cerrar sesión</button>
+      </span>
     </header>
     <section id="view-content"></section>
   </main>
+</div>
+
+<div id="pw-modal" class="modal-overlay" hidden>
+  <form id="pw-form" class="modal-box">
+    <h3>Cambiar contraseña</h3>
+    <p class="placeholder">Esta es tu contraseña de la plataforma — no tiene relación con tu cuenta de Odoo.</p>
+    <label class="field-label">Contraseña actual</label>
+    <input type="password" id="pw-actual" class="field" style="width:100%" required autocomplete="current-password">
+    <label class="field-label" style="margin-top:.75rem">Contraseña nueva</label>
+    <input type="password" id="pw-nueva" class="field" style="width:100%" required autocomplete="new-password" minlength="6">
+    <label class="field-label" style="margin-top:.75rem">Repetir contraseña nueva</label>
+    <input type="password" id="pw-repetir" class="field" style="width:100%" required autocomplete="new-password" minlength="6">
+    <div style="margin-top:1.25rem">
+      <button type="submit" class="btn btn-primary">Guardar</button>
+      <button type="button" id="pw-cancel" class="btn">Cancelar</button>
+    </div>
+    <p id="pw-error" class="error-msg"></p>
+  </form>
 </div>
 
 <div id="oc-modal" class="modal-overlay" hidden>

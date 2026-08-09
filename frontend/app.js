@@ -96,6 +96,55 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
 document.getElementById('logout-btn').addEventListener('click', logout);
 
+// ---------- Modal: Cambiar contraseña ----------
+
+document.getElementById('cambiar-password-btn').addEventListener('click', () => {
+  document.getElementById('pw-actual').value = '';
+  document.getElementById('pw-nueva').value = '';
+  document.getElementById('pw-repetir').value = '';
+  document.getElementById('pw-error').textContent = '';
+  document.getElementById('pw-modal').hidden = false;
+});
+
+document.getElementById('pw-cancel').addEventListener('click', () => {
+  document.getElementById('pw-modal').hidden = true;
+});
+
+document.getElementById('pw-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('pw-error');
+  const btn = e.target.querySelector('button[type=submit]');
+  const actual = document.getElementById('pw-actual').value;
+  const nueva = document.getElementById('pw-nueva').value;
+  const repetir = document.getElementById('pw-repetir').value;
+  errorEl.textContent = '';
+
+  if (nueva !== repetir) {
+    errorEl.textContent = 'La contraseña nueva no coincide en ambos campos.';
+    return;
+  }
+  if (nueva.length < 6) {
+    errorEl.textContent = 'La contraseña nueva debe tener al menos 6 caracteres.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando…';
+  try {
+    await api('/auth/password', {
+      method: 'PATCH',
+      body: JSON.stringify({ password_actual: actual, password_nueva: nueva }),
+    });
+    document.getElementById('pw-modal').hidden = true;
+    alert('Contraseña actualizada.');
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar';
+  }
+});
+
 // ---------- Modal: Generar OC ----------
 
 let ocPedidoId = null;

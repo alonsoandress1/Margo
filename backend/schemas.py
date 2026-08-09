@@ -189,6 +189,11 @@ class UsuarioUpdateIn(BaseModel):
     password: str | None = None  # si viene, resetea la contraseña
 
 
+class CambiarPasswordIn(BaseModel):
+    password_actual: str
+    password_nueva: str
+
+
 class PedidoOut(BaseModel):
     id: str
     local_id: str
