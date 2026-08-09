@@ -26,10 +26,10 @@ def actualizar(body: ConfiguracionEmailIn, claims: dict = Depends(get_current_cl
     existente = db.table("configuracion_email").select("id").limit(1).execute()
     if existente.data:
         res = db.table("configuracion_email").update({
-            "destinatario": body.destinatario, "updated_by": claims["sub"],
+            "destinatario": body.destinatario, "cc": body.cc, "updated_by": claims["sub"],
         }).eq("id", existente.data[0]["id"]).execute()
     else:
         res = db.table("configuracion_email").insert({
-            "destinatario": body.destinatario, "updated_by": claims["sub"],
+            "destinatario": body.destinatario, "cc": body.cc, "updated_by": claims["sub"],
         }).execute()
     return res.data[0]

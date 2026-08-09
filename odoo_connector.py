@@ -316,6 +316,30 @@ class OdooWebSession:
             'model': model, 'method': method, 'args': args, 'kwargs': kwargs or {},
         })
 
+    def get_report_name_for_model(self, model: str) -> Optional[str]:
+        """Busca el nombre tecnico (report_name) del reporte PDF configurado
+        para un modelo, ej. 'purchase.order' -> 'purchase.report_purchasequotation'.
+        Se busca en vez de asumirlo fijo porque puede variar segun version/
+        personalizacion del Odoo del cliente."""
+        recs = self.call_kw('ir.actions.report', 'search_read',
+            [[['model', '=', model], ['report_type', '=', 'qweb-pdf']]],
+            {'fields': ['report_name'], 'limit': 1})
+        return recs[0]['report_name'] if recs else None
+
+    def download_pdf_report(self, report_name: str, record_ids: list[int]) -> bytes:
+        """Descarga el PDF de un reporte QWeb ya generado en Odoo (ej. la
+        Orden de Compra recien creada), reusando la misma sesion autenticada
+        -- mismo endpoint que usa el boton "Imprimir" en el navegador."""
+        if not self.uid:
+            raise RuntimeError("No autenticado — llama connect() primero.")
+        ids_str = ",".join(str(int(i)) for i in record_ids)
+        req = urllib.request.Request(f'{self.url}/report/pdf/{report_name}/{ids_str}')
+        with self._opener.open(req, timeout=self.timeout) as resp:
+            data = resp.read()
+        if not data.startswith(b'%PDF'):
+            raise RuntimeError("Odoo no devolvió un PDF valido para el reporte solicitado.")
+        return data
+
     def create_purchase_order(self, partner_id: int, lines: list[dict],
                                notes: str = '') -> tuple[int, str]:
         """Igual que OdooClient.create_purchase_order pero sobre la sesión web."""

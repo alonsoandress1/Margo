@@ -128,6 +128,7 @@ create index on odoo_mapping (ingrediente_key);
 create table configuracion_email (
     id            uuid primary key default gen_random_uuid(),
     destinatario  text not null,
+    cc            text,  -- direcciones adicionales separadas por coma
     updated_at    timestamptz not null default now(),
     updated_by    uuid references usuarios(id)
 );

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
-from ..email_sender import enviar_aviso_pedido
+from ..email_sender import enviar_aviso_pedido, enviar_oc_pdf
 from ..schemas import (AccionCompra, FavoritoIn, GenerarOCIn, GenerarOCOut, PedidoEstadoIn,
                        PedidoIn, PedidoOut, SugerenciaItem)
 
@@ -246,6 +246,10 @@ def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_cur
     proveedor_ids = list(grupos.keys())
     proveedores = {p["id"]: p for p in db.table("proveedores").select("*").in_("id", proveedor_ids).execute().data or []}
 
+    config_res = db.table("configuracion_email").select("destinatario,cc").limit(1).execute()
+    config = config_res.data[0] if config_res.data else None
+    cc_list = [c.strip() for c in (config or {}).get("cc", "").split(",") if c.strip()] if config else []
+
     acciones: list[AccionCompra] = []
     odoo_session: OdooWebSession | None = None
 
@@ -280,15 +284,30 @@ def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_cur
                 "tipo": "odoo", "po_id": po_id, "po_name": po_name, "local_id": pedido["local_id"],
                 "pedido_id": pedido_id, "proveedor": nombre_proveedor, "creado_por": claims["sub"],
             }).execute()
-            acciones.append(AccionCompra(proveedor=nombre_proveedor, tipo="odoo", po_id=po_id, po_name=po_name))
+
+            # La OC ya quedo creada en Odoo (lo que importa) -- si el PDF no se
+            # puede descargar o enviar, no se revierte nada, solo se avisa.
+            aviso = None
+            if not config:
+                aviso = "OC creada en Odoo, pero no hay destinatario de correo configurado (ve a Proveedores) para enviar el PDF"
+            else:
+                try:
+                    report_name = odoo_session.get_report_name_for_model("purchase.order") or "purchase.report_purchasequotation"
+                    pdf_bytes = odoo_session.download_pdf_report(report_name, [po_id])
+                    enviar_oc_pdf(config["destinatario"], nombre_proveedor, local["nombre"], po_name, pdf_bytes, cc=cc_list)
+                except KeyError as e:
+                    aviso = f"OC creada en Odoo, pero falta configurar la variable de entorno {e} para enviar el PDF por correo"
+                except Exception as e:
+                    aviso = f"OC creada en Odoo, pero no se pudo enviar el PDF por correo: {e}"
+
+            acciones.append(AccionCompra(proveedor=nombre_proveedor, tipo="odoo", po_id=po_id, po_name=po_name, aviso=aviso))
         else:
-            config = db.table("configuracion_email").select("destinatario").limit(1).execute()
-            if not config.data:
+            if not config:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "No hay un destinatario de correo configurado (ve a Proveedores)")
             items_email = [{"ingrediente": item.get("ingrediente", "?"), "cantidad": item.get("cantidad", 0), "unidad": item.get("unidad", "")}
                             for _, item in entradas]
             try:
-                enviar_aviso_pedido(config.data[0]["destinatario"], nombre_proveedor, local["nombre"], items_email)
+                enviar_aviso_pedido(config["destinatario"], nombre_proveedor, local["nombre"], items_email, cc=cc_list)
             except KeyError as e:
                 raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e} para poder enviar correos")
             except Exception as e:

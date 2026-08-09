@@ -190,9 +190,10 @@ document.getElementById('oc-form').addEventListener('submit', async (e) => {
       body: JSON.stringify({ email: email || null, password: password || null }),
     });
     closeOcModal();
-    const lineas = res.acciones.map(a =>
-      a.tipo === 'odoo' ? `✓ OC creada en Odoo: ${a.po_name} (${a.proveedor})` : `✉ Aviso enviado por correo a ${a.proveedor}`
-    );
+    const lineas = res.acciones.map(a => {
+      const base = a.tipo === 'odoo' ? `✓ OC creada en Odoo: ${a.po_name} (${a.proveedor})` : `✉ Aviso enviado por correo a ${a.proveedor}`;
+      return a.aviso ? `${base}\n  ⚠ ${a.aviso}` : base;
+    });
     let msg = lineas.join('\n');
     if (res.omitidos && res.omitidos.length) {
       msg += `\n\nInsumos omitidos (sin proveedor registrado): ${res.omitidos.join(', ')}`;
@@ -284,10 +285,13 @@ async function renderProveedores(el, s) {
     ${editable ? `
       <div class="card">
         <h3>Configuración de avisos por correo</h3>
-        <p class="placeholder" style="margin-bottom:1rem">Para proveedores sin integración a Odoo, se envía un correo con el pedido a este destinatario. Asunto siempre: "Pedido {local}".</p>
+        <p class="placeholder" style="margin-bottom:1rem">Para proveedores sin integración a Odoo, se envía un correo con el pedido a este destinatario. Para Doña Sofía (Odoo), se envía la OC en PDF. Asunto siempre: "Pedido {local}".</p>
         <form id="config-email-form">
-          <input class="field" id="config-destinatario" type="email" placeholder="correo@margo.cl" style="width:100%;max-width:400px" value="${config ? config.destinatario : ''}" required>
-          <button type="submit" class="btn btn-primary" style="margin-left:.5rem">Guardar</button>
+          <div class="item-row">
+            <input class="field" id="config-destinatario" type="email" placeholder="correo@margo.cl" style="flex:1" value="${config ? config.destinatario : ''}" required>
+            <input class="field" id="config-cc" placeholder="Con copia (separados por coma, opcional)" style="flex:1" value="${config && config.cc ? config.cc : ''}">
+          </div>
+          <button type="submit" class="btn btn-primary">Guardar</button>
           <p id="config-email-error" class="error-msg"></p>
         </form>
       </div>
@@ -382,7 +386,10 @@ async function renderProveedores(el, s) {
       try {
         await api('/configuracion/email', {
           method: 'PATCH',
-          body: JSON.stringify({ destinatario: document.getElementById('config-destinatario').value.trim() }),
+          body: JSON.stringify({
+            destinatario: document.getElementById('config-destinatario').value.trim(),
+            cc: document.getElementById('config-cc').value.trim() || null,
+          }),
         });
         renderView();
       } catch (err) {

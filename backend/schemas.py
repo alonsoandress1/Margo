@@ -126,10 +126,12 @@ class ProductoUpdateIn(BaseModel):
 
 class ConfiguracionEmailOut(BaseModel):
     destinatario: str
+    cc: str | None = None  # direcciones adicionales separadas por coma
 
 
 class ConfiguracionEmailIn(BaseModel):
     destinatario: str
+    cc: str | None = None
 
 
 class AccionCompra(BaseModel):
@@ -137,6 +139,7 @@ class AccionCompra(BaseModel):
     tipo: str  # odoo | email
     po_id: int | None = None
     po_name: str | None = None
+    aviso: str | None = None  # ej. advertencia si el PDF de la OC no se pudo enviar
 
 
 class ParStockItem(BaseModel):
