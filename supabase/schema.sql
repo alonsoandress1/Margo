@@ -86,9 +86,19 @@ create table stock_cocina (
     primary key (local_id, ingrediente_key, fecha)
 );
 
--- ── Mapeo de insumos a Odoo (producto/proveedor/precio) ─────────────────
+-- ── Proveedores (catálogo, solo administrador lo gestiona) ─────────────
+create table proveedores (
+    id                uuid primary key default gen_random_uuid(),
+    nombre            text not null,
+    odoo_supplier_id  integer not null,  -- res.partner id en Odoo, el admin lo verifica el mismo
+    activo            boolean not null default true,
+    created_at        timestamptz not null default now()
+);
+
+-- ── Mapeo de insumos a Odoo (producto/proveedor/precio/formato) ────────
 create table odoo_mapping (
     ingrediente_key  text primary key,
+    proveedor_id     uuid references proveedores(id),
     ref              text,
     odoo_id          integer not null,
     odoo_name        text not null,

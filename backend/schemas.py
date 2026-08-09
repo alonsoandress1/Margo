@@ -77,6 +77,48 @@ class MermaItem(BaseModel):
     fecha: str | None = None
 
 
+class ProveedorOut(BaseModel):
+    id: str
+    nombre: str
+    odoo_supplier_id: int
+    activo: bool
+
+
+class ProveedorIn(BaseModel):
+    nombre: str
+    odoo_supplier_id: int
+
+
+class ProductoOut(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad: str
+    proveedor_id: str
+    odoo_id: int
+    odoo_name: str
+    ref: str | None = None
+    precio: float = 0
+    tamano_empaque: float | None = None  # None = a granel
+
+
+class ProductoIn(BaseModel):
+    nombre: str
+    unidad: str
+    odoo_id: int
+    odoo_name: str
+    ref: str | None = None
+    precio: float = 0
+    a_granel: bool = False
+    tamano_empaque: float | None = None
+
+
+class ProductoUpdateIn(BaseModel):
+    ingrediente_key: str
+    precio: float | None = None
+    a_granel: bool = False
+    tamano_empaque: float | None = None
+
+
 class ParStockItem(BaseModel):
     ingrediente_key: str
     nombre: str
@@ -90,29 +132,17 @@ class ParStockItem(BaseModel):
     tamano_empaque: float | None = None  # None = a granel
 
 
-class ParStockIn(BaseModel):
+class ParStockAddIn(BaseModel):
     local_id: str
-    nombre: str
-    unidad: str
+    ingrediente_key: str  # debe existir ya en el catalogo de Proveedores
     categoria: str | None = None
     par_cantidad: float
-    odoo_id: int
-    odoo_name: str
-    ref: str | None = None
-    supplier_id: int
-    supplier_name: str
-    precio: float = 0
-    a_granel: bool = False
-    tamano_empaque: float | None = None
 
 
 class ParStockUpdateIn(BaseModel):
     local_id: str
     ingrediente_key: str
-    par_cantidad: float | None = None
-    precio: float | None = None
-    a_granel: bool = False
-    tamano_empaque: float | None = None
+    par_cantidad: float
 
 
 class PedidoOut(BaseModel):

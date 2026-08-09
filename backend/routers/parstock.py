@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
-from ..schemas import ParStockIn, ParStockItem, ParStockUpdateIn
+from ..schemas import ParStockAddIn, ParStockItem, ParStockUpdateIn, ProductoOut
 
-router = APIRouter(prefix="/par-stock", tags=["par-stock"])
+router = APIRouter(tags=["par-stock"])
 
 
 def _require_admin(claims: dict):
@@ -22,7 +22,23 @@ def _item_de(par_row: dict, mapping: dict) -> ParStockItem:
     )
 
 
-@router.get("", response_model=list[ParStockItem])
+@router.get("/productos", response_model=list[ProductoOut])
+def listar_todos_productos(claims: dict = Depends(get_current_claims)):
+    """Catalogo completo (todos los proveedores) -- para elegir al agregar a Par Stock."""
+    db = get_db()
+    rows = db.table("odoo_mapping").select("*").execute().data or []
+    return [
+        ProductoOut(
+            ingrediente_key=r["ingrediente_key"], nombre=r["ingrediente_key"].split("||")[0],
+            unidad=r["ingrediente_key"].split("||")[1] if "||" in r["ingrediente_key"] else "",
+            proveedor_id=r.get("proveedor_id") or "", odoo_id=r["odoo_id"], odoo_name=r["odoo_name"],
+            ref=r.get("ref"), precio=r.get("price", 0), tamano_empaque=r.get("tamano_empaque"),
+        )
+        for r in rows
+    ]
+
+
+@router.get("/par-stock", response_model=list[ParStockItem])
 def listar(local_id: str, claims: dict = Depends(get_current_claims)):
     verificar_acceso_local(claims, local_id)
     db = get_db()
@@ -33,32 +49,27 @@ def listar(local_id: str, claims: dict = Depends(get_current_claims)):
     return [_item_de(r, mapping) for r in par_rows]
 
 
-@router.post("", response_model=ParStockItem, status_code=status.HTTP_201_CREATED)
-def crear(body: ParStockIn, claims: dict = Depends(get_current_claims)):
+@router.post("/par-stock", response_model=ParStockItem, status_code=status.HTTP_201_CREATED)
+def agregar(body: ParStockAddIn, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     verificar_acceso_local(claims, body.local_id)
     db = get_db()
 
-    key = f"{body.nombre}||{body.unidad}"
-    tamano = None if body.a_granel else body.tamano_empaque
-
-    db.table("odoo_mapping").upsert({
-        "ingrediente_key": key, "ref": body.ref, "odoo_id": body.odoo_id, "odoo_name": body.odoo_name,
-        "supplier_id": body.supplier_id, "supplier_name": body.supplier_name,
-        "price": body.precio, "tamano_empaque": tamano,
-    }, on_conflict="ingrediente_key").execute()
+    producto = db.table("odoo_mapping").select("*").eq("ingrediente_key", body.ingrediente_key).execute()
+    if not producto.data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ese insumo no existe en el catalogo de Proveedores -- agrégalo ahí primero")
+    unidad = body.ingrediente_key.split("||")[1] if "||" in body.ingrediente_key else ""
 
     db.table("par_stock").upsert({
-        "local_id": body.local_id, "ingrediente_key": key, "unidad": body.unidad,
+        "local_id": body.local_id, "ingrediente_key": body.ingrediente_key, "unidad": unidad,
         "categoria": body.categoria, "par_cantidad": body.par_cantidad,
     }, on_conflict="local_id,ingrediente_key").execute()
 
-    mapping_row = db.table("odoo_mapping").select("*").eq("ingrediente_key", key).execute().data[0]
-    par_row = db.table("par_stock").select("*").eq("local_id", body.local_id).eq("ingrediente_key", key).execute().data[0]
-    return _item_de(par_row, {key: mapping_row})
+    par_row = db.table("par_stock").select("*").eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute().data[0]
+    return _item_de(par_row, {body.ingrediente_key: producto.data[0]})
 
 
-@router.patch("", response_model=ParStockItem)
+@router.patch("/par-stock", response_model=ParStockItem)
 def actualizar(body: ParStockUpdateIn, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     verificar_acceso_local(claims, body.local_id)
@@ -68,14 +79,8 @@ def actualizar(body: ParStockUpdateIn, claims: dict = Depends(get_current_claims
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Insumo no encontrado para ese local")
 
-    if body.par_cantidad is not None:
-        db.table("par_stock").update({"par_cantidad": body.par_cantidad}) \
-            .eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute()
-
-    mapping_update = {"tamano_empaque": None if body.a_granel else body.tamano_empaque}
-    if body.precio is not None:
-        mapping_update["price"] = body.precio
-    db.table("odoo_mapping").update(mapping_update).eq("ingrediente_key", body.ingrediente_key).execute()
+    db.table("par_stock").update({"par_cantidad": body.par_cantidad}) \
+        .eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute()
 
     par_row = db.table("par_stock").select("*").eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute().data[0]
     mapping_row = db.table("odoo_mapping").select("*").eq("ingrediente_key", body.ingrediente_key).execute().data
