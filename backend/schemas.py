@@ -275,9 +275,6 @@ class FacturaPreview(BaseModel):
     proveedor: str
     fecha: str | None = None
     total: float = 0
-    local_id: str | None = None
-    local_nombre: str | None = None
-    pedido_id: str | None = None
     lineas: list[FacturaLineaPreview] = []
 
 
@@ -286,7 +283,6 @@ class FacturaAceptarIn(BaseModel):
     odoo_invoice_name: str
     proveedor: str
     local_id: str
-    pedido_id: str | None = None
     lineas: list[FacturaLineaPreview]
 
 

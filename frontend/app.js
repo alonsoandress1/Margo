@@ -1268,11 +1268,10 @@ async function renderFacturas(el, s) {
           <h3>${f.odoo_invoice_name} — ${f.proveedor}</h3>
           <p class="placeholder" style="margin-bottom:1rem">${f.fecha || '—'} · Total: ${f.total}</p>
           <label class="field-label">Local</label>
-          <select class="field factura-local-sel" data-invoice="${f.odoo_invoice_id}" style="max-width:280px;margin-bottom:.5rem">
+          <select class="field factura-local-sel" data-invoice="${f.odoo_invoice_id}" style="max-width:280px;margin-bottom:1rem">
             <option value="">-- selecciona un local --</option>
-            ${locales.map(l => `<option value="${l.id}" ${l.id === f.local_id ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+            ${locales.map(l => `<option value="${l.id}">${l.nombre}</option>`).join('')}
           </select>
-          <p class="placeholder" style="margin-bottom:1rem">${f.local_nombre ? `Detectado automáticamente por la OC de origen: ${f.local_nombre}` : 'No se pudo detectar el local automáticamente -- selecciona uno.'}</p>
           <table>
             <thead><tr><th>Insumo</th><th>Cantidad</th><th>Estado</th></tr></thead>
             <tbody>
@@ -1320,7 +1319,7 @@ async function renderFacturas(el, s) {
             method: 'POST',
             body: JSON.stringify({
               odoo_invoice_id: factura.odoo_invoice_id, odoo_invoice_name: factura.odoo_invoice_name,
-              proveedor: factura.proveedor, local_id: localId, pedido_id: factura.pedido_id,
+              proveedor: factura.proveedor, local_id: localId,
               lineas: factura.lineas,
             }),
           });

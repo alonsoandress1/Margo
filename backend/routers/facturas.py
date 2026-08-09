@@ -46,10 +46,6 @@ def buscar(body: FacturasBuscarIn, claims: dict = Depends(get_current_claims)):
     productos = db.table("odoo_mapping").select("odoo_id,ingrediente_key").in_("proveedor_id", proveedor_ids).execute().data or []
     ingrediente_por_odoo_id = {p["odoo_id"]: p["ingrediente_key"] for p in productos}
 
-    po_rows = db.table("po_tracking").select("po_id,local_id,pedido_id").eq("tipo", "odoo").execute().data or []
-    local_por_po_id = {r["po_id"]: r for r in po_rows if r.get("po_id")}
-    locales = {l["id"]: l["nombre"] for l in db.table("locales").select("id,nombre").execute().data or []}
-
     resultado: list[FacturaPreview] = []
     for prov in proveedores_odoo:
         try:
@@ -58,24 +54,16 @@ def buscar(body: FacturasBuscarIn, claims: dict = Depends(get_current_claims)):
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudieron leer las facturas de {prov['nombre']}: {e}")
 
         for f in facturas:
-            lineas = []
-            po_id_detectado = None
-            for l in f["lineas"]:
-                key = ingrediente_por_odoo_id.get(l["product_id"])
-                lineas.append(FacturaLineaPreview(
-                    ingrediente_key=key, nombre=l["product_name"], cantidad=l["cantidad"], reconocido=key is not None,
-                ))
-                if l.get("po_id") and not po_id_detectado:
-                    po_id_detectado = l["po_id"]
-
-            tracking = local_por_po_id.get(po_id_detectado) if po_id_detectado else None
+            lineas = [
+                FacturaLineaPreview(
+                    ingrediente_key=ingrediente_por_odoo_id.get(l["product_id"]), nombre=l["product_name"],
+                    cantidad=l["cantidad"], reconocido=l["product_id"] in ingrediente_por_odoo_id,
+                )
+                for l in f["lineas"]
+            ]
             resultado.append(FacturaPreview(
                 odoo_invoice_id=f["id"], odoo_invoice_name=f["name"], proveedor=prov["nombre"],
-                fecha=f.get("fecha"), total=f.get("total", 0),
-                local_id=tracking["local_id"] if tracking else None,
-                local_nombre=locales.get(tracking["local_id"]) if tracking else None,
-                pedido_id=tracking["pedido_id"] if tracking else None,
-                lineas=lineas,
+                fecha=f.get("fecha"), total=f.get("total", 0), lineas=lineas,
             ))
     return resultado
 
@@ -108,7 +96,7 @@ def aceptar(body: FacturaAceptarIn, claims: dict = Depends(get_current_claims)):
 
     res = db.table("factura_tracking").insert({
         "odoo_invoice_id": body.odoo_invoice_id, "odoo_invoice_name": body.odoo_invoice_name,
-        "proveedor": body.proveedor, "local_id": body.local_id, "pedido_id": body.pedido_id,
+        "proveedor": body.proveedor, "local_id": body.local_id,
         "items": [l.model_dump() for l in body.lineas],
         "procesada_por": claims["sub"],
     }).execute()

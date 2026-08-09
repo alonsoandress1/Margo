@@ -343,9 +343,9 @@ class OdooWebSession:
     def buscar_facturas_proveedor(self, partner_id: int, excluir_ids: list[int],
                                    dias_atras: int = 30) -> list[dict]:
         """Facturas de proveedor (account.move, in_invoice, posted) para un
-        partner, con sus lineas y -- si la linea viene de una orden de compra
-        -- el id de esa orden (para poder cruzarla despues con po_tracking y
-        saber a que local pertenece). Solo lectura, no modifica nada en Odoo.
+        partner, con sus lineas. Solo lectura, no modifica nada en Odoo. El
+        local NO se intenta adivinar aca -- una factura puede cubrir insumos
+        de mas de un local, asi que siempre lo elige un admin al aceptar.
         Limitado a los ultimos `dias_atras` dias -- facturas mas viejas no
         interesan para este flujo (si quedo alguna sin aceptar, se revisa a
         mano en Odoo)."""
@@ -363,23 +363,14 @@ class OdooWebSession:
         move_ids = [m['id'] for m in moves]
         lines = self.call_kw('account.move.line', 'search_read',
             [[['move_id', 'in', move_ids], ['product_id', '!=', False]]],
-            {'fields': ['move_id', 'product_id', 'quantity', 'purchase_line_id']})
-
-        purchase_line_ids = [l['purchase_line_id'][0] for l in lines if l.get('purchase_line_id')]
-        orden_por_linea: dict[int, int] = {}
-        if purchase_line_ids:
-            pol = self.call_kw('purchase.order.line', 'search_read',
-                [[['id', 'in', purchase_line_ids]]], {'fields': ['order_id']})
-            orden_por_linea = {p['id']: p['order_id'][0] for p in pol if p.get('order_id')}
+            {'fields': ['move_id', 'product_id', 'quantity']})
 
         lineas_por_move: dict[int, list] = {}
         for l in lines:
-            po_line_id = l['purchase_line_id'][0] if l.get('purchase_line_id') else None
             lineas_por_move.setdefault(l['move_id'][0], []).append({
                 'product_id': l['product_id'][0] if l.get('product_id') else None,
                 'product_name': l['product_id'][1] if l.get('product_id') else '',
                 'cantidad': l['quantity'],
-                'po_id': orden_por_linea.get(po_line_id),
             })
 
         return [
