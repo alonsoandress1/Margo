@@ -146,6 +146,7 @@ class ParStockItem(BaseModel):
     odoo_name: str | None = None
     ref: str | None = None
     supplier_name: str | None = None
+    proveedor_id: str | None = None
     precio: float = 0
     tamano_empaque: float | None = None  # None = a granel
 

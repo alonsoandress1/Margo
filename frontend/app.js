@@ -734,7 +734,11 @@ async function renderParStock(el, s) {
               <td>${i.odoo_name || '—'}</td>
               <td>${i.supplier_name || '—'}</td>
               <td>${i.precio}</td>
-              <td>${i.tamano_empaque ? `${i.tamano_empaque} kg/paquete` : 'A granel'}</td>
+              <td>
+                ${editable
+                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (kg/paquete)" value="${i.tamano_empaque ?? ''}">`
+                  : (i.tamano_empaque ? `${i.tamano_empaque} kg/paquete` : 'A granel')}
+              </td>
               ${editable ? `<td>
                 <button class="btn" data-guardar-par="${i.ingrediente_key}">Guardar</button>
                 <button class="btn btn-reject" data-del-par="${i.ingrediente_key}">Eliminar</button>
@@ -772,6 +776,9 @@ async function renderParStock(el, s) {
       btn.onclick = async () => {
         const key = btn.dataset.guardarPar;
         const par = el.querySelector(`.ps-edit-par[data-key="${key}"]`).value;
+        const empaqueInput = el.querySelector(`.ps-edit-empaque[data-key="${key}"]`);
+        const provId = empaqueInput?.dataset.prov;
+        const empaqueVal = empaqueInput?.value ?? '';
         try {
           await api('/par-stock', {
             method: 'PATCH',
@@ -781,6 +788,16 @@ async function renderParStock(el, s) {
               par_cantidad: parseFloat(par) || 0,
             }),
           });
+          if (provId) {
+            await api(`/proveedores/${provId}/productos`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                ingrediente_key: key,
+                a_granel: empaqueVal === '',
+                tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
+              }),
+            });
+          }
           renderView();
         } catch (err) {
           alert(err.message);

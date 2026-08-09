@@ -19,7 +19,7 @@ def _item_de(par_row: dict, mapping: dict) -> ParStockItem:
         ingrediente_key=par_row["ingrediente_key"], nombre=par_row["ingrediente_key"].split("||")[0],
         unidad=par_row["unidad"], categoria=par_row["categoria"], par_cantidad=par_row["par_cantidad"],
         odoo_name=m.get("odoo_name"), ref=m.get("ref"), supplier_name=m.get("supplier_name"),
-        precio=m.get("price", 0), tamano_empaque=m.get("tamano_empaque"),
+        proveedor_id=m.get("proveedor_id"), precio=m.get("price", 0), tamano_empaque=m.get("tamano_empaque"),
     )
 
 
