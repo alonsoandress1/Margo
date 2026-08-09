@@ -145,6 +145,50 @@ class ParStockUpdateIn(BaseModel):
     par_cantidad: float
 
 
+class RecetaLineaOut(BaseModel):
+    id: str
+    local_id: str
+    plato_sku: str
+    plato_nombre: str
+    ingrediente: str
+    cantidad: float
+    unidad: str
+
+
+class RecetaLineaIn(BaseModel):
+    local_id: str
+    plato_sku: str
+    plato_nombre: str
+    ingrediente: str
+    cantidad: float
+    unidad: str
+
+
+class UsuarioAdminOut(BaseModel):
+    id: str
+    email: str
+    nombre: str
+    rol: str
+    activo: bool
+    locales: list[str] = []
+
+
+class UsuarioCreateIn(BaseModel):
+    email: str
+    nombre: str
+    rol: str
+    password: str
+    locales: list[str] = []  # solo aplica si rol == solicitante
+
+
+class UsuarioUpdateIn(BaseModel):
+    nombre: str | None = None
+    rol: str | None = None
+    activo: bool | None = None
+    locales: list[str] | None = None
+    password: str | None = None  # si viene, resetea la contraseña
+
+
 class PedidoOut(BaseModel):
     id: str
     local_id: str

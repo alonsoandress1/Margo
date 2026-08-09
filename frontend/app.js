@@ -172,6 +172,8 @@ async function renderView() {
     if (state.section === 'mermas') return renderMermas(el, s);
     if (state.section === 'parstock') return renderParStock(el, s);
     if (state.section === 'proveedores') return renderProveedores(el, s);
+    if (state.section === 'recetas') return renderRecetas(el, s);
+    if (state.section === 'usuarios') return renderUsuarios(el, s);
     return renderPlaceholder(el, s);
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -343,6 +345,194 @@ async function renderProveedores(el, s) {
               a_granel: empaqueVal === '',
               tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
             }),
+          });
+          renderView();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+  }
+}
+
+async function renderRecetas(el, s) {
+  const locales = await api('/locales');
+  if (!locales.length) {
+    el.innerHTML = '<h2>Recetas</h2><div class="card"><p class="placeholder">No tienes locales asignados.</p></div>';
+    return;
+  }
+  const editable = puedeEditar(s);
+  const localId = state.recetasLocal && locales.some(l => l.id === state.recetasLocal) ? state.recetasLocal : locales[0].id;
+  state.recetasLocal = localId;
+
+  const lineas = await api(`/recetas?local_id=${localId}`);
+  const platos = {};
+  lineas.forEach(l => {
+    (platos[l.plato_sku] ??= { nombre: l.plato_nombre, lineas: [] }).lineas.push(l);
+  });
+
+  el.innerHTML = `
+    <h2>Recetas</h2>
+    <label class="field-label">Local</label>
+    <select id="rec-local" class="field" style="margin-bottom:1.25rem;width:100%;max-width:280px">
+      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+    </select>
+    ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
+    ${editable ? `
+      <div class="card">
+        <h3>Agregar insumo a una receta</h3>
+        <form id="rec-form">
+          <div class="item-row">
+            <input class="field" id="rec-sku" placeholder="SKU del plato" required>
+            <input class="field" id="rec-nombre" placeholder="Nombre del plato" style="flex:2" required>
+          </div>
+          <div class="item-row">
+            <input class="field" id="rec-ingrediente" placeholder="Insumo" style="flex:2" required>
+            <input class="field" id="rec-cantidad" type="number" step="0.01" placeholder="Cantidad" required>
+            <input class="field" id="rec-unidad" placeholder="Unidad (g/kg/un)" required>
+          </div>
+          <button type="submit" class="btn btn-primary">Agregar</button>
+          <p id="rec-error" class="error-msg"></p>
+        </form>
+      </div>` : ''}
+    ${Object.keys(platos).length ? Object.entries(platos).map(([sku, p]) => `
+      <div class="card">
+        <h3>${p.nombre} <span class="placeholder">(${sku})</span></h3>
+        <table>
+          <thead><tr><th>Insumo</th><th>Cantidad</th><th>Unidad</th>${editable ? '<th></th>' : ''}</tr></thead>
+          <tbody>
+            ${p.lineas.map(l => `
+              <tr>
+                <td>${l.ingrediente}</td><td>${l.cantidad}</td><td>${l.unidad}</td>
+                ${editable ? `<td><button class="btn btn-reject" data-del-linea="${l.id}">Eliminar</button></td>` : ''}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`).join('') : '<div class="card"><p class="placeholder">Sin recetas cargadas para este local todavía.</p></div>'}`;
+
+  document.getElementById('rec-local').addEventListener('change', (e) => {
+    state.recetasLocal = e.target.value;
+    renderView();
+  });
+
+  if (editable) {
+    document.getElementById('rec-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('rec-error');
+      try {
+        await api('/recetas', {
+          method: 'POST',
+          body: JSON.stringify({
+            local_id: localId,
+            plato_sku: document.getElementById('rec-sku').value.trim(),
+            plato_nombre: document.getElementById('rec-nombre').value.trim(),
+            ingrediente: document.getElementById('rec-ingrediente').value.trim(),
+            cantidad: parseFloat(document.getElementById('rec-cantidad').value) || 0,
+            unidad: document.getElementById('rec-unidad').value.trim(),
+          }),
+        });
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    el.querySelectorAll('button[data-del-linea]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('¿Eliminar esta línea de la receta?')) return;
+        try {
+          await api(`/recetas/${btn.dataset.delLinea}`, { method: 'DELETE' });
+          renderView();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+  }
+}
+
+async function renderUsuarios(el, s) {
+  const editable = puedeEditar(s);
+  const locales = await api('/locales');
+  const usuarios = await api('/usuarios');
+
+  const nombreLocal = (id) => (locales.find(l => l.id === id) || {}).nombre || id;
+  const badgeClass = { administrador: 'badge-aprobado', solicitante: 'badge-pendiente', observador: 'badge-editado' };
+
+  el.innerHTML = `
+    <h2>Usuarios</h2>
+    ${editable ? `
+      <div class="card">
+        <h3>Crear usuario</h3>
+        <form id="usr-form">
+          <div class="item-row">
+            <input class="field" id="usr-email" type="email" placeholder="Email" style="flex:2" required>
+            <input class="field" id="usr-nombre" placeholder="Nombre completo" style="flex:2" required>
+          </div>
+          <div class="item-row">
+            <select id="usr-rol" class="field">
+              <option value="solicitante">Solicitante</option>
+              <option value="administrador">Administrador</option>
+              <option value="observador">Observador</option>
+            </select>
+            <input class="field" id="usr-password" type="password" placeholder="Contraseña" style="flex:2" required>
+          </div>
+          <div id="usr-locales-wrap" style="margin-bottom:.75rem">
+            <label class="field-label">Locales asignados (solo aplica a Solicitante)</label>
+            ${locales.map(l => `
+              <label style="font-size:.8rem;color:var(--t2);margin-right:1rem">
+                <input type="checkbox" class="usr-local-chk" value="${l.id}"> ${l.nombre}
+              </label>`).join('')}
+          </div>
+          <button type="submit" class="btn btn-primary">Crear usuario</button>
+          <p id="usr-error" class="error-msg"></p>
+        </form>
+      </div>` : ''}
+    <div class="card">
+      <table>
+        <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Locales</th><th>Estado</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <tbody>
+          ${usuarios.map(u => `
+            <tr>
+              <td>${u.nombre}</td>
+              <td>${u.email}</td>
+              <td><span class="badge ${badgeClass[u.rol] || ''}">${u.rol}</span></td>
+              <td>${u.locales.map(nombreLocal).join(', ') || '—'}</td>
+              <td>${u.activo ? 'Activo' : 'Inactivo'}</td>
+              ${editable ? `<td><button class="btn" data-toggle-activo="${u.id}" data-val="${!u.activo}">${u.activo ? 'Desactivar' : 'Activar'}</button></td>` : ''}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  if (editable) {
+    document.getElementById('usr-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('usr-error');
+      const localesSel = Array.from(document.querySelectorAll('.usr-local-chk:checked')).map(c => c.value);
+      try {
+        await api('/usuarios', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: document.getElementById('usr-email').value.trim(),
+            nombre: document.getElementById('usr-nombre').value.trim(),
+            rol: document.getElementById('usr-rol').value,
+            password: document.getElementById('usr-password').value,
+            locales: localesSel,
+          }),
+        });
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    el.querySelectorAll('button[data-toggle-activo]').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await api(`/usuarios/${btn.dataset.toggleActivo}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ activo: btn.dataset.val === 'true' }),
           });
           renderView();
         } catch (err) {
