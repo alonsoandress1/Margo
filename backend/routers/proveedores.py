@@ -86,3 +86,22 @@ def actualizar_producto(proveedor_id: str, body: ProductoUpdateIn, claims: dict 
 
     row = db.table("odoo_mapping").select("*").eq("id", existente.data[0]["id"]).execute().data[0]
     return _producto_de(row)
+
+
+@router.delete("/{proveedor_id}/productos/{producto_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_producto(proveedor_id: str, producto_id: str, claims: dict = Depends(get_current_claims)):
+    _require_admin(claims)
+    db = get_db()
+
+    existente = db.table("odoo_mapping").select("ingrediente_key").eq("id", producto_id).eq("proveedor_id", proveedor_id).execute()
+    if not existente.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Producto no encontrado para ese proveedor")
+
+    en_par_stock = db.table("par_stock").select("local_id").eq("ingrediente_key", existente.data[0]["ingrediente_key"]).execute()
+    if en_par_stock.data:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No se puede eliminar: está agregado en Par Stock de uno o más locales -- quítalo de ahí primero",
+        )
+
+    db.table("odoo_mapping").delete().eq("id", producto_id).execute()

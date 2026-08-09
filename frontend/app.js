@@ -344,7 +344,10 @@ async function renderProveedores(el, s) {
                   ? `<input class="field prod-edit-empaque" data-key="${p.ingrediente_key}" type="number" step="0.01" style="width:90px" placeholder="A granel" value="${p.tamano_empaque ?? ''}">`
                   : (p.tamano_empaque ? `${p.tamano_empaque} kg/paquete` : 'A granel')}
               </td>
-              ${editable ? `<td><button class="btn" data-guardar-prod="${p.ingrediente_key}">Guardar</button></td>` : ''}
+              ${editable ? `<td>
+                <button class="btn" data-guardar-prod="${p.ingrediente_key}">Guardar</button>
+                <button class="btn btn-reject" data-del-prod="${p.id}">Eliminar</button>
+              </td>` : ''}
             </tr>`).join('')}
           ${!productos.length ? `<tr><td colspan="${editable ? 6 : 5}" class="placeholder">Sin productos todavía.</td></tr>` : ''}
         </tbody>
@@ -428,6 +431,18 @@ async function renderProveedores(el, s) {
               tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
             }),
           });
+          renderView();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+
+    el.querySelectorAll('button[data-del-prod]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('¿Eliminar este producto del catálogo del proveedor?')) return;
+        try {
+          await api(`/proveedores/${provId}/productos/${btn.dataset.delProd}`, { method: 'DELETE' });
           renderView();
         } catch (err) {
           alert(err.message);
@@ -681,7 +696,10 @@ async function renderParStock(el, s) {
               <td>${i.supplier_name || '—'}</td>
               <td>${i.precio}</td>
               <td>${i.tamano_empaque ? `${i.tamano_empaque} kg/paquete` : 'A granel'}</td>
-              ${editable ? `<td><button class="btn" data-guardar-par="${i.ingrediente_key}">Guardar</button></td>` : ''}
+              ${editable ? `<td>
+                <button class="btn" data-guardar-par="${i.ingrediente_key}">Guardar</button>
+                <button class="btn btn-reject" data-del-par="${i.ingrediente_key}">Eliminar</button>
+              </td>` : ''}
             </tr>`).join('')}
         </tbody>
       </table>
@@ -724,6 +742,18 @@ async function renderParStock(el, s) {
               par_cantidad: parseFloat(par) || 0,
             }),
           });
+          renderView();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+
+    el.querySelectorAll('button[data-del-par]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('¿Eliminar este insumo de Par Stock?')) return;
+        try {
+          await api(`/par-stock?local_id=${localId}&ingrediente_key=${encodeURIComponent(btn.dataset.delPar)}`, { method: 'DELETE' });
           renderView();
         } catch (err) {
           alert(err.message);

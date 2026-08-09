@@ -92,3 +92,16 @@ def actualizar(body: ParStockUpdateIn, claims: dict = Depends(get_current_claims
     par_row = db.table("par_stock").select("*").eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute().data[0]
     mapping = productos_mas_baratos(db, [body.ingrediente_key])
     return _item_de(par_row, mapping)
+
+
+@router.delete("/par-stock", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar(local_id: str, ingrediente_key: str, claims: dict = Depends(get_current_claims)):
+    _require_admin(claims)
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+
+    existente = db.table("par_stock").select("local_id").eq("local_id", local_id).eq("ingrediente_key", ingrediente_key).execute()
+    if not existente.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Insumo no encontrado para ese local")
+
+    db.table("par_stock").delete().eq("local_id", local_id).eq("ingrediente_key", ingrediente_key).execute()
