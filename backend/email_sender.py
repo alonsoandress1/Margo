@@ -1,13 +1,18 @@
 """Envio de avisos por correo para proveedores sin integracion a Odoo.
 
-Usa smtplib de la libreria estandar -- sin dependencias nuevas, mismo
-criterio que el resto del proyecto (ver odoo_connector.py). Las
-credenciales SMTP viven solo en variables de entorno (Render), nunca
-en la base de datos ni en el chat.
+Usa la API HTTP de Resend (https://resend.com) en vez de SMTP directo:
+Render (y varios proveedores cloud) bloquean las conexiones salientes
+por SMTP en el plan gratuito, pero HTTPS siempre funciona. Sin
+dependencias nuevas -- urllib de la libreria estandar, mismo criterio
+que odoo_connector.py.
+
+La API key vive solo en la variable de entorno RESEND_API_KEY (Render),
+nunca en la base de datos ni en el chat.
 """
+import json
 import os
-import smtplib
-from email.mime.text import MIMEText
+import urllib.error
+import urllib.request
 
 
 def enviar_aviso_pedido(destinatario: str, proveedor: str, local_nombre: str, items: list[dict]) -> None:
@@ -16,17 +21,24 @@ def enviar_aviso_pedido(destinatario: str, proveedor: str, local_nombre: str, it
         cuerpo_lineas.append(f"  - {it['ingrediente']}: {it['cantidad']} {it['unidad']}")
     cuerpo = "\n".join(cuerpo_lineas)
 
-    msg = MIMEText(cuerpo, "plain", "utf-8")
-    msg["Subject"] = f"Pedido {local_nombre}"
-    msg["From"] = os.environ["SMTP_USER"]
-    msg["To"] = destinatario
-
-    host = os.environ["SMTP_HOST"]
-    port = int(os.environ.get("SMTP_PORT", "587"))
-    user = os.environ["SMTP_USER"]
-    password = os.environ["SMTP_PASSWORD"]
-
-    with smtplib.SMTP(host, port) as server:
-        server.starttls()
-        server.login(user, password)
-        server.sendmail(user, [destinatario], msg.as_string())
+    payload = {
+        "from": "Margo Compras <onboarding@resend.dev>",
+        "to": [destinatario],
+        "subject": f"Pedido {local_nombre}",
+        "text": cuerpo,
+    }
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        detalle = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Resend devolvió {e.code}: {detalle}") from e
