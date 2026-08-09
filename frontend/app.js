@@ -330,11 +330,16 @@ async function renderProveedores(el, s) {
         </form>
       </div>` : ''}
     <div class="card">
+      ${editable && productos.length ? `
+      <div class="item-row" style="align-items:center;margin-bottom:.75rem">
+        <button type="button" class="btn btn-reject" id="prod-del-selected" disabled>Eliminar seleccionados (<span id="prod-selected-count">0</span>)</button>
+      </div>` : ''}
       <table>
-        <thead><tr><th>Insumo</th><th>Nombre Odoo</th><th>Ref</th><th>Precio</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr>${editable ? '<th><input type="checkbox" id="prod-check-all"></th>' : ''}<th>Insumo</th><th>Nombre Odoo</th><th>Ref</th><th>Precio</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${productos.map(p => `
             <tr>
+              ${editable ? `<td><input type="checkbox" class="prod-check" data-id="${p.id}"></td>` : ''}
               <td>${p.nombre} (${p.unidad})</td>
               <td>${p.odoo_name}</td>
               <td>${p.ref || '—'}</td>
@@ -349,7 +354,7 @@ async function renderProveedores(el, s) {
                 <button class="btn btn-reject" data-del-prod="${p.id}">Eliminar</button>
               </td>` : ''}
             </tr>`).join('')}
-          ${!productos.length ? `<tr><td colspan="${editable ? 6 : 5}" class="placeholder">Sin productos todavía.</td></tr>` : ''}
+          ${!productos.length ? `<tr><td colspan="${editable ? 7 : 5}" class="placeholder">Sin productos todavía.</td></tr>` : ''}
         </tbody>
       </table>
     </div>` : ''}`;
@@ -448,6 +453,35 @@ async function renderProveedores(el, s) {
           alert(err.message);
         }
       };
+    });
+
+    const prodChecks = () => Array.from(el.querySelectorAll('.prod-check'));
+    const updateProdSelCount = () => {
+      const n = prodChecks().filter(c => c.checked).length;
+      const btn = document.getElementById('prod-del-selected');
+      if (btn) {
+        btn.disabled = n === 0;
+        document.getElementById('prod-selected-count').textContent = n;
+      }
+    };
+    document.getElementById('prod-check-all')?.addEventListener('change', (e) => {
+      prodChecks().forEach(c => { c.checked = e.target.checked; });
+      updateProdSelCount();
+    });
+    prodChecks().forEach(c => c.addEventListener('change', updateProdSelCount));
+    document.getElementById('prod-del-selected')?.addEventListener('click', async () => {
+      const ids = prodChecks().filter(c => c.checked).map(c => c.dataset.id);
+      if (!ids.length) return;
+      if (!confirm(`¿Eliminar ${ids.length} producto(s) del catálogo del proveedor?`)) return;
+      const resultados = await Promise.allSettled(
+        ids.map(id => api(`/proveedores/${provId}/productos/${id}`, { method: 'DELETE' }))
+      );
+      const fallidos = resultados.filter(r => r.status === 'rejected');
+      renderView();
+      if (fallidos.length) {
+        alert(`${ids.length - fallidos.length} eliminado(s). ${fallidos.length} no se pudieron eliminar (probablemente están en Par Stock de algún local):\n\n` +
+          fallidos.map(r => r.reason.message).join('\n'));
+      }
     });
   }
 }
@@ -685,11 +719,16 @@ async function renderParStock(el, s) {
         </form>`}
       </div>` : ''}
     <div class="card">
+      ${editable && items.length ? `
+      <div class="item-row" style="align-items:center;margin-bottom:.75rem">
+        <button type="button" class="btn btn-reject" id="ps-del-selected" disabled>Eliminar seleccionados (<span id="ps-selected-count">0</span>)</button>
+      </div>` : ''}
       <table>
-        <thead><tr><th>Insumo</th><th>Par Stock</th><th>Nombre Odoo</th><th>Proveedor</th><th>Precio</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr>${editable ? '<th><input type="checkbox" id="ps-check-all"></th>' : ''}<th>Insumo</th><th>Par Stock</th><th>Nombre Odoo</th><th>Proveedor</th><th>Precio</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${items.map(i => `
             <tr>
+              ${editable ? `<td><input type="checkbox" class="ps-check" data-key="${i.ingrediente_key}"></td>` : ''}
               <td>${i.nombre} (${i.unidad})</td>
               <td>${editable ? `<input class="field ps-edit-par" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.par_cantidad}">` : i.par_cantidad}</td>
               <td>${i.odoo_name || '—'}</td>
@@ -759,6 +798,35 @@ async function renderParStock(el, s) {
           alert(err.message);
         }
       };
+    });
+
+    const psChecks = () => Array.from(el.querySelectorAll('.ps-check'));
+    const updatePsSelCount = () => {
+      const n = psChecks().filter(c => c.checked).length;
+      const btn = document.getElementById('ps-del-selected');
+      if (btn) {
+        btn.disabled = n === 0;
+        document.getElementById('ps-selected-count').textContent = n;
+      }
+    };
+    document.getElementById('ps-check-all')?.addEventListener('change', (e) => {
+      psChecks().forEach(c => { c.checked = e.target.checked; });
+      updatePsSelCount();
+    });
+    psChecks().forEach(c => c.addEventListener('change', updatePsSelCount));
+    document.getElementById('ps-del-selected')?.addEventListener('click', async () => {
+      const keys = psChecks().filter(c => c.checked).map(c => c.dataset.key);
+      if (!keys.length) return;
+      if (!confirm(`¿Eliminar ${keys.length} insumo(s) de Par Stock?`)) return;
+      const resultados = await Promise.allSettled(
+        keys.map(key => api(`/par-stock?local_id=${localId}&ingrediente_key=${encodeURIComponent(key)}`, { method: 'DELETE' }))
+      );
+      const fallidos = resultados.filter(r => r.status === 'rejected');
+      renderView();
+      if (fallidos.length) {
+        alert(`${keys.length - fallidos.length} eliminado(s). ${fallidos.length} no se pudieron eliminar:\n\n` +
+          fallidos.map(r => r.reason.message).join('\n'));
+      }
     });
   }
 }
