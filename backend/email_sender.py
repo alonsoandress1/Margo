@@ -33,6 +33,9 @@ def enviar_aviso_pedido(destinatario: str, proveedor: str, local_nombre: str, it
         headers={
             "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
             "Content-Type": "application/json",
+            # el User-Agent por defecto de urllib ("Python-urllib/x.y") queda
+            # bloqueado por las reglas anti-bot de Cloudflare frente a Resend
+            "User-Agent": "MargoCompras/1.0",
         },
         method="POST",
     )
