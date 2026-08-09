@@ -340,12 +340,19 @@ class OdooWebSession:
             raise RuntimeError("Odoo no devolvió un PDF valido para el reporte solicitado.")
         return data
 
-    def buscar_facturas_proveedor(self, partner_id: int, excluir_ids: list[int]) -> list[dict]:
+    def buscar_facturas_proveedor(self, partner_id: int, excluir_ids: list[int],
+                                   dias_atras: int = 30) -> list[dict]:
         """Facturas de proveedor (account.move, in_invoice, posted) para un
         partner, con sus lineas y -- si la linea viene de una orden de compra
         -- el id de esa orden (para poder cruzarla despues con po_tracking y
-        saber a que local pertenece). Solo lectura, no modifica nada en Odoo."""
-        domain = [['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'], ['state', '=', 'posted']]
+        saber a que local pertenece). Solo lectura, no modifica nada en Odoo.
+        Limitado a los ultimos `dias_atras` dias -- facturas mas viejas no
+        interesan para este flujo (si quedo alguna sin aceptar, se revisa a
+        mano en Odoo)."""
+        from datetime import date, timedelta
+        desde = (date.today() - timedelta(days=dias_atras)).isoformat()
+        domain = [['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'],
+                  ['state', '=', 'posted'], ['invoice_date', '>=', desde]]
         if excluir_ids:
             domain.append(['id', 'not in', [int(i) for i in excluir_ids]])
         moves = self.call_kw('account.move', 'search_read', [domain],
