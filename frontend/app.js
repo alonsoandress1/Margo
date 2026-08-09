@@ -24,6 +24,17 @@ function seccion(id) { return SECCIONES.find(s => s.id === id); }
 function puedeVer(s) { return state.usuario && s.roles.includes(state.usuario.rol); }
 function puedeEditar(s) { return state.usuario && s.editRoles.includes(state.usuario.rol); }
 
+const UNIDADES_CATALOGO = [
+  { value: 'un', label: 'Und' },
+  { value: 'kg', label: 'Kgs' },
+  { value: 'porcion', label: 'Porción' },
+];
+const UNIDAD_LABEL = Object.fromEntries(UNIDADES_CATALOGO.map(u => [u.value, u.label]));
+function formatUnidad(u) { return UNIDAD_LABEL[u] || u; }
+function unidadOptionsHtml(seleccionada) {
+  return UNIDADES_CATALOGO.map(u => `<option value="${u.value}" ${u.value === seleccionada ? 'selected' : ''}>${u.label}</option>`).join('');
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -310,7 +321,7 @@ async function renderProveedores(el, s) {
         <form id="prod-form">
           <div class="item-row">
             <input class="field" id="prod-nombre" placeholder="Nombre del insumo" style="flex:2" required>
-            <input class="field" id="prod-unidad" placeholder="Unidad (kg/un)" value="kg" required>
+            <select class="field" id="prod-unidad" required>${unidadOptionsHtml('kg')}</select>
           </div>
           <div class="item-row">
             <input class="field" id="prod-odoo-id" type="number" placeholder="ID producto Odoo" required>
@@ -340,14 +351,14 @@ async function renderProveedores(el, s) {
           ${productos.map(p => `
             <tr>
               ${editable ? `<td><input type="checkbox" class="prod-check" data-id="${p.id}"></td>` : ''}
-              <td>${p.nombre} (${p.unidad})</td>
+              <td>${p.nombre} (${formatUnidad(p.unidad)})</td>
               <td>${p.odoo_name}</td>
               <td>${p.ref || '—'}</td>
               <td>${editable ? `<input class="field prod-edit-precio" data-key="${p.ingrediente_key}" type="number" style="width:90px" value="${p.precio}">` : p.precio}</td>
               <td>
                 ${editable
                   ? `<input class="field prod-edit-empaque" data-key="${p.ingrediente_key}" type="number" step="0.01" style="width:90px" placeholder="A granel" value="${p.tamano_empaque ?? ''}">`
-                  : (p.tamano_empaque ? `${p.tamano_empaque} ${p.unidad}/paquete` : 'A granel')}
+                  : (p.tamano_empaque ? `${p.tamano_empaque} ${formatUnidad(p.unidad)}/paquete` : 'A granel')}
               </td>
               ${editable ? `<td>
                 <button class="btn" data-guardar-prod="${p.ingrediente_key}">Guardar</button>
@@ -710,7 +721,7 @@ async function renderParStock(el, s) {
         <form id="ps-form">
           <div class="item-row">
             <select id="ps-insumo" class="field" style="flex:2" required>
-              ${disponibles.map(p => `<option value="${p.ingrediente_key}">${p.nombre} (${p.unidad})</option>`).join('')}
+              ${disponibles.map(p => `<option value="${p.ingrediente_key}">${p.nombre} (${formatUnidad(p.unidad)})</option>`).join('')}
             </select>
             <input class="field" id="ps-par" type="number" step="0.01" placeholder="Par Stock" required>
           </div>
@@ -724,20 +735,19 @@ async function renderParStock(el, s) {
         <button type="button" class="btn btn-reject" id="ps-del-selected" disabled>Eliminar seleccionados (<span id="ps-selected-count">0</span>)</button>
       </div>` : ''}
       <table>
-        <thead><tr>${editable ? '<th><input type="checkbox" id="ps-check-all"></th>' : ''}<th>Insumo</th><th>Par Stock</th><th>Nombre Odoo</th><th>Proveedor</th><th>Precio</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr>${editable ? '<th><input type="checkbox" id="ps-check-all"></th>' : ''}<th>Insumo</th><th>Par Stock</th><th>Nombre Odoo</th><th>Proveedor</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${items.map(i => `
             <tr>
               ${editable ? `<td><input type="checkbox" class="ps-check" data-key="${i.ingrediente_key}"></td>` : ''}
-              <td>${i.nombre} (${i.unidad})</td>
+              <td>${i.nombre} (${formatUnidad(i.unidad)})</td>
               <td>${editable ? `<input class="field ps-edit-par" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.par_cantidad}">` : i.par_cantidad}</td>
               <td>${i.odoo_name || '—'}</td>
               <td>${i.supplier_name || '—'}</td>
-              <td>${i.precio}</td>
               <td>
                 ${editable
-                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (${i.unidad}/paquete)" value="${i.tamano_empaque ?? ''}">`
-                  : (i.tamano_empaque ? `${i.tamano_empaque} ${i.unidad}/paquete` : 'A granel')}
+                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (${formatUnidad(i.unidad)}/paquete)" value="${i.tamano_empaque ?? ''}">`
+                  : (i.tamano_empaque ? `${i.tamano_empaque} ${formatUnidad(i.unidad)}/paquete` : 'A granel')}
               </td>
               ${editable ? `<td>
                 <button class="btn" data-guardar-par="${i.ingrediente_key}">Guardar</button>
@@ -873,7 +883,7 @@ async function renderInventario(el, s) {
         <form id="mov-form">
           <div class="item-row">
             <select id="mov-insumo" class="field" style="flex:2" required>
-              ${items.map(i => `<option value="${i.ingrediente_key}">${i.nombre} (${i.unidad})</option>`).join('')}
+              ${items.map(i => `<option value="${i.ingrediente_key}">${i.nombre} (${formatUnidad(i.unidad)})</option>`).join('')}
             </select>
             <select id="mov-tipo" class="field">
               <option value="ingreso">Ingreso</option>
@@ -894,7 +904,7 @@ async function renderInventario(el, s) {
           ${items.map(i => `
             <tr>
               <td>${i.nombre}</td>
-              <td>${i.unidad}</td>
+              <td>${formatUnidad(i.unidad)}</td>
               <td>${i.par}</td>
               <td>${i.stock_bodega}</td>
             </tr>`).join('')}
@@ -959,7 +969,7 @@ async function renderMermas(el, s) {
             ${items.map(i => `
               <tr>
                 <td>${i.nombre}</td>
-                <td>${i.unidad}</td>
+                <td>${formatUnidad(i.unidad)}</td>
                 <td>
                   ${editable
                     ? `<input class="field merma-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:120px" value="${i.cantidad_informada ?? ''}">`
@@ -1013,7 +1023,7 @@ function showDetalleModal(pedido, nombreLocal) {
         <thead><tr><th>Insumo</th><th>Cantidad</th><th>Unidad</th></tr></thead>
         <tbody>
           ${(pedido.items || []).map(i => `
-            <tr><td>${i.ingrediente}</td><td>${i.cantidad}</td><td>${i.unidad}</td></tr>
+            <tr><td>${i.ingrediente}</td><td>${i.cantidad}</td><td>${formatUnidad(i.unidad)}</td></tr>
           `).join('')}
         </tbody>
       </table>
@@ -1145,7 +1155,7 @@ async function renderPedidos(el, s) {
           return;
         }
         rowsEl.innerHTML = '';
-        conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad, i.ingrediente_key));
+        conCompra.forEach(i => addRow(i.nombre, i.sugerido, formatUnidad(i.unidad), i.ingrediente_key));
       } catch (err) {
         errorEl.textContent = err.message;
       }

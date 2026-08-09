@@ -1,6 +1,8 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+UnidadCatalogo = Literal["un", "kg", "porcion"]
 
 
 class LocalOut(BaseModel):
@@ -106,7 +108,7 @@ class ProductoOut(BaseModel):
 
 class ProductoIn(BaseModel):
     nombre: str
-    unidad: str
+    unidad: UnidadCatalogo
     odoo_id: int
     odoo_name: str
     ref: str | None = None
