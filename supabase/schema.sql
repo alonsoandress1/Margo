@@ -35,17 +35,25 @@ create table usuario_locales (
     primary key (usuario_id, local_id)
 );
 
--- ── Recetas (predefinidas manualmente por Administrador, por local) ────
+-- ── Platos (catálogo de artículos vendidos, importado desde el POS) ────
+create table platos (
+    id        uuid primary key default gen_random_uuid(),
+    local_id  uuid not null references locales(id) on delete cascade,
+    sku       text not null,
+    nombre    text not null,
+    unique (local_id, sku)
+);
+
+-- ── Recetas (predefinidas manualmente por Administrador, por plato) ────
 create table recetas (
-    id            uuid primary key default gen_random_uuid(),
-    local_id      uuid not null references locales(id) on delete cascade,
-    plato_sku     text not null,
-    plato_nombre  text not null,
-    ingrediente   text not null,
-    cantidad      numeric not null,
-    unidad        text not null,
-    updated_at    timestamptz not null default now(),
-    updated_by    uuid references usuarios(id)
+    id              uuid primary key default gen_random_uuid(),
+    plato_id        uuid not null references platos(id) on delete cascade,
+    ingrediente_key text,  -- referencia al insumo del catálogo de Proveedores, si ya está mapeado
+    ingrediente     text not null,
+    cantidad        numeric not null,
+    unidad          text not null,
+    updated_at      timestamptz not null default now(),
+    updated_by      uuid references usuarios(id)
 );
 
 -- ── Par Stock de Bodega (por local, por insumo) ─────────────────────────

@@ -414,11 +414,13 @@ async function renderRecetas(el, s) {
   const localId = state.recetasLocal && locales.some(l => l.id === state.recetasLocal) ? state.recetasLocal : locales[0].id;
   state.recetasLocal = localId;
 
+  const todosPlatos = await api(`/platos?local_id=${localId}`);
   const lineas = await api(`/recetas?local_id=${localId}`);
-  const platos = {};
+  const porPlato = {};
   lineas.forEach(l => {
-    (platos[l.plato_sku] ??= { nombre: l.plato_nombre, lineas: [] }).lineas.push(l);
+    (porPlato[l.plato_id] ??= { sku: l.plato_sku, nombre: l.plato_nombre, lineas: [] }).lineas.push(l);
   });
+  const etiqueta = (p) => `${p.nombre} (${p.sku})`;
 
   el.innerHTML = `
     <h2>Recetas</h2>
@@ -430,11 +432,12 @@ async function renderRecetas(el, s) {
     ${editable ? `
       <div class="card">
         <h3>Agregar insumo a una receta</h3>
+        <p class="placeholder" style="margin-bottom:1rem">${todosPlatos.length} platos en el catálogo (importados del reporte de ventas).</p>
         <form id="rec-form">
-          <div class="item-row">
-            <input class="field" id="rec-sku" placeholder="SKU del plato" required>
-            <input class="field" id="rec-nombre" placeholder="Nombre del plato" style="flex:2" required>
-          </div>
+          <input class="field" id="rec-plato-search" list="platos-datalist" placeholder="Buscar plato por nombre..." style="width:100%;margin-bottom:.75rem" required autocomplete="off">
+          <datalist id="platos-datalist">
+            ${todosPlatos.map(p => `<option value="${etiqueta(p)}">`).join('')}
+          </datalist>
           <div class="item-row">
             <input class="field" id="rec-ingrediente" placeholder="Insumo" style="flex:2" required>
             <input class="field" id="rec-cantidad" type="number" step="0.01" placeholder="Cantidad" required>
@@ -444,9 +447,9 @@ async function renderRecetas(el, s) {
           <p id="rec-error" class="error-msg"></p>
         </form>
       </div>` : ''}
-    ${Object.keys(platos).length ? Object.entries(platos).map(([sku, p]) => `
+    ${Object.keys(porPlato).length ? Object.entries(porPlato).map(([platoId, p]) => `
       <div class="card">
-        <h3>${p.nombre} <span class="placeholder">(${sku})</span></h3>
+        <h3>${p.nombre} <span class="placeholder">(${p.sku})</span></h3>
         <table>
           <thead><tr><th>Insumo</th><th>Cantidad</th><th>Unidad</th>${editable ? '<th></th>' : ''}</tr></thead>
           <tbody>
@@ -468,13 +471,17 @@ async function renderRecetas(el, s) {
     document.getElementById('rec-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errorEl = document.getElementById('rec-error');
+      const texto = document.getElementById('rec-plato-search').value.trim();
+      const plato = todosPlatos.find(p => etiqueta(p) === texto);
+      if (!plato) {
+        errorEl.textContent = 'Selecciona un plato válido de la lista (no uno escrito a mano).';
+        return;
+      }
       try {
         await api('/recetas', {
           method: 'POST',
           body: JSON.stringify({
-            local_id: localId,
-            plato_sku: document.getElementById('rec-sku').value.trim(),
-            plato_nombre: document.getElementById('rec-nombre').value.trim(),
+            plato_id: plato.id,
             ingrediente: document.getElementById('rec-ingrediente').value.trim(),
             cantidad: parseFloat(document.getElementById('rec-cantidad').value) || 0,
             unidad: document.getElementById('rec-unidad').value.trim(),

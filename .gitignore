@@ -37,6 +37,7 @@ Reportes/
 Ventas/
 Mermas*.xlsx
 Par Stock*.xlsx
+ArticleAnalysisReport.xls
 bodega_movimientos.json
 locales.json
 odoo_mapping.json

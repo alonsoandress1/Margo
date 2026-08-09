@@ -145,20 +145,33 @@ class ParStockUpdateIn(BaseModel):
     par_cantidad: float
 
 
-class RecetaLineaOut(BaseModel):
+class PlatoOut(BaseModel):
     id: str
     local_id: str
+    sku: str
+    nombre: str
+
+
+class PlatoIn(BaseModel):
+    local_id: str
+    sku: str
+    nombre: str
+
+
+class RecetaLineaOut(BaseModel):
+    id: str
+    plato_id: str
     plato_sku: str
     plato_nombre: str
+    ingrediente_key: str | None = None
     ingrediente: str
     cantidad: float
     unidad: str
 
 
 class RecetaLineaIn(BaseModel):
-    local_id: str
-    plato_sku: str
-    plato_nombre: str
+    plato_id: str
+    ingrediente_key: str | None = None
     ingrediente: str
     cantidad: float
     unidad: str
