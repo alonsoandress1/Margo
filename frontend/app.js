@@ -323,7 +323,7 @@ async function renderProveedores(el, s) {
           <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.75rem">
             <input type="checkbox" id="prod-granel"> Se compra a granel (sin formato/empaque fijo)
           </label>
-          <input class="field" id="prod-empaque" type="number" step="0.01" placeholder="Formato / tamaño de empaque (kg)" style="max-width:260px;margin-bottom:.75rem">
+          <input class="field" id="prod-empaque" type="number" step="0.01" placeholder="Formato / cantidad por paquete (misma unidad de arriba)" style="max-width:260px;margin-bottom:.75rem">
           <br>
           <button type="submit" class="btn btn-primary">Agregar producto</button>
           <p id="prod-error" class="error-msg"></p>
@@ -347,7 +347,7 @@ async function renderProveedores(el, s) {
               <td>
                 ${editable
                   ? `<input class="field prod-edit-empaque" data-key="${p.ingrediente_key}" type="number" step="0.01" style="width:90px" placeholder="A granel" value="${p.tamano_empaque ?? ''}">`
-                  : (p.tamano_empaque ? `${p.tamano_empaque} kg/paquete` : 'A granel')}
+                  : (p.tamano_empaque ? `${p.tamano_empaque} ${p.unidad}/paquete` : 'A granel')}
               </td>
               ${editable ? `<td>
                 <button class="btn" data-guardar-prod="${p.ingrediente_key}">Guardar</button>
@@ -736,8 +736,8 @@ async function renderParStock(el, s) {
               <td>${i.precio}</td>
               <td>
                 ${editable
-                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (kg/paquete)" value="${i.tamano_empaque ?? ''}">`
-                  : (i.tamano_empaque ? `${i.tamano_empaque} kg/paquete` : 'A granel')}
+                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (${i.unidad}/paquete)" value="${i.tamano_empaque ?? ''}">`
+                  : (i.tamano_empaque ? `${i.tamano_empaque} ${i.unidad}/paquete` : 'A granel')}
               </td>
               ${editable ? `<td>
                 <button class="btn" data-guardar-par="${i.ingrediente_key}">Guardar</button>
