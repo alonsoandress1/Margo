@@ -24,6 +24,12 @@ from odoo_connector import OdooWebSession  # noqa: E402
 router = APIRouter(prefix="/pedidos", tags=["pedidos"])
 
 ESTADOS_VALIDOS = ("aprobado", "rechazado", "editado")
+MAX_ITEMS_POR_OC = 20  # Doña Sofía no acepta OC con mas de 20 lineas -- se parte en varias
+
+
+def _en_bloques(items: list, tamano: int):
+    for i in range(0, len(items), tamano):
+        yield items[i:i + tamano]
 
 
 def _redondear_a_empaque(cantidad: float, tamano_empaque: float | None) -> float:
@@ -248,7 +254,7 @@ def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_cur
 
     config_res = db.table("configuracion_email").select("destinatario,cc").limit(1).execute()
     config = config_res.data[0] if config_res.data else None
-    cc_list = [c.strip() for c in (config or {}).get("cc", "").split(",") if c.strip()] if config else []
+    cc_list = [c.strip() for c in ((config or {}).get("cc") or "").split(",") if c.strip()] if config else []
 
     acciones: list[AccionCompra] = []
     odoo_session: OdooWebSession | None = None
@@ -266,41 +272,49 @@ def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_cur
                 if not ok:
                     raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"No se pudo conectar a Odoo: {msg}")
 
-            po_lines = []
-            for m, item in entradas:
-                cantidad = float(item.get("cantidad", 0))
-                unidad = (item.get("unidad") or "").lower()
-                cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
-                cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
-                po_lines.append({
-                    "product_id": m["odoo_id"], "name": m["odoo_name"],
-                    "product_qty": round(cantidad_kg, 2), "price_unit": m.get("price", 0) or 0,
-                })
+            bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))
+            total_bloques = len(bloques)
 
-            po_id, po_name = odoo_session.create_purchase_order(
-                proveedor["odoo_supplier_id"], po_lines, notes=f"Generado automaticamente -- pedido {pedido_id}")
+            for idx, bloque in enumerate(bloques, start=1):
+                po_lines = []
+                for m, item in bloque:
+                    cantidad = float(item.get("cantidad", 0))
+                    unidad = (item.get("unidad") or "").lower()
+                    cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
+                    cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
+                    po_lines.append({
+                        "product_id": m["odoo_id"], "name": m["odoo_name"],
+                        "product_qty": round(cantidad_kg, 2), "price_unit": m.get("price", 0) or 0,
+                    })
 
-            db.table("po_tracking").insert({
-                "tipo": "odoo", "po_id": po_id, "po_name": po_name, "local_id": pedido["local_id"],
-                "pedido_id": pedido_id, "proveedor": nombre_proveedor, "creado_por": claims["sub"],
-            }).execute()
+                notas = f"Generado automaticamente -- pedido {pedido_id}"
+                if total_bloques > 1:
+                    notas += f" (parte {idx}/{total_bloques} -- max {MAX_ITEMS_POR_OC} lineas por OC)"
 
-            # La OC ya quedo creada en Odoo (lo que importa) -- si el PDF no se
-            # puede descargar o enviar, no se revierte nada, solo se avisa.
-            aviso = None
-            if not config:
-                aviso = "OC creada en Odoo, pero no hay destinatario de correo configurado (ve a Proveedores) para enviar el PDF"
-            else:
-                try:
-                    report_name = odoo_session.get_report_name_for_model("purchase.order") or "purchase.report_purchasequotation"
-                    pdf_bytes = odoo_session.download_pdf_report(report_name, [po_id])
-                    enviar_oc_pdf(config["destinatario"], nombre_proveedor, local["nombre"], po_name, pdf_bytes, cc=cc_list)
-                except KeyError as e:
-                    aviso = f"OC creada en Odoo, pero falta configurar la variable de entorno {e} para enviar el PDF por correo"
-                except Exception as e:
-                    aviso = f"OC creada en Odoo, pero no se pudo enviar el PDF por correo: {e}"
+                po_id, po_name = odoo_session.create_purchase_order(
+                    proveedor["odoo_supplier_id"], po_lines, notes=notas)
 
-            acciones.append(AccionCompra(proveedor=nombre_proveedor, tipo="odoo", po_id=po_id, po_name=po_name, aviso=aviso))
+                db.table("po_tracking").insert({
+                    "tipo": "odoo", "po_id": po_id, "po_name": po_name, "local_id": pedido["local_id"],
+                    "pedido_id": pedido_id, "proveedor": nombre_proveedor, "creado_por": claims["sub"],
+                }).execute()
+
+                # La OC ya quedo creada en Odoo (lo que importa) -- si el PDF no se
+                # puede descargar o enviar, no se revierte nada, solo se avisa.
+                aviso = None
+                if not config:
+                    aviso = "OC creada en Odoo, pero no hay destinatario de correo configurado (ve a Proveedores) para enviar el PDF"
+                else:
+                    try:
+                        report_name = odoo_session.get_report_name_for_model("purchase.order") or "purchase.report_purchasequotation"
+                        pdf_bytes = odoo_session.download_pdf_report(report_name, [po_id])
+                        enviar_oc_pdf(config["destinatario"], nombre_proveedor, local["nombre"], po_name, pdf_bytes, cc=cc_list)
+                    except KeyError as e:
+                        aviso = f"OC creada en Odoo, pero falta configurar la variable de entorno {e} para enviar el PDF por correo"
+                    except Exception as e:
+                        aviso = f"OC creada en Odoo, pero no se pudo enviar el PDF por correo: {e}"
+
+                acciones.append(AccionCompra(proveedor=nombre_proveedor, tipo="odoo", po_id=po_id, po_name=po_name, aviso=aviso))
         else:
             if not config:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "No hay un destinatario de correo configurado (ve a Proveedores)")
