@@ -14,7 +14,7 @@ def _require_admin(claims: dict):
 
 def _producto_de(row: dict) -> ProductoOut:
     return ProductoOut(
-        ingrediente_key=row["ingrediente_key"], nombre=row["ingrediente_key"].split("||")[0],
+        id=row["id"], ingrediente_key=row["ingrediente_key"], nombre=row["ingrediente_key"].split("||")[0],
         unidad=row["ingrediente_key"].split("||")[1] if "||" in row["ingrediente_key"] else "",
         proveedor_id=row["proveedor_id"], odoo_id=row["odoo_id"], odoo_name=row["odoo_name"],
         ref=row.get("ref"), precio=row.get("price", 0), tamano_empaque=row.get("tamano_empaque"),
@@ -32,7 +32,7 @@ def crear_proveedor(body: ProveedorIn, claims: dict = Depends(get_current_claims
     _require_admin(claims)
     db = get_db()
     res = db.table("proveedores").insert({
-        "nombre": body.nombre, "odoo_supplier_id": body.odoo_supplier_id,
+        "nombre": body.nombre, "odoo_supplier_id": body.odoo_supplier_id, "usa_odoo": body.usa_odoo,
     }).execute()
     return res.data[0]
 
@@ -56,14 +56,17 @@ def crear_producto(proveedor_id: str, body: ProductoIn, claims: dict = Depends(g
     key = f"{body.nombre}||{body.unidad}"
     tamano = None if body.a_granel else body.tamano_empaque
 
+    # un mismo insumo (ingrediente_key) puede tener hasta 3 filas, una por
+    # proveedor -- el conflicto se resuelve por (ingrediente_key, proveedor_id),
+    # no por ingrediente_key solo, para permitir varias opciones de compra
     db.table("odoo_mapping").upsert({
         "ingrediente_key": key, "proveedor_id": proveedor_id,
         "ref": body.ref, "odoo_id": body.odoo_id, "odoo_name": body.odoo_name,
         "supplier_id": prov.data[0]["odoo_supplier_id"], "supplier_name": prov.data[0]["nombre"],
         "price": body.precio, "tamano_empaque": tamano,
-    }, on_conflict="ingrediente_key").execute()
+    }, on_conflict="ingrediente_key,proveedor_id").execute()
 
-    row = db.table("odoo_mapping").select("*").eq("ingrediente_key", key).execute().data[0]
+    row = db.table("odoo_mapping").select("*").eq("ingrediente_key", key).eq("proveedor_id", proveedor_id).execute().data[0]
     return _producto_de(row)
 
 
@@ -79,7 +82,7 @@ def actualizar_producto(proveedor_id: str, body: ProductoUpdateIn, claims: dict 
     update = {"tamano_empaque": None if body.a_granel else body.tamano_empaque}
     if body.precio is not None:
         update["price"] = body.precio
-    db.table("odoo_mapping").update(update).eq("ingrediente_key", body.ingrediente_key).execute()
+    db.table("odoo_mapping").update(update).eq("id", existente.data[0]["id"]).execute()
 
-    row = db.table("odoo_mapping").select("*").eq("ingrediente_key", body.ingrediente_key).execute().data[0]
+    row = db.table("odoo_mapping").select("*").eq("id", existente.data[0]["id"]).execute().data[0]
     return _producto_de(row)

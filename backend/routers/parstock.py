@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..schemas import ParStockAddIn, ParStockItem, ParStockUpdateIn, ProductoOut
@@ -24,17 +25,24 @@ def _item_de(par_row: dict, mapping: dict) -> ParStockItem:
 
 @router.get("/productos", response_model=list[ProductoOut])
 def listar_todos_productos(claims: dict = Depends(get_current_claims)):
-    """Catalogo completo (todos los proveedores) -- para elegir al agregar a Par Stock."""
+    """Catalogo completo, un item por insumo (el mas barato entre sus
+    proveedores) -- para elegir al agregar a Par Stock. Par Stock no
+    depende de que proveedor se elija, eso lo decide la sugerencia."""
     db = get_db()
     rows = db.table("odoo_mapping").select("*").execute().data or []
+    mejor: dict[str, dict] = {}
+    for r in rows:
+        k = r["ingrediente_key"]
+        if k not in mejor or (r.get("price") or 0) < (mejor[k].get("price") or 0):
+            mejor[k] = r
     return [
         ProductoOut(
-            ingrediente_key=r["ingrediente_key"], nombre=r["ingrediente_key"].split("||")[0],
+            id=r["id"], ingrediente_key=r["ingrediente_key"], nombre=r["ingrediente_key"].split("||")[0],
             unidad=r["ingrediente_key"].split("||")[1] if "||" in r["ingrediente_key"] else "",
             proveedor_id=r.get("proveedor_id") or "", odoo_id=r["odoo_id"], odoo_name=r["odoo_name"],
             ref=r.get("ref"), precio=r.get("price", 0), tamano_empaque=r.get("tamano_empaque"),
         )
-        for r in rows
+        for r in mejor.values()
     ]
 
 
@@ -44,8 +52,7 @@ def listar(local_id: str, claims: dict = Depends(get_current_claims)):
     db = get_db()
     par_rows = db.table("par_stock").select("*").eq("local_id", local_id).execute().data or []
     keys = [r["ingrediente_key"] for r in par_rows]
-    mapping_rows = db.table("odoo_mapping").select("*").in_("ingrediente_key", keys).execute().data if keys else []
-    mapping = {m["ingrediente_key"]: m for m in mapping_rows}
+    mapping = productos_mas_baratos(db, keys)
     return [_item_de(r, mapping) for r in par_rows]
 
 
@@ -55,8 +62,8 @@ def agregar(body: ParStockAddIn, claims: dict = Depends(get_current_claims)):
     verificar_acceso_local(claims, body.local_id)
     db = get_db()
 
-    producto = db.table("odoo_mapping").select("*").eq("ingrediente_key", body.ingrediente_key).execute()
-    if not producto.data:
+    mapping = productos_mas_baratos(db, [body.ingrediente_key])
+    if body.ingrediente_key not in mapping:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ese insumo no existe en el catalogo de Proveedores -- agrégalo ahí primero")
     unidad = body.ingrediente_key.split("||")[1] if "||" in body.ingrediente_key else ""
 
@@ -66,7 +73,7 @@ def agregar(body: ParStockAddIn, claims: dict = Depends(get_current_claims)):
     }, on_conflict="local_id,ingrediente_key").execute()
 
     par_row = db.table("par_stock").select("*").eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute().data[0]
-    return _item_de(par_row, {body.ingrediente_key: producto.data[0]})
+    return _item_de(par_row, mapping)
 
 
 @router.patch("/par-stock", response_model=ParStockItem)
@@ -83,6 +90,5 @@ def actualizar(body: ParStockUpdateIn, claims: dict = Depends(get_current_claims
         .eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute()
 
     par_row = db.table("par_stock").select("*").eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute().data[0]
-    mapping_row = db.table("odoo_mapping").select("*").eq("ingrediente_key", body.ingrediente_key).execute().data
-    mapping = {body.ingrediente_key: mapping_row[0]} if mapping_row else {}
+    mapping = productos_mas_baratos(db, [body.ingrediente_key])
     return _item_de(par_row, mapping)

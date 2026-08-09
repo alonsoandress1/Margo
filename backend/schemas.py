@@ -81,15 +81,18 @@ class ProveedorOut(BaseModel):
     id: str
     nombre: str
     odoo_supplier_id: int
+    usa_odoo: bool
     activo: bool
 
 
 class ProveedorIn(BaseModel):
     nombre: str
     odoo_supplier_id: int
+    usa_odoo: bool = False
 
 
 class ProductoOut(BaseModel):
+    id: str
     ingrediente_key: str
     nombre: str
     unidad: str
@@ -117,6 +120,21 @@ class ProductoUpdateIn(BaseModel):
     precio: float | None = None
     a_granel: bool = False
     tamano_empaque: float | None = None
+
+
+class ConfiguracionEmailOut(BaseModel):
+    destinatario: str
+
+
+class ConfiguracionEmailIn(BaseModel):
+    destinatario: str
+
+
+class AccionCompra(BaseModel):
+    proveedor: str
+    tipo: str  # odoo | email
+    po_id: int | None = None
+    po_name: str | None = None
 
 
 class ParStockItem(BaseModel):
@@ -216,8 +234,7 @@ class PedidoOut(BaseModel):
     favorito: bool = False
     creado_por: str | None = None
     revisado_por: str | None = None
-    po_id: int | None = None
-    po_name: str | None = None
+    acciones: list[AccionCompra] = []
 
 
 class FavoritoIn(BaseModel):
@@ -225,13 +242,12 @@ class FavoritoIn(BaseModel):
 
 
 class GenerarOCIn(BaseModel):
-    email: str
-    password: str
+    email: str | None = None
+    password: str | None = None
 
 
 class GenerarOCOut(BaseModel):
-    po_id: int
-    po_name: str
+    acciones: list[AccionCompra]
     omitidos: list[str] = []
 
 

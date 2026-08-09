@@ -176,12 +176,15 @@ document.getElementById('oc-form').addEventListener('submit', async (e) => {
   try {
     const res = await api(`/pedidos/${ocPedidoId}/generar-oc`, {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email: email || null, password: password || null }),
     });
     closeOcModal();
-    let msg = `OC creada: ${res.po_name}`;
+    const lineas = res.acciones.map(a =>
+      a.tipo === 'odoo' ? `✓ OC creada en Odoo: ${a.po_name} (${a.proveedor})` : `✉ Aviso enviado por correo a ${a.proveedor}`
+    );
+    let msg = lineas.join('\n');
     if (res.omitidos && res.omitidos.length) {
-      msg += `\n\nInsumos omitidos (sin mapeo a Odoo): ${res.omitidos.join(', ')}`;
+      msg += `\n\nInsumos omitidos (sin proveedor registrado): ${res.omitidos.join(', ')}`;
     }
     alert(msg);
     renderView();
@@ -255,10 +258,12 @@ async function renderLocales(el, s) {
 async function renderProveedores(el, s) {
   const editable = puedeEditar(s);
   const proveedores = await api('/proveedores');
+  const config = editable ? await api('/configuracion/email').catch(() => null) : null;
 
   const provId = state.proveedorSel && proveedores.some(p => p.id === state.proveedorSel)
     ? state.proveedorSel : (proveedores[0] ? proveedores[0].id : null);
   state.proveedorSel = provId;
+  const provSeleccionado = proveedores.find(p => p.id === provId);
 
   const productos = provId ? await api(`/proveedores/${provId}/productos`) : [];
 
@@ -267,12 +272,24 @@ async function renderProveedores(el, s) {
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
     ${editable ? `
       <div class="card">
+        <h3>Configuración de avisos por correo</h3>
+        <p class="placeholder" style="margin-bottom:1rem">Para proveedores sin integración a Odoo, se envía un correo con el pedido a este destinatario. Asunto siempre: "Pedido {local}".</p>
+        <form id="config-email-form">
+          <input class="field" id="config-destinatario" type="email" placeholder="correo@margo.cl" style="width:100%;max-width:400px" value="${config ? config.destinatario : ''}" required>
+          <button type="submit" class="btn btn-primary" style="margin-left:.5rem">Guardar</button>
+          <p id="config-email-error" class="error-msg"></p>
+        </form>
+      </div>
+      <div class="card">
         <h3>Agregar proveedor</h3>
         <form id="prov-form">
           <div class="item-row">
             <input class="field" id="prov-nombre" placeholder="Nombre del proveedor" style="flex:2" required>
             <input class="field" id="prov-odoo-id" type="number" placeholder="ID en Odoo (res.partner)" required>
           </div>
+          <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.75rem">
+            <input type="checkbox" id="prov-usa-odoo"> Tiene integración con Odoo (genera OC real; si no, se avisa por correo)
+          </label>
           <button type="submit" class="btn btn-primary">Agregar proveedor</button>
           <p id="prov-error" class="error-msg"></p>
         </form>
@@ -280,8 +297,9 @@ async function renderProveedores(el, s) {
     <div class="card">
       <label class="field-label">Proveedor</label>
       <select id="prov-sel" class="field" style="margin-bottom:1rem;width:100%;max-width:320px">
-        ${proveedores.map(p => `<option value="${p.id}" ${p.id === provId ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+        ${proveedores.map(p => `<option value="${p.id}" ${p.id === provId ? 'selected' : ''}>${p.nombre}${p.usa_odoo ? ' (Odoo)' : ''}</option>`).join('')}
       </select>
+      ${provSeleccionado ? `<p class="placeholder">${provSeleccionado.usa_odoo ? '✓ Genera Orden de Compra real en Odoo.' : 'Sin integración a Odoo — se avisa por correo al generar la OC.'}</p>` : ''}
       ${!proveedores.length ? '<p class="placeholder">Todavía no hay proveedores — agrega uno arriba.</p>' : ''}
     </div>
     ${provId ? `
@@ -339,6 +357,20 @@ async function renderProveedores(el, s) {
   });
 
   if (editable) {
+    document.getElementById('config-email-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('config-email-error');
+      try {
+        await api('/configuracion/email', {
+          method: 'PATCH',
+          body: JSON.stringify({ destinatario: document.getElementById('config-destinatario').value.trim() }),
+        });
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
     document.getElementById('prov-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errorEl = document.getElementById('prov-error');
@@ -348,6 +380,7 @@ async function renderProveedores(el, s) {
           body: JSON.stringify({
             nombre: document.getElementById('prov-nombre').value.trim(),
             odoo_supplier_id: parseInt(document.getElementById('prov-odoo-id').value, 10),
+            usa_odoo: document.getElementById('prov-usa-odoo').checked,
           }),
         });
         renderView();
@@ -917,16 +950,18 @@ async function renderPedidos(el, s) {
               <td><button class="btn-link" data-ver="${p.id}">${(p.items || []).length} insumo(s)</button></td>
               <td><span class="badge ${badgeClass[p.estado] || ''}">${p.estado}</span></td>
               <td>
-                ${p.po_name ? p.po_name : (editable && p.estado === 'aprobado'
-                  ? `<button class="btn-link" data-oc="${p.id}">Generar OC</button>`
-                  : '—')}
+                ${p.acciones && p.acciones.length
+                  ? p.acciones.map(a => a.tipo === 'odoo' ? a.po_name : `✉ ${a.proveedor}`).join(', ')
+                  : (editable && p.estado === 'aprobado'
+                    ? `<button class="btn-link" data-oc="${p.id}">Generar OC</button>`
+                    : '—')}
               </td>
               <td>
                 ${editable && p.estado === 'pendiente' ? `
                   <button class="btn btn-approve" data-id="${p.id}" data-estado="aprobado">Aprobar</button>
                   <button class="btn btn-reject" data-id="${p.id}" data-estado="rechazado">Rechazar</button>
                 ` : ''}
-                ${editable && !p.po_name ? `<button class="btn btn-reject" data-del="${p.id}">Eliminar</button>` : ''}
+                ${editable && (!p.acciones || !p.acciones.length) ? `<button class="btn btn-reject" data-del="${p.id}">Eliminar</button>` : ''}
               </td>
             </tr>`).join('')}
         </tbody>

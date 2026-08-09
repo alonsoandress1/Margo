@@ -6,9 +6,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
-from ..schemas import FavoritoIn, GenerarOCIn, GenerarOCOut, PedidoEstadoIn, PedidoIn, PedidoOut, SugerenciaItem
+from ..email_sender import enviar_aviso_pedido
+from ..schemas import (AccionCompra, FavoritoIn, GenerarOCIn, GenerarOCOut, PedidoEstadoIn,
+                       PedidoIn, PedidoOut, SugerenciaItem)
 
 # odoo_connector.py vive en la raiz del repo (lo comparte tambien la app de
 # escritorio y los scripts de terminal) -- se agrega esa ruta para poder
@@ -37,20 +40,25 @@ def _con_po_tracking(db, pedidos: list[dict]) -> list[dict]:
     if not pedidos:
         return pedidos
     ids = [p["id"] for p in pedidos]
-    tracking = db.table("po_tracking").select("pedido_id,po_id,po_name").in_("pedido_id", ids).execute().data or []
-    por_pedido = {t["pedido_id"]: t for t in tracking}
+    tracking = db.table("po_tracking").select("pedido_id,tipo,po_id,po_name,proveedor").in_("pedido_id", ids).execute().data or []
+    por_pedido: dict[str, list] = {}
+    for t in tracking:
+        por_pedido.setdefault(t["pedido_id"], []).append(t)
     for p in pedidos:
-        t = por_pedido.get(p["id"])
-        p["po_id"] = t["po_id"] if t else None
-        p["po_name"] = t["po_name"] if t else None
+        p["acciones"] = [
+            {"proveedor": t["proveedor"], "tipo": t["tipo"], "po_id": t.get("po_id"), "po_name": t.get("po_name")}
+            for t in por_pedido.get(p["id"], [])
+        ]
     return pedidos
 
 
 @router.get("/sugerencia", response_model=list[SugerenciaItem])
 def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims)):
     """Sugerencia basada en Par Stock - stock actual (bodega + cocina).
-    Todavia no incluye demanda proyectada por pronostico de ventas (fase 2:
-    requiere migrar el historial de ventas a Supabase)."""
+    Elige automaticamente el proveedor mas barato entre los registrados
+    para cada insumo. Todavia no incluye demanda proyectada por
+    pronostico de ventas (fase 2: requiere migrar el historial de ventas
+    a Supabase)."""
     verificar_acceso_local(claims, local_id)
     db = get_db()
 
@@ -73,8 +81,7 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
     for c in cocina_rows:
         stock_cocina.setdefault(c["ingrediente_key"], c["cantidad_informada"])  # primera = mas reciente (ya ordenado)
 
-    mapping_rows = db.table("odoo_mapping").select("*").in_("ingrediente_key", keys).execute().data or []
-    mapping = {m["ingrediente_key"]: m for m in mapping_rows}
+    mapping = productos_mas_baratos(db, keys)
 
     resultado = []
     for r in par_rows:
@@ -128,7 +135,7 @@ def crear_pedido(body: PedidoIn, claims: dict = Depends(get_current_claims)):
         "estado": "pendiente",
         "creado_por": claims["sub"],
     }).execute()
-    return res.data[0]
+    return _con_po_tracking(db, res.data)[0]
 
 
 @router.patch("/{pedido_id}/estado", response_model=PedidoOut)
@@ -153,7 +160,7 @@ def actualizar_estado(pedido_id: str, body: PedidoEstadoIn, claims: dict = Depen
         update["items"] = body.items
 
     res = db.table("pedidos").update(update).eq("id", pedido_id).execute()
-    return res.data[0]
+    return _con_po_tracking(db, res.data)[0]
 
 
 @router.patch("/{pedido_id}/favorito", response_model=PedidoOut)
@@ -182,11 +189,11 @@ def eliminar_pedido(pedido_id: str, claims: dict = Depends(get_current_claims)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Pedido no encontrado")
     verificar_acceso_local(claims, existente.data[0]["local_id"])
 
-    con_oc = db.table("po_tracking").select("po_name").eq("pedido_id", pedido_id).execute()
-    if con_oc.data:
+    con_acciones = db.table("po_tracking").select("id").eq("pedido_id", pedido_id).execute()
+    if con_acciones.data:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"No se puede eliminar: ya generó la OC {con_oc.data[0]['po_name']} en Odoo",
+            "No se puede eliminar: ya se generó una OC o aviso de compra para este pedido",
         )
 
     db.table("pedidos").delete().eq("id", pedido_id).execute()
@@ -194,9 +201,13 @@ def eliminar_pedido(pedido_id: str, claims: dict = Depends(get_current_claims)):
 
 @router.post("/{pedido_id}/generar-oc", response_model=GenerarOCOut)
 def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_current_claims)):
-    """Crea la Orden de Compra real en Odoo para un pedido ya aprobado.
-    Las credenciales de Odoo viajan solo en este request, se usan una vez
-    y se descartan -- nunca se guardan, ni siquiera encriptadas."""
+    """Genera la accion de compra de un pedido ya aprobado, insumo por
+    insumo se elige el proveedor mas barato entre los registrados:
+    - Si ese proveedor tiene integracion a Odoo (usa_odoo=true, hoy solo
+      Doña Sofía), se crea la Orden de Compra real. Las credenciales de
+      Odoo viajan solo en este request, se usan una vez y se descartan.
+    - Si no, se envia un correo con el nombre del proveedor y las
+      cantidades solicitadas, al destinatario configurado en Configuración."""
     if claims["rol"] == "observador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede generar OC")
 
@@ -210,53 +221,83 @@ def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_cur
     if pedido["estado"] != "aprobado":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Solo se puede generar la OC de un pedido aprobado")
 
-    ya_existe = db.table("po_tracking").select("po_name").eq("pedido_id", pedido_id).execute()
+    ya_existe = db.table("po_tracking").select("id").eq("pedido_id", pedido_id).execute()
     if ya_existe.data:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Ya existe una OC para este pedido: {ya_existe.data[0]['po_name']}")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ya se generó una acción de compra para este pedido")
+
+    local = db.table("locales").select("nombre").eq("id", pedido["local_id"]).execute().data[0]
 
     keys = [i["ingrediente_key"] for i in pedido["items"] if i.get("ingrediente_key")]
-    mapping_rows = db.table("odoo_mapping").select("*").in_("ingrediente_key", keys).execute().data if keys else []
-    mapping = {m["ingrediente_key"]: m for m in mapping_rows}
+    mapping = productos_mas_baratos(db, keys)
 
-    po_lines = []
+    grupos: dict[str, list[tuple[dict, dict]]] = {}
     omitidos = []
     for item in pedido["items"]:
         key = item.get("ingrediente_key")
         m = mapping.get(key) if key else None
-        if not m:
+        if not m or not m.get("proveedor_id"):
             omitidos.append(item.get("ingrediente", "?"))
             continue
-        cantidad = float(item.get("cantidad", 0))
-        unidad = (item.get("unidad") or "").lower()
-        cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
-        # redondeo defensivo -- por si el item viene de edicion manual y no
-        # respeta el tamano de empaque (la sugerencia ya redondea, pero un
-        # insumo agregado a mano o editado despues no pasa por ahi)
-        cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
-        po_lines.append({
-            "product_id": m["odoo_id"],
-            "name": m["odoo_name"],
-            "product_qty": round(cantidad_kg, 2),
-            "price_unit": m.get("price", 0) or 0,
-        })
+        grupos.setdefault(m["proveedor_id"], []).append((m, item))
 
-    if not po_lines:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ningun insumo del pedido tiene mapeo a Odoo -- nada que generar")
+    if not grupos:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ningun insumo del pedido tiene un proveedor registrado -- nada que generar")
 
-    partner_id = next(iter(mapping.values()))["supplier_id"]
-    proveedor = next(iter(mapping.values()))["supplier_name"]
+    proveedor_ids = list(grupos.keys())
+    proveedores = {p["id"]: p for p in db.table("proveedores").select("*").in_("id", proveedor_ids).execute().data or []}
 
-    session = OdooWebSession(os.environ["ODOO_URL"])
-    ok, msg = session.connect(body.email, body.password)
-    if not ok:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"No se pudo conectar a Odoo: {msg}")
+    acciones: list[AccionCompra] = []
+    odoo_session: OdooWebSession | None = None
 
-    po_id, po_name = session.create_purchase_order(
-        partner_id, po_lines, notes=f"Generado automaticamente -- pedido {pedido_id}")
+    for proveedor_id, entradas in grupos.items():
+        proveedor = proveedores.get(proveedor_id)
+        nombre_proveedor = proveedor["nombre"] if proveedor else "Proveedor desconocido"
 
-    db.table("po_tracking").insert({
-        "po_id": po_id, "po_name": po_name, "local_id": pedido["local_id"], "pedido_id": pedido_id,
-        "proveedor": proveedor, "creado_por": claims["sub"],
-    }).execute()
+        if proveedor and proveedor.get("usa_odoo"):
+            if not body.email or not body.password:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Faltan credenciales de Odoo para generar la OC de {nombre_proveedor}")
+            if odoo_session is None:
+                odoo_session = OdooWebSession(os.environ["ODOO_URL"])
+                ok, msg = odoo_session.connect(body.email, body.password)
+                if not ok:
+                    raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"No se pudo conectar a Odoo: {msg}")
 
-    return GenerarOCOut(po_id=po_id, po_name=po_name, omitidos=omitidos)
+            po_lines = []
+            for m, item in entradas:
+                cantidad = float(item.get("cantidad", 0))
+                unidad = (item.get("unidad") or "").lower()
+                cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
+                cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
+                po_lines.append({
+                    "product_id": m["odoo_id"], "name": m["odoo_name"],
+                    "product_qty": round(cantidad_kg, 2), "price_unit": m.get("price", 0) or 0,
+                })
+
+            po_id, po_name = odoo_session.create_purchase_order(
+                proveedor["odoo_supplier_id"], po_lines, notes=f"Generado automaticamente -- pedido {pedido_id}")
+
+            db.table("po_tracking").insert({
+                "tipo": "odoo", "po_id": po_id, "po_name": po_name, "local_id": pedido["local_id"],
+                "pedido_id": pedido_id, "proveedor": nombre_proveedor, "creado_por": claims["sub"],
+            }).execute()
+            acciones.append(AccionCompra(proveedor=nombre_proveedor, tipo="odoo", po_id=po_id, po_name=po_name))
+        else:
+            config = db.table("configuracion_email").select("destinatario").limit(1).execute()
+            if not config.data:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "No hay un destinatario de correo configurado (ve a Proveedores)")
+            items_email = [{"ingrediente": item.get("ingrediente", "?"), "cantidad": item.get("cantidad", 0), "unidad": item.get("unidad", "")}
+                            for _, item in entradas]
+            try:
+                enviar_aviso_pedido(config.data[0]["destinatario"], nombre_proveedor, local["nombre"], items_email)
+            except KeyError as e:
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e} para poder enviar correos")
+            except Exception as e:
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo enviar el correo a {nombre_proveedor}: {e}")
+
+            db.table("po_tracking").insert({
+                "tipo": "email", "local_id": pedido["local_id"], "pedido_id": pedido_id,
+                "proveedor": nombre_proveedor, "creado_por": claims["sub"],
+            }).execute()
+            acciones.append(AccionCompra(proveedor=nombre_proveedor, tipo="email"))
+
+    return GenerarOCOut(acciones=acciones, omitidos=omitidos)

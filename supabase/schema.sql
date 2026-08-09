@@ -99,13 +99,17 @@ create table proveedores (
     id                uuid primary key default gen_random_uuid(),
     nombre            text not null,
     odoo_supplier_id  integer not null,  -- res.partner id en Odoo, el admin lo verifica el mismo
+    usa_odoo          boolean not null default false,  -- true = se genera OC real en Odoo; false = se avisa por correo
     activo            boolean not null default true,
     created_at        timestamptz not null default now()
 );
 
 -- ── Mapeo de insumos a Odoo (producto/proveedor/precio/formato) ────────
+-- Un mismo ingrediente_key puede tener hasta 3 filas (una por proveedor);
+-- el sistema elige la de menor precio al generar la sugerencia/OC.
 create table odoo_mapping (
-    ingrediente_key  text primary key,
+    id               uuid primary key default gen_random_uuid(),
+    ingrediente_key  text not null,
     proveedor_id     uuid references proveedores(id),
     ref              text,
     odoo_id          integer not null,
@@ -115,7 +119,17 @@ create table odoo_mapping (
     price            numeric not null default 0,
     currency         text not null default 'CLP',
     tamano_empaque   numeric,  -- null = a granel; ej. 1.6 = viene en paquetes de 1.6 kg
-    last_sync        timestamptz
+    last_sync        timestamptz,
+    unique (ingrediente_key, proveedor_id)
+);
+create index on odoo_mapping (ingrediente_key);
+
+-- ── Configuración de notificaciones por correo (proveedores sin Odoo) ──
+create table configuracion_email (
+    id            uuid primary key default gen_random_uuid(),
+    destinatario  text not null,
+    updated_at    timestamptz not null default now(),
+    updated_by    uuid references usuarios(id)
 );
 
 -- ── Pedidos (sugerencia → punto humano #1: aceptar/rechazar/editar) ────
@@ -133,11 +147,12 @@ create table pedidos (
     created_at    timestamptz not null default now()
 );
 
--- ── PO Tracking (link local ↔ Orden de Compra creada en Odoo) ──────────
+-- ── PO Tracking (acciones de compra: OC real en Odoo, o aviso por correo) ──
 create table po_tracking (
     id            uuid primary key default gen_random_uuid(),
-    po_id         integer not null,
-    po_name       text not null,
+    tipo          text not null default 'odoo' check (tipo in ('odoo', 'email')),
+    po_id         integer,       -- solo si tipo = 'odoo'
+    po_name       text,          -- solo si tipo = 'odoo'
     local_id      uuid not null references locales(id) on delete cascade,
     pedido_id     uuid references pedidos(id),
     proveedor     text not null,
