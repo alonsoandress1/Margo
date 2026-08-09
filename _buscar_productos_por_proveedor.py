@@ -29,25 +29,38 @@ if ok:
     supplierinfo = session.call_kw(
         'product.supplierinfo', 'search_read',
         [[['partner_id', '=', PROVEEDOR_ID]]],
-        {'fields': ['product_id', 'product_name', 'product_code', 'price', 'currency_id', 'min_qty', 'delay']})
+        {'fields': ['product_id', 'product_tmpl_id', 'product_name', 'product_code', 'price', 'currency_id', 'min_qty', 'delay']})
 
     print(f"\n{len(supplierinfo)} productos configurados para el proveedor id={PROVEEDOR_ID}:\n")
 
-    ids = [s['product_id'][0] for s in supplierinfo if s.get('product_id')]
-    productos = {}
-    if ids:
-        rows = session.call_kw('product.product', 'search_read',
-            [[['id', 'in', ids]]],
+    # product_id (variante) suele venir vacio -- Odoo guarda esto a nivel de
+    # product_tmpl_id (plantilla) la mayoria de las veces
+    tmpl_ids = [s['product_tmpl_id'][0] for s in supplierinfo if s.get('product_tmpl_id')]
+    plantillas = {}
+    if tmpl_ids:
+        rows = session.call_kw('product.template', 'search_read',
+            [[['id', 'in', tmpl_ids]]],
             {'fields': ['id', 'display_name', 'default_code', 'uom_id']})
-        productos = {r['id']: r for r in rows}
+        plantillas = {r['id']: r for r in rows}
+        # product.product real (para el odoo_id que usa create_purchase_order)
+        variantes = session.call_kw('product.product', 'search_read',
+            [[['product_tmpl_id', 'in', tmpl_ids]]],
+            {'fields': ['id', 'product_tmpl_id']})
+        variante_por_tmpl = {}
+        for v in variantes:
+            tid = v['product_tmpl_id'][0]
+            variante_por_tmpl.setdefault(tid, v['id'])  # primera variante si hay varias
+    else:
+        variante_por_tmpl = {}
 
     for s in supplierinfo:
-        pid = s['product_id'][0] if s.get('product_id') else None
-        prod = productos.get(pid, {})
-        uom = prod.get('uom_id') or [None, '?']
+        tid = s['product_tmpl_id'][0] if s.get('product_tmpl_id') else None
+        tmpl = plantillas.get(tid, {})
+        pid = variante_por_tmpl.get(tid)
+        uom = tmpl.get('uom_id') or [None, '?']
         currency = s.get('currency_id') or [None, '?']
-        print(f"  odoo_id={pid}  ref={prod.get('default_code') or s.get('product_code') or '-'}")
-        print(f"     nombre: {prod.get('display_name') or s.get('product_name')}")
+        print(f"  odoo_id={pid}  ref={tmpl.get('default_code') or s.get('product_code') or '-'}")
+        print(f"     nombre: {tmpl.get('display_name') or s.get('product_name') or '(sin nombre)'}")
         print(f"     precio: {s.get('price')} {currency[1]}   unidad Odoo: {uom[1]}   min_qty: {s.get('min_qty')}")
         print()
 
