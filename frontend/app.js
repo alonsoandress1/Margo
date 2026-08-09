@@ -11,6 +11,7 @@ const SECCIONES = [
   { id: 'recetas',   label: 'Recetas',               roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'locales',   label: 'Locales',                roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'usuarios',  label: 'Usuarios',               roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'facturas',  label: 'Facturas',               roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
 ];
 
 let state = {
@@ -18,6 +19,7 @@ let state = {
   usuario: JSON.parse(localStorage.getItem('usuario') || 'null'),
   section: 'pedidos',
   locales: [],
+  facturasPendientes: null,
 };
 
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
@@ -208,6 +210,46 @@ document.getElementById('oc-form').addEventListener('submit', async (e) => {
   }
 });
 
+// ---------- Modal: Buscar facturas ----------
+
+function openFacturaModal() {
+  document.getElementById('factura-email').value = '';
+  document.getElementById('factura-password').value = '';
+  document.getElementById('factura-error').textContent = '';
+  document.getElementById('factura-modal').hidden = false;
+}
+
+function closeFacturaModal() {
+  document.getElementById('factura-modal').hidden = true;
+}
+
+document.getElementById('factura-cancel').addEventListener('click', closeFacturaModal);
+
+document.getElementById('factura-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('factura-error');
+  const btn = e.target.querySelector('button[type=submit]');
+  const email = document.getElementById('factura-email').value.trim();
+  const password = document.getElementById('factura-password').value;
+  errorEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Buscando…';
+  try {
+    const facturas = await api('/facturas/buscar', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    state.facturasPendientes = facturas;
+    closeFacturaModal();
+    renderView();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Buscar';
+  }
+});
+
 // ---------- Nav ----------
 
 function renderNav() {
@@ -238,6 +280,7 @@ async function renderView() {
     if (state.section === 'proveedores') return renderProveedores(el, s);
     if (state.section === 'recetas') return renderRecetas(el, s);
     if (state.section === 'usuarios') return renderUsuarios(el, s);
+    if (state.section === 'facturas') return renderFacturas(el, s);
     return renderPlaceholder(el, s);
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -1197,6 +1240,91 @@ async function renderPedidos(el, s) {
             method: 'PATCH',
             body: JSON.stringify({ estado: btn.dataset.estado }),
           });
+          renderView();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+  }
+}
+
+async function renderFacturas(el, s) {
+  const editable = puedeEditar(s);
+  const [historial, locales] = await Promise.all([api('/facturas'), api('/locales')]);
+  const nombreLocal = (id) => (locales.find(l => l.id === id) || {}).nombre || '—';
+  const pendientes = state.facturasPendientes;
+
+  el.innerHTML = `
+    <h2>Facturas de Proveedor</h2>
+    <p class="placeholder" style="margin-bottom:1.25rem">Al aceptar una factura, sus insumos reconocidos se registran como ingreso real a Bodega -- no se puede procesar la misma factura dos veces.</p>
+    ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
+    ${editable ? `<div class="card"><button type="button" id="btn-buscar-facturas" class="btn btn-primary">Buscar facturas nuevas</button></div>` : ''}
+
+    ${pendientes === null ? '' : (!pendientes.length
+      ? '<div class="card"><p class="placeholder">No hay facturas nuevas -- todo al día.</p></div>'
+      : pendientes.map(f => `
+        <div class="card" data-factura="${f.odoo_invoice_id}">
+          <h3>${f.odoo_invoice_name} — ${f.proveedor}</h3>
+          <p class="placeholder" style="margin-bottom:1rem">${f.fecha || '—'} · Total: ${f.total}</p>
+          <label class="field-label">Local</label>
+          <select class="field factura-local-sel" data-invoice="${f.odoo_invoice_id}" style="max-width:280px;margin-bottom:.5rem">
+            <option value="">-- selecciona un local --</option>
+            ${locales.map(l => `<option value="${l.id}" ${l.id === f.local_id ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+          </select>
+          <p class="placeholder" style="margin-bottom:1rem">${f.local_nombre ? `Detectado automáticamente por la OC de origen: ${f.local_nombre}` : 'No se pudo detectar el local automáticamente -- selecciona uno.'}</p>
+          <table>
+            <thead><tr><th>Insumo</th><th>Cantidad</th><th>Estado</th></tr></thead>
+            <tbody>
+              ${f.lineas.map(l => `
+                <tr>
+                  <td>${l.nombre}</td>
+                  <td>${l.cantidad}</td>
+                  <td>${l.reconocido ? '✓ En catálogo' : '⚠ No reconocido -- no se ingresará'}</td>
+                </tr>`).join('')}
+              ${!f.lineas.length ? '<tr><td colspan="3" class="placeholder">Sin líneas de producto.</td></tr>' : ''}
+            </tbody>
+          </table>
+          <button type="button" class="btn btn-primary" data-aceptar-factura="${f.odoo_invoice_id}" style="margin-top:1rem">Aceptar e ingresar a Bodega</button>
+        </div>`).join(''))}
+
+    <div class="card">
+      <h3>Historial</h3>
+      <table>
+        <thead><tr><th>Factura</th><th>Proveedor</th><th>Local</th><th>Procesada</th></tr></thead>
+        <tbody>
+          ${historial.map(h => `
+            <tr>
+              <td>${h.odoo_invoice_name}</td>
+              <td>${h.proveedor}</td>
+              <td>${h.local_id ? nombreLocal(h.local_id) : '—'}</td>
+              <td>${(h.procesada_en || '').slice(0, 10)}</td>
+            </tr>`).join('')}
+          ${!historial.length ? '<tr><td colspan="4" class="placeholder">Todavía no se ha procesado ninguna factura.</td></tr>' : ''}
+        </tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('btn-buscar-facturas')?.addEventListener('click', openFacturaModal);
+
+  if (editable && pendientes) {
+    el.querySelectorAll('button[data-aceptar-factura]').forEach(btn => {
+      btn.onclick = async () => {
+        const invoiceId = parseInt(btn.dataset.aceptarFactura, 10);
+        const factura = pendientes.find(f => f.odoo_invoice_id === invoiceId);
+        const localId = el.querySelector(`.factura-local-sel[data-invoice="${invoiceId}"]`).value;
+        if (!localId) { alert('Selecciona un local antes de aceptar.'); return; }
+        if (!confirm(`¿Aceptar ${factura.odoo_invoice_name}? Se registrará el ingreso a Bodega de los insumos reconocidos.`)) return;
+        try {
+          await api('/facturas/aceptar', {
+            method: 'POST',
+            body: JSON.stringify({
+              odoo_invoice_id: factura.odoo_invoice_id, odoo_invoice_name: factura.odoo_invoice_name,
+              proveedor: factura.proveedor, local_id: localId, pedido_id: factura.pedido_id,
+              lineas: factura.lineas,
+            }),
+          });
+          state.facturasPendientes = pendientes.filter(f => f.odoo_invoice_id !== invoiceId);
           renderView();
         } catch (err) {
           alert(err.message);

@@ -257,6 +257,50 @@ class GenerarOCOut(BaseModel):
     omitidos: list[str] = []
 
 
+class FacturasBuscarIn(BaseModel):
+    email: str
+    password: str
+
+
+class FacturaLineaPreview(BaseModel):
+    ingrediente_key: str | None = None
+    nombre: str
+    cantidad: float
+    reconocido: bool
+
+
+class FacturaPreview(BaseModel):
+    odoo_invoice_id: int
+    odoo_invoice_name: str
+    proveedor: str
+    fecha: str | None = None
+    total: float = 0
+    local_id: str | None = None
+    local_nombre: str | None = None
+    pedido_id: str | None = None
+    lineas: list[FacturaLineaPreview] = []
+
+
+class FacturaAceptarIn(BaseModel):
+    odoo_invoice_id: int
+    odoo_invoice_name: str
+    proveedor: str
+    local_id: str
+    pedido_id: str | None = None
+    lineas: list[FacturaLineaPreview]
+
+
+class FacturaTrackingOut(BaseModel):
+    id: str
+    odoo_invoice_id: int
+    odoo_invoice_name: str
+    proveedor: str
+    local_id: str | None = None
+    pedido_id: str | None = None
+    items: list[dict] = []
+    procesada_en: str
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str

@@ -163,5 +163,22 @@ create table po_tracking (
 );
 create index on po_tracking (local_id);
 
+-- ── Facturas de proveedor (Odoo) ya aceptadas -- ingreso a Bodega ───────
+-- Detectar/aceptar: se listan facturas nuevas de Odoo, un admin revisa y
+-- acepta cada una, recien ahi se registra el ingreso real. Este registro
+-- evita procesar la misma factura dos veces.
+create table factura_tracking (
+    id                uuid primary key default gen_random_uuid(),
+    odoo_invoice_id   integer not null unique,
+    odoo_invoice_name text not null,
+    proveedor         text not null,
+    local_id          uuid references locales(id),
+    pedido_id         uuid references pedidos(id),
+    items             jsonb not null default '[]',
+    procesada_por     uuid references usuarios(id),
+    procesada_en      timestamptz not null default now()
+);
+create index on factura_tracking (local_id);
+
 -- ── Seed inicial: el local piloto ───────────────────────────────────────
 insert into locales (nombre) values ('Doña Delfina');
