@@ -337,3 +337,14 @@ def listar_cola(claims: dict = Depends(get_current_claims)):
     db = get_db()
     filas = db.table("facturas_dte_cola").select("*").order("creado_en", desc=True).limit(30).execute().data or []
     return [ColaFacturaOut(**f) for f in filas]
+
+
+@router.delete("/cola/{cola_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_de_cola(cola_id: str, claims: dict = Depends(get_current_claims)):
+    """Saca un item del panel de la cola -- solo lo borra de nuestro
+    registro, no toca Odoo (si ya se creo la factura, sigue existiendo
+    ahi; si estaba en curso, el trabajo en segundo plano igual termina,
+    solo deja de mostrarse aca)."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_cola").delete().eq("id", cola_id).execute()

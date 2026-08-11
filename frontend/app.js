@@ -1828,17 +1828,29 @@ async function actualizarColaPanel() {
     <div class="card" style="margin-bottom:1rem">
       <h3>Cola de creación${activos ? ` — ${activos} en curso` : ''}</h3>
       <table>
-        <thead><tr><th>Proveedor</th><th>Folio</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Proveedor</th><th>Folio</th><th>Estado</th><th></th></tr></thead>
         <tbody>
           ${recientes.map(c => `
             <tr>
               <td>${c.proveedor_nombre}</td>
               <td>${c.folio}</td>
               <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${c.invoice_name}` : ''}${c.estado === 'error' ? ` — ${c.error_mensaje}` : ''}</td>
+              <td><button type="button" class="btn" data-eliminar-cola="${c.id}" title="Quitar de esta lista">Eliminar</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
+
+  panel.querySelectorAll('[data-eliminar-cola]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await api(`/facturas-dte/cola/${btn.dataset.eliminarCola}`, { method: 'DELETE' });
+        actualizarColaPanel();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 }
 
 function iniciarPollingCola() {
