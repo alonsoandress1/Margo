@@ -111,6 +111,12 @@ if __name__ == "__main__":
     print(f"\n✓ Respuesta cruda (para entender la forma exacta):\n")
     print(_json.dumps(respuesta, indent=2, ensure_ascii=False) if not isinstance(respuesta, str) else respuesta)
 
+    if isinstance(respuesta, dict) and "error" in respuesta and len(respuesta) == 1:
+        print(f"\n✗ El servidor rechazó las credenciales: {respuesta['error']}")
+        print("Verifica el usuario/operatorCode y la contraseña -- puede que el operatorCode no sea tu email de login,")
+        print("sino un código de operador distinto (revisa con quien administra el POS si no estás seguro).")
+        raise SystemExit(1)
+
     # La respuesta puede venir en varias formas segun la version del
     # servidor -- se intenta encontrar la lista real de reportes sin asumir
     # una unica forma fija.
