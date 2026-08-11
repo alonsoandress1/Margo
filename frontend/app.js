@@ -139,6 +139,24 @@ async function apiDownload(path, filename) {
   URL.revokeObjectURL(url);
 }
 
+async function apiViewBlob(path) {
+  const res = await fetch(path, {
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+  });
+  if (res.status === 401) {
+    logout();
+    throw new Error('Sesión expirada');
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body.detail === 'string' ? body.detail : `Error ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  // No se revoca la URL enseguida -- la pestaña nueva la sigue necesitando para mostrar el archivo.
+}
+
 // ---------- Auth ----------
 
 function showLogin() {
@@ -1108,7 +1126,8 @@ async function renderMermas(el, s) {
       </div>
       <div style="display:flex;align-items:flex-end;gap:.5rem">
         <button type="button" id="mermas-exportar" class="btn">Exportar Excel</button>
-        <button type="button" id="mermas-reporte-pdf" class="btn">Reporte de Ventas (PDF)</button>
+        <button type="button" id="mermas-reporte-pdf-ver" class="btn">Ver Reporte de Ventas</button>
+        <button type="button" id="mermas-reporte-pdf" class="btn">Descargar PDF</button>
       </div>
     </div>
     <h3 style="margin:1rem 0 .5rem">${etiquetaSemana(fecha)}</h3>
@@ -1319,6 +1338,16 @@ async function renderMermas(el, s) {
     errorEl.textContent = '';
     try {
       await apiDownload(`/mermas/reporte-ventas-pdf?local_id=${localId}&fecha=${fecha}`, `Reporte Ventas ${fecha}.pdf`);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  document.getElementById('mermas-reporte-pdf-ver').addEventListener('click', async () => {
+    const errorEl = document.getElementById('export-error');
+    errorEl.textContent = '';
+    try {
+      await apiViewBlob(`/mermas/reporte-ventas-pdf?local_id=${localId}&fecha=${fecha}`);
     } catch (err) {
       errorEl.textContent = err.message;
     }
