@@ -13,9 +13,19 @@ sin loguearse):
 IMPORTANTE: este sistema corre en HTTP plano (no HTTPS) y manda usuario y
 contraseña en cada request -- no hay endpoint de login separado ni sesión.
 Usar credenciales de solo lectura si el POS lo permite.
+
+FORMATO DEL BODY (no es JSON, es una particularidad de esta app): el
+codigo fuente arma el body como un query-string con un "?" al inicio,
+ej. "?operatorCode=123&password=abc&language=en" (via
+encodeURIComponent + join("&")), y lo manda como texto plano en el
+POST -- no como application/json. Se replica exactamente esa forma
+aca porque el servidor la exige asi (confirmado: con JSON devolvia
+"InvalidUsercodeOrPassword" aun con credenciales correctas que SI
+funcionan en el login normal del navegador).
 """
 import json as _json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Optional
 
@@ -30,10 +40,11 @@ class TcposWebReportSession:
         self.timeout = timeout
 
     def _post(self, path: str, body: dict):
+        cuerpo = "?" + urllib.parse.urlencode(body)
         req = urllib.request.Request(
             f"{self.api_url}{path}",
-            data=_json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            data=cuerpo.encode("utf-8"),
+            headers={"Content-Type": "text/plain;charset=UTF-8"},
             method="POST",
         )
         try:
