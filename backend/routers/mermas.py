@@ -6,7 +6,7 @@ from ..bodega_service import registrar_entrega_cocina
 from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
-from ..schemas import MermaItem, ProduccionIn, ProduccionOut, StockCocinaIn
+from ..schemas import EntregaIn, MermaItem, ProduccionIn, ProduccionOut, StockCocinaIn
 
 router = APIRouter(prefix="/mermas", tags=["mermas"])
 
@@ -114,19 +114,19 @@ def listar_mermas(local_id: str, fecha: str | None = None, claims: dict = Depend
     resultado = []
     for r in seguimiento:
         key = r["ingrediente_key"]
-        producido = produccion.get(key, 0)
-        # Si Cocina produjo este insumo internamente hoy, sus Entregas del
-        # dia vienen de Produccion (no editable a mano) -- igual que en el
-        # Excel real. Si no, son una entrega directa de Bodega (editable).
-        editable = producido == 0
+        # Entregas del dia -- SIEMPRE calculado, nunca editable aca (igual
+        # que en la planilla real, donde esta celda es una formula que
+        # apunta al bloque "Entregas a Cocina" o al de Produccion, nunca se
+        # tipea directo). Se suman ambas fuentes: en la practica un insumo
+        # solo tiene una de las dos un dia dado, pero sumar es seguro.
         resultado.append(MermaItem(
             ingrediente_key=key, nombre=r["nombre"],
             unidad=r["unidad"], categoria=None, fecha=fecha,
             cantidad_informada=(informado.get(key) or {}).get("cantidad_informada"),
             mermas_total=(informado.get(key) or {}).get("mermas_total"),
             stock_inicial=stock_inicial.get(key, 0),
-            entregas=producido if not editable else entregas_bodega.get(key, 0),
-            entregas_editable=editable,
+            entregas=entregas_bodega.get(key, 0) + produccion.get(key, 0),
+            entrega_bodega=entregas_bodega.get(key, 0),
             ventas=round(ventas.get(key, 0), 3),
             precio=precios.get(key, {}).get("price", 0),
         ))
@@ -149,11 +149,19 @@ def registrar_merma(body: StockCocinaIn, claims: dict = Depends(get_current_clai
         "mermas_total": body.mermas_total,
         "created_by": claims["sub"],
     }, on_conflict="local_id,ingrediente_key,fecha").execute()
-
-    if body.entrega is not None:
-        registrar_entrega_cocina(db, body.local_id, body.ingrediente_key, fecha, body.entrega, created_by=claims["sub"])
-
     return res.data[0]
+
+
+@router.post("/entregas", status_code=201)
+def registrar_entrega(body: EntregaIn, claims: dict = Depends(get_current_claims)):
+    """Bloque separado 'Entregas a Cocina / Salida de Bodega' -- igual que en
+    la planilla real, es su propia lista, no una celda de la tabla resumen."""
+    if claims["rol"] == "observador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede registrar entregas")
+    verificar_acceso_local(claims, body.local_id)
+    db = get_db()
+    registrar_entrega_cocina(db, body.local_id, body.ingrediente_key, body.fecha, body.cantidad, created_by=claims["sub"])
+    return {"ok": True}
 
 
 @router.get("/produccion", response_model=list[ProduccionOut])

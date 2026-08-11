@@ -1113,11 +1113,7 @@ async function renderMermas(el, s) {
                 <td>${i.nombre}</td>
                 <td>${formatUnidad(i.unidad)}</td>
                 <td>${i.stock_inicial}</td>
-                <td>
-                  ${editable && i.entregas_editable
-                    ? `<input class="field merma-entregas-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.entregas ?? ''}">`
-                    : `${i.entregas}${!i.entregas_editable ? ' <span class="placeholder" title="Viene de Producción de Cocina">📦</span>' : ''}`}
-                </td>
+                <td>${i.entregas}</td>
                 <td>${i.ventas}</td>
                 <td>
                   ${editable
@@ -1137,6 +1133,29 @@ async function renderMermas(el, s) {
         </table>
         ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
         <p id="mermas-error" class="error-msg"></p>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Entregas a Cocina / Salida de Bodega</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Lo que Bodega le entrega a Cocina este día, insumo por insumo. Esto es lo que alimenta la columna Entregas de la tabla de arriba (junto con lo producido en Cocina, si aplica).</p>
+      <form id="entregas-form">
+        <table>
+          <thead><tr><th>Insumo</th><th>Unidad</th><th>Cantidad</th></tr></thead>
+          <tbody>
+            ${items.map(i => `
+              <tr data-entrega-row-key="${i.ingrediente_key}">
+                <td>${i.nombre}</td>
+                <td>${formatUnidad(i.unidad)}</td>
+                <td>
+                  ${editable
+                    ? `<input class="field entrega-cantidad-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.entrega_bodega || ''}">`
+                    : (i.entrega_bodega || '—')}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar Entregas (${fecha})</button>` : ''}
+        <p id="entregas-error" class="error-msg"></p>
       </form>
     </div>
     <div class="card">
@@ -1182,12 +1201,11 @@ async function renderMermas(el, s) {
   });
 
   if (editable) {
-    el.querySelectorAll('.merma-mermas-input, .merma-informado-input, .merma-entregas-input').forEach(inp => {
+    el.querySelectorAll('.merma-mermas-input, .merma-informado-input').forEach(inp => {
       inp.addEventListener('input', () => {
         const fila = inp.closest('tr[data-row-key]');
         const inicial = parseFloat(fila.dataset.inicial) || 0;
-        const entregasInput = fila.querySelector('.merma-entregas-input');
-        const entregas = entregasInput ? (parseFloat(entregasInput.value) || 0) : (parseFloat(fila.dataset.entregas) || 0);
+        const entregas = parseFloat(fila.dataset.entregas) || 0;
         const ventas = parseFloat(fila.dataset.ventas) || 0;
         const mermas = parseFloat(fila.querySelector('.merma-mermas-input').value) || 0;
         const informadoStr = fila.querySelector('.merma-informado-input').value;
@@ -1207,9 +1225,7 @@ async function renderMermas(el, s) {
           const key = fila.dataset.rowKey;
           const informadoVal = fila.querySelector('.merma-informado-input').value;
           const mermasVal = fila.querySelector('.merma-mermas-input').value;
-          const entregasInput = fila.querySelector('.merma-entregas-input');
-          const entregasVal = entregasInput ? entregasInput.value : '';
-          if (informadoVal === '' && mermasVal === '' && entregasVal === '') continue;
+          if (informadoVal === '' && mermasVal === '') continue;
           const original = items.find(i => i.ingrediente_key === key);
           await api('/mermas', {
             method: 'POST',
@@ -1219,8 +1235,27 @@ async function renderMermas(el, s) {
               fecha,
               cantidad_informada: informadoVal !== '' ? parseFloat(informadoVal) : (original?.cantidad_informada ?? 0),
               mermas_total: mermasVal !== '' ? parseFloat(mermasVal) : (original?.mermas_total ?? null),
-              entrega: entregasInput ? (entregasVal !== '' ? parseFloat(entregasVal) : (original?.entregas ?? 0)) : null,
             }),
+          });
+        }
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById('entregas-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('entregas-error');
+      const filas = Array.from(document.querySelectorAll('tr[data-entrega-row-key]'));
+      try {
+        for (const fila of filas) {
+          const key = fila.dataset.entregaRowKey;
+          const val = fila.querySelector('.entrega-cantidad-input').value;
+          if (val === '') continue;
+          await api('/mermas/entregas', {
+            method: 'POST',
+            body: JSON.stringify({ local_id: localId, ingrediente_key: key, fecha, cantidad: parseFloat(val) }),
           });
         }
         renderView();

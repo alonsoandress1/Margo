@@ -69,7 +69,6 @@ class StockCocinaIn(BaseModel):
     fecha: str | None = None  # default: ayer
     cantidad_informada: float
     mermas_total: float | None = None
-    entrega: float | None = None  # solo si el insumo se entrega directo de Bodega (no producido en Cocina)
 
 
 class MermaItem(BaseModel):
@@ -81,10 +80,17 @@ class MermaItem(BaseModel):
     mermas_total: float | None = None
     fecha: str | None = None
     stock_inicial: float = 0
-    entregas: float = 0
-    entregas_editable: bool = True  # false si las Entregas del dia vienen de Produccion de Cocina
+    entregas: float = 0  # total del dia (bodega + produccion) -- SIEMPRE calculado, igual que en la planilla real
+    entrega_bodega: float = 0  # solo la parte entregada por Bodega -- para prellenar el bloque "Entregas a Cocina"
     ventas: float = 0
     precio: float = 0
+
+
+class EntregaIn(BaseModel):
+    local_id: str
+    ingrediente_key: str
+    fecha: str
+    cantidad: float
 
 
 class ProduccionIn(BaseModel):
