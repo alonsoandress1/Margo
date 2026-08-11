@@ -453,6 +453,18 @@ class DteCrearFacturaOut(BaseModel):
     invoice_name: str
 
 
+class ColaFacturaOut(BaseModel):
+    id: str
+    dte_id: int
+    folio: str
+    proveedor_nombre: str
+    estado: str
+    invoice_id: int | None = None
+    invoice_name: str | None = None
+    error_mensaje: str | None = None
+    creado_en: str
+
+
 class PlanillaComprasItem(BaseModel):
     factura_id: int
     proveedor_id: int | None = None

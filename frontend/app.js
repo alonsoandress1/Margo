@@ -23,6 +23,8 @@ let state = {
   locales: [],
   facturasPendientes: null,
   planillaItems: null,
+  dteCola: [],
+  dteColaTimer: null,
 };
 
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
@@ -1768,6 +1770,7 @@ async function renderFacturasDte(el, s) {
       </div>
     </div>
     <p id="dte-error" class="error-msg"></p>
+    <div id="dte-cola-panel"></div>
     ${state.dteLista === null ? '<div class="card"><p class="placeholder">Buscá para ver los documentos pendientes del rango de fechas.</p></div>' : ''}
     ${state.dteLista && !dtes.length ? '<div class="card"><p class="placeholder">No hay documentos pendientes en ese rango -- todo al día.</p></div>' : ''}
     ${dtes.length ? Object.entries(dtes.reduce((acc, d) => { (acc[d.proveedor_nombre] ||= []).push(d); return acc; }, {})).map(([proveedor, lista]) => `
@@ -1803,6 +1806,48 @@ async function renderFacturasDte(el, s) {
   el.querySelectorAll('[data-revisar-dte]').forEach(btn => {
     btn.addEventListener('click', () => showDteModal(parseInt(btn.dataset.revisarDte, 10)));
   });
+
+  await actualizarColaPanel();
+  iniciarPollingCola();
+}
+
+const ETIQUETA_ESTADO_COLA = { pendiente: 'En cola…', procesando: 'Creando…', completado: '✓ Creada', error: '✗ Error' };
+
+async function actualizarColaPanel() {
+  const panel = document.getElementById('dte-cola-panel');
+  if (!panel) return;
+  try {
+    state.dteCola = await api('/facturas-dte/cola/estado');
+  } catch (err) {
+    return; // no interrumpir el resto de la pantalla si falla el polling
+  }
+  const recientes = state.dteCola.slice(0, 8);
+  if (!recientes.length) { panel.innerHTML = ''; return; }
+  const activos = state.dteCola.filter(c => c.estado === 'pendiente' || c.estado === 'procesando').length;
+  panel.innerHTML = `
+    <div class="card" style="margin-bottom:1rem">
+      <h3>Cola de creación${activos ? ` — ${activos} en curso` : ''}</h3>
+      <table>
+        <thead><tr><th>Proveedor</th><th>Folio</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${recientes.map(c => `
+            <tr>
+              <td>${c.proveedor_nombre}</td>
+              <td>${c.folio}</td>
+              <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${c.invoice_name}` : ''}${c.estado === 'error' ? ` — ${c.error_mensaje}` : ''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function iniciarPollingCola() {
+  if (state.dteColaTimer) clearTimeout(state.dteColaTimer);
+  state.dteColaTimer = setTimeout(async () => {
+    if (state.section !== 'facturas-dte') return;
+    await actualizarColaPanel();
+    iniciarPollingCola();
+  }, 3000);
 }
 
 async function showDteModal(dteId) {
@@ -1928,8 +1973,7 @@ async function showDteModal(dteId) {
       if (!confirm('¿Crear la factura en Odoo como borrador? No se postea sola, queda para que contabilidad la revise.')) return;
       errorEl.textContent = '';
       try {
-        const res = await api(`/facturas-dte/${dteId}/crear-factura`, { method: 'POST' });
-        alert(`Factura creada en Odoo: ${res.invoice_name}`);
+        await api(`/facturas-dte/${dteId}/crear-factura`, { method: 'POST' });
         overlay.remove();
         state.dteLista = (state.dteLista || []).filter(d => d.id !== dteId);
         renderView();

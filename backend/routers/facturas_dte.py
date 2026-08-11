@@ -24,7 +24,7 @@ import os
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from ..db import get_db
 from ..deps import get_current_claims
@@ -34,7 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import (DteCrearFacturaOut, DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut,
+from ..schemas import (ColaFacturaOut, DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut,
                        DteProductoOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
@@ -173,10 +173,9 @@ def confirmar_match(body: DteMatchLineaIn, claims: dict = Depends(get_current_cl
         }, on_conflict="proveedor_rut,codigo_tipo,codigo_valor").execute()
 
 
-@router.post("/{dte_id}/crear-factura", response_model=DteCrearFacturaOut)
-def crear_factura(dte_id: int, claims: dict = Depends(get_current_claims)):
-    """Ultimo paso: todas las lineas ya deben tener product_id (confirmado a
-    mano via /lineas/match).
+def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list[dict]) -> tuple[int, str]:
+    """El trabajo pesado de verdad -- 6 llamadas seguidas a Odoo, por eso se
+    corre en segundo plano (ver crear_factura) en vez de bloquear al usuario.
 
     El boton 'Crear Factura Proveedor' de Odoo (metodo create_invoice) esta
     roto en esta instancia -- probado directo en la UI de Odoo, mismo error:
@@ -195,33 +194,10 @@ def crear_factura(dte_id: int, claims: dict = Depends(get_current_claims)):
     solo el diario, la cuenta contable y el impuesto de cada linea (igual
     que en las facturas reales existentes) -- solo hay que fijar despues la
     fecha y el folio del DTE, que Odoo no puede saber por si solo."""
-    _require_admin(claims)
-    cliente = _odoo()
-
-    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
-        {'fields': ['id', 'issuer_rut', 'date', 'invoice_id', 'company_id',
-                     'l10n_latam_document_type_id_code', 'l10n_latam_document_number']})
-    if not docs:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
-    doc = docs[0]
-    if doc.get('invoice_id'):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este DTE ya tiene una factura creada")
-    if doc.get('l10n_latam_document_type_id_code') != '33':
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-            f"Tipo de documento SII '{doc.get('l10n_latam_document_type_id_code')}' todavía no soportado -- solo Factura Electrónica (33)")
-
-    lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
-        {'fields': ['id', 'product_id', 'qty', 'item_price']})
-    sin_producto = [l['id'] for l in lineas if not l.get('product_id')]
-    if sin_producto:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-            f"Faltan {len(sin_producto)} línea(s) sin producto asignado -- confirma todas antes de crear la factura")
-
     company_id = doc['company_id'][0]
     partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
     if len(partners) != 1:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
-            f"No encontré (o encontré más de uno) el proveedor con RUT {doc['issuer_rut']} en Odoo")
+        raise RuntimeError(f"No encontré (o encontré más de uno) el proveedor con RUT {doc['issuer_rut']} en Odoo")
     partner_id = partners[0]['id']
 
     product_ids = list({l['product_id'][0] for l in lineas})
@@ -263,7 +239,7 @@ def crear_factura(dte_id: int, claims: dict = Depends(get_current_claims)):
     cliente._call('purchase.order', 'action_create_invoice', [[po_id]])
     po_facturada = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['invoice_ids']})[0]
     if not po_facturada['invoice_ids']:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Odoo no generó la factura desde la OC")
+        raise RuntimeError("Odoo no devolvió la factura creada desde la OC")
     move_id = po_facturada['invoice_ids'][-1]
 
     cliente._call('account.move', 'write', [[move_id], {
@@ -273,4 +249,91 @@ def crear_factura(dte_id: int, claims: dict = Depends(get_current_claims)):
     cliente._call('l10n_cl.supplier.xml', 'write', [[dte_id], {'invoice_id': move_id}])
 
     move = cliente._call('account.move', 'read', [[move_id]], {'fields': ['name']})[0]
-    return DteCrearFacturaOut(invoice_id=move_id, invoice_name=move['name'])
+    return move_id, move['name']
+
+
+def _procesar_item_cola(cola_id: str, dte_id: int):
+    """Corre en un hilo aparte (FastAPI BackgroundTasks) -- no bloquea al
+    resto del servidor mientras Odoo procesa la OC/recepcion/factura."""
+    db = get_db()
+    db.table("facturas_dte_cola").update({"estado": "procesando"}).eq("id", cola_id).execute()
+    try:
+        cliente = _odoo_sin_http()
+        docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+            {'fields': ['id', 'issuer_rut', 'date', 'invoice_id', 'company_id', 'l10n_latam_document_number']})
+        if not docs:
+            raise RuntimeError("El DTE ya no existe")
+        doc = docs[0]
+        if doc.get('invoice_id'):
+            raise RuntimeError("Este DTE ya tiene una factura creada")
+        lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
+            {'fields': ['id', 'product_id', 'qty', 'item_price']})
+        sin_producto = [l['id'] for l in lineas if not l.get('product_id')]
+        if sin_producto:
+            raise RuntimeError(f"Faltan {len(sin_producto)} línea(s) sin producto asignado")
+
+        invoice_id, invoice_name = _ejecutar_creacion(cliente, dte_id, doc, lineas)
+        db.table("facturas_dte_cola").update({
+            "estado": "completado", "invoice_id": invoice_id, "invoice_name": invoice_name,
+        }).eq("id", cola_id).execute()
+    except Exception as e:
+        db.table("facturas_dte_cola").update({"estado": "error", "error_mensaje": str(e)[:500]}).eq("id", cola_id).execute()
+
+
+def _odoo_sin_http() -> OdooClient:
+    """Igual que _odoo() pero sin HTTPException -- para usar desde el hilo
+    en segundo plano, donde no hay una request activa a la que responder."""
+    cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"],
+                          os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+    ok, msg = cliente.connect()
+    if not ok:
+        raise RuntimeError(f"No se pudo conectar a Odoo: {msg}")
+    return cliente
+
+
+@router.post("/{dte_id}/crear-factura", response_model=ColaFacturaOut, status_code=status.HTTP_202_ACCEPTED)
+def crear_factura(dte_id: int, background_tasks: BackgroundTasks, claims: dict = Depends(get_current_claims)):
+    """Valida rapido (lecturas nomas) y encola la creacion real -- crear la
+    factura implica 6 llamadas seguidas a Odoo (OC, confirmar, recibir,
+    facturar, fijar fecha, fijar folio) y puede demorar varios segundos.
+    Encolar en vez de bloquear permite seguir revisando/confirmando otros
+    DTE mientras este se procesa en segundo plano (ver _procesar_item_cola)."""
+    _require_admin(claims)
+    cliente = _odoo()
+
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'issuer_name', 'invoice_id', 'l10n_latam_document_type_id_code', 'l10n_latam_document_number']})
+    if not docs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
+    doc = docs[0]
+    if doc.get('invoice_id'):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este DTE ya tiene una factura creada")
+    if doc.get('l10n_latam_document_type_id_code') != '33':
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+            f"Tipo de documento SII '{doc.get('l10n_latam_document_type_id_code')}' todavía no soportado -- solo Factura Electrónica (33)")
+
+    lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
+        {'fields': ['id', 'product_id']})
+    sin_producto = [l['id'] for l in lineas if not l.get('product_id')]
+    if sin_producto:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+            f"Faltan {len(sin_producto)} línea(s) sin producto asignado -- confirma todas antes de crear la factura")
+
+    db = get_db()
+    fila = db.table("facturas_dte_cola").insert({
+        "dte_id": dte_id, "folio": doc.get('l10n_latam_document_number') or '',
+        "proveedor_nombre": doc.get('issuer_name') or '', "estado": "pendiente", "creado_por": claims["sub"],
+    }).execute().data[0]
+
+    background_tasks.add_task(_procesar_item_cola, fila["id"], dte_id)
+    return ColaFacturaOut(**fila)
+
+
+@router.get("/cola/estado", response_model=list[ColaFacturaOut])
+def listar_cola(claims: dict = Depends(get_current_claims)):
+    """Ultimos items de la cola de creacion -- para el panel que muestra el
+    progreso mientras se sigue trabajando en otros DTE."""
+    _require_admin(claims)
+    db = get_db()
+    filas = db.table("facturas_dte_cola").select("*").order("creado_en", desc=True).limit(30).execute().data or []
+    return [ColaFacturaOut(**f) for f in filas]
