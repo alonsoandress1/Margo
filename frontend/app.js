@@ -1828,9 +1828,13 @@ async function showDteModal(dteId) {
               <td>${l.item_name}</td>
               <td>${l.qty}</td>
               <td>${l.product_id
-                ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente, todavía sin confirmar de nuevo">(sugerido)</span>' : ' ✓'}`
+                ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
                 : '<span class="placeholder">Sin producto</span>'}</td>
-              <td>${l.product_id && !l.sugerido ? '' : `<button type="button" class="btn" data-buscar-linea="${l.id}">${l.product_id ? 'Confirmar / cambiar' : 'Buscar producto'}</button>`}</td>
+              <td>${!l.product_id
+                ? `<button type="button" class="btn" data-buscar-linea="${l.id}">Buscar producto</button>`
+                : l.sugerido
+                  ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
+                  : ''}</td>
             </tr>
             <tr data-buscador="${l.id}" style="display:none"><td colspan="4">
               <div class="item-row">
@@ -1853,6 +1857,29 @@ async function showDteModal(dteId) {
       btn.onclick = () => {
         const fila = overlay.querySelector(`tr[data-buscador="${btn.dataset.buscarLinea}"]`);
         fila.style.display = fila.style.display === 'none' ? 'table-row' : 'none';
+      };
+    });
+
+    overlay.querySelectorAll('[data-confirmar-sugerido]').forEach(btn => {
+      btn.onclick = async () => {
+        const lineaId = btn.dataset.confirmarSugerido;
+        const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+        const errorEl = overlay.querySelector('#dte-modal-error');
+        errorEl.textContent = '';
+        try {
+          await api('/facturas-dte/lineas/match', {
+            method: 'POST',
+            body: JSON.stringify({
+              dte_id: dteId, line_id: parseInt(lineaId, 10),
+              codigo_tipo: linea?.codigo_tipo || null, codigo_valor: linea?.codigo_valor || null,
+              odoo_product_id: linea.product_id, odoo_product_name: linea.product_name,
+              proveedor_rut: dte.proveedor_rut, proveedor_nombre: dte.proveedor_nombre,
+            }),
+          });
+          recargar();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
       };
     });
 
