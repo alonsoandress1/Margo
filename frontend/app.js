@@ -813,7 +813,7 @@ async function renderParStock(el, s) {
         <button type="button" class="btn btn-reject" id="ps-del-selected" disabled>Eliminar seleccionados (<span id="ps-selected-count">0</span>)</button>
       </div>` : ''}
       <table>
-        <thead><tr>${editable ? '<th><input type="checkbox" id="ps-check-all"></th>' : ''}<th>Insumo</th><th>Par Stock</th><th>Nombre Odoo</th><th>Proveedor</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr>${editable ? '<th><input type="checkbox" id="ps-check-all"></th>' : ''}<th>Insumo</th><th>Par Stock</th><th>Nombre Odoo</th><th>Proveedor</th><th>Formato</th><th>Mermas</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${items.map(i => `
             <tr>
@@ -826,6 +826,11 @@ async function renderParStock(el, s) {
                 ${editable
                   ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (${formatUnidad(i.unidad)}/paquete)" value="${i.tamano_empaque ?? ''}">`
                   : (i.tamano_empaque ? `${i.tamano_empaque} ${formatUnidad(i.unidad)}/paquete` : 'A granel')}
+              </td>
+              <td style="text-align:center">
+                ${editable
+                  ? `<input type="checkbox" class="ps-edit-mermas" data-key="${i.ingrediente_key}" ${i.seguimiento_mermas ? 'checked' : ''}>`
+                  : (i.seguimiento_mermas ? '✓' : '—')}
               </td>
               ${editable ? `<td>
                 <button class="btn" data-guardar-par="${i.ingrediente_key}">Guardar</button>
@@ -867,6 +872,7 @@ async function renderParStock(el, s) {
         const empaqueInput = el.querySelector(`.ps-edit-empaque[data-key="${key}"]`);
         const provId = empaqueInput?.dataset.prov;
         const empaqueVal = empaqueInput?.value ?? '';
+        const seguimientoMermas = el.querySelector(`.ps-edit-mermas[data-key="${key}"]`)?.checked ?? false;
         try {
           await api('/par-stock', {
             method: 'PATCH',
@@ -874,6 +880,7 @@ async function renderParStock(el, s) {
               local_id: localId,
               ingrediente_key: key,
               par_cantidad: parseFloat(par) || 0,
+              seguimiento_mermas: seguimientoMermas,
             }),
           });
           if (provId) {

@@ -160,6 +160,7 @@ class ParStockItem(BaseModel):
     proveedor_id: str | None = None
     precio: float = 0
     tamano_empaque: float | None = None  # None = a granel
+    seguimiento_mermas: bool = False
 
 
 class ParStockAddIn(BaseModel):
@@ -173,6 +174,7 @@ class ParStockUpdateIn(BaseModel):
     local_id: str
     ingrediente_key: str
     par_cantidad: float
+    seguimiento_mermas: bool | None = None
 
 
 class PlatoOut(BaseModel):

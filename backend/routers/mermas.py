@@ -76,7 +76,7 @@ def listar_mermas(local_id: str, fecha: str | None = None, claims: dict = Depend
     fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
     db = get_db()
 
-    par_rows = db.table("par_stock").select("*").eq("local_id", local_id).execute().data or []
+    par_rows = db.table("par_stock").select("*").eq("local_id", local_id).eq("seguimiento_mermas", True).execute().data or []
     if not par_rows:
         return []
     keys = [r["ingrediente_key"] for r in par_rows]

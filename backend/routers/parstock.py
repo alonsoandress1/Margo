@@ -20,6 +20,7 @@ def _item_de(par_row: dict, mapping: dict) -> ParStockItem:
         unidad=par_row["unidad"], categoria=par_row["categoria"], par_cantidad=par_row["par_cantidad"],
         odoo_name=m.get("odoo_name"), ref=m.get("ref"), supplier_name=m.get("supplier_name"),
         proveedor_id=m.get("proveedor_id"), precio=m.get("price", 0), tamano_empaque=m.get("tamano_empaque"),
+        seguimiento_mermas=par_row.get("seguimiento_mermas", False),
     )
 
 
@@ -86,7 +87,10 @@ def actualizar(body: ParStockUpdateIn, claims: dict = Depends(get_current_claims
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Insumo no encontrado para ese local")
 
-    db.table("par_stock").update({"par_cantidad": body.par_cantidad}) \
+    update = {"par_cantidad": body.par_cantidad}
+    if body.seguimiento_mermas is not None:
+        update["seguimiento_mermas"] = body.seguimiento_mermas
+    db.table("par_stock").update(update) \
         .eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute()
 
     par_row = db.table("par_stock").select("*").eq("local_id", body.local_id).eq("ingrediente_key", body.ingrediente_key).execute().data[0]

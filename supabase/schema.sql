@@ -63,6 +63,7 @@ create table par_stock (
     unidad            text not null,
     categoria         text,
     par_cantidad      numeric not null,
+    seguimiento_mermas boolean not null default false,  -- si aparece en la pantalla diaria de Mermas
     updated_at        timestamptz not null default now(),
     updated_by        uuid references usuarios(id),
     primary key (local_id, ingrediente_key)
