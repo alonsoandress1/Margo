@@ -103,28 +103,30 @@ def _mermas_produccion_por_insumo(db, local_id: str, fecha: str) -> dict[str, fl
 
 def _ventas_por_insumo(db, local_id: str, fecha: str) -> dict[str, float]:
     """Consumo de insumo por las ventas del dia: ventas_historial (por
-    plato, ya automatizado desde TCPOS) x receta.cantidad (factor) --
-    mismo calculo que hacia la formula SUMPRODUCT de la planilla. Solo
-    suma lineas de receta que ya tienen ingrediente_key enlazado al
-    catalogo -- si la receta no esta armada todavia, no aporta."""
-    ventas = db.table("ventas_historial").select("plato_id,cantidad") \
+    plato, ya automatizado desde TCPOS) x el factor de ventas_recetas --
+    la receta EMBEBIDA en el bloque VENTAS del Excel real (filas 66-153),
+    sembrada una sola vez, igual patron que mermas_seguimiento. Es una
+    tabla propia y desacoplada de 'recetas' (esa es la del modulo de
+    Compras/Pedidos -- un sistema distinto, sin relacion con el Excel).
+    Se matchea por plato_sku, no por plato_id, porque asi viene guardado
+    ventas_historial."""
+    ventas = db.table("ventas_historial").select("plato_sku,cantidad") \
         .eq("local_id", local_id).eq("fecha", fecha).execute().data or []
-    cantidad_por_plato: dict[str, float] = {}
+    cantidad_por_sku: dict[str, float] = {}
     for v in ventas:
-        if v.get("plato_id"):
-            cantidad_por_plato[v["plato_id"]] = cantidad_por_plato.get(v["plato_id"], 0) + v["cantidad"]
-    if not cantidad_por_plato:
+        cantidad_por_sku[v["plato_sku"]] = cantidad_por_sku.get(v["plato_sku"], 0) + v["cantidad"]
+    if not cantidad_por_sku:
         return {}
 
-    recetas = db.table("recetas").select("plato_id,ingrediente_key,cantidad") \
-        .in_("plato_id", list(cantidad_por_plato.keys())).execute().data or []
+    recetas = db.table("ventas_recetas").select("plato_sku,ingrediente_key,cantidad") \
+        .eq("local_id", local_id).in_("plato_sku", list(cantidad_por_sku.keys())).execute().data or []
 
     resultado: dict[str, float] = {}
     for r in recetas:
         key = r.get("ingrediente_key")
         if not key:
             continue
-        vendido = cantidad_por_plato.get(r["plato_id"], 0)
+        vendido = cantidad_por_sku.get(r["plato_sku"], 0)
         resultado[key] = resultado.get(key, 0) + vendido * r["cantidad"]
     return resultado
 

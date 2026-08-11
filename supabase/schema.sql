@@ -199,6 +199,23 @@ create table ventas_historial (
 );
 create index on ventas_historial (local_id, fecha);
 
+-- ── Receta embebida en el bloque VENTAS del Excel real (filas 66-153) --
+-- copia exacta, sembrada una sola vez por local. Desacoplada a propósito
+-- de la tabla `recetas` (esa es del módulo de Compras/Pedidos, un sistema
+-- distinto sin relación con el Excel de Mermas) -- el consumo de insumo por
+-- venta en Mermas usa SOLO esta tabla, igual que la fórmula SUMPRODUCT real.
+create table ventas_recetas (
+    id                  uuid primary key default gen_random_uuid(),
+    local_id            uuid not null references locales(id) on delete cascade,
+    plato_sku           text not null,
+    plato_nombre        text not null,
+    ingrediente_key     text,  -- null si el insumo no está en mermas_seguimiento (ej. Ostiones, Jamón de Pavo)
+    ingrediente_nombre  text not null,
+    cantidad            numeric not null,
+    unidad              text not null
+);
+create index on ventas_recetas (local_id, plato_sku);
+
 -- ── Proveedores (catálogo, solo administrador lo gestiona) ─────────────
 create table proveedores (
     id                uuid primary key default gen_random_uuid(),
