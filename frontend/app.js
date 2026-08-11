@@ -13,6 +13,7 @@ const SECCIONES = [
   { id: 'usuarios',  label: 'Usuarios',               roles: ['administrador'], editRoles: ['administrador'] },
   { id: 'facturas',  label: 'Facturas',               roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas-dte', label: 'Ingreso de Facturas',  roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'planilla-compras', label: 'Planilla de Compras', roles: ['administrador'], editRoles: ['administrador'] },
 ];
 
 let state = {
@@ -21,6 +22,7 @@ let state = {
   section: 'pedidos',
   locales: [],
   facturasPendientes: null,
+  planillaItems: null,
 };
 
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
@@ -383,6 +385,7 @@ async function renderView() {
     if (state.section === 'usuarios') return renderUsuarios(el, s);
     if (state.section === 'facturas') return renderFacturas(el, s);
     if (state.section === 'facturas-dte') return renderFacturasDte(el, s);
+    if (state.section === 'planilla-compras') return renderPlanillaCompras(el, s);
     return renderPlaceholder(el, s);
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -1914,6 +1917,140 @@ async function showDteModal(dteId) {
   } catch (err) {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-modal-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#dte-modal-cerrar-error').onclick = () => overlay.remove();
+  }
+}
+
+const TIPOS_PLANILLA_COMPRAS = [
+  { id: 'AL', label: 'AL — Alimentos' },
+  { id: 'BA', label: 'BA — Barra' },
+  { id: 'GF', label: 'GF — Gastos Fijos' },
+  { id: 'OT', label: 'OT — Otros' },
+  { id: 'AS', label: 'AS — Aseo' },
+];
+
+async function renderPlanillaCompras(el, s) {
+  const hoy = new Date();
+  if (!state.planillaMes) state.planillaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+  const items = state.planillaItems || [];
+
+  const totalesPorTipo = TIPOS_PLANILLA_COMPRAS.reduce((acc, t) => { acc[t.id] = 0; return acc; }, {});
+  let totalGeneral = 0;
+  let sinTipo = 0;
+  items.forEach(it => {
+    totalGeneral += it.total;
+    if (it.tipo && totalesPorTipo[it.tipo] !== undefined) totalesPorTipo[it.tipo] += it.total;
+    else sinTipo++;
+  });
+
+  el.innerHTML = `
+    <h2>Planilla de Compras</h2>
+    <p class="placeholder" style="margin-bottom:1.25rem">Facturas de proveedor ya ingresadas en Odoo este mes (Doña Delfina) -- así sabemos cuáles están y cuáles faltan. El Tipo es por proveedor, se guarda solo acá.</p>
+    <div class="item-row" style="max-width:420px;margin-bottom:1rem">
+      <div style="flex:1">
+        <label class="field-label">Mes</label>
+        <input type="month" id="pc-mes" class="field" style="width:100%" value="${state.planillaMes}">
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button type="button" id="pc-buscar" class="btn btn-primary">Buscar</button>
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button type="button" id="pc-catalogo" class="btn">Categorías de proveedores</button>
+      </div>
+    </div>
+    <p id="pc-error" class="error-msg"></p>
+    ${state.planillaItems === null ? '<div class="card"><p class="placeholder">Buscá para ver las facturas del mes.</p></div>' : ''}
+    ${state.planillaItems && !items.length ? '<div class="card"><p class="placeholder">No hay facturas ingresadas en Odoo para ese mes.</p></div>' : ''}
+    ${items.length ? `
+      <div class="card">
+        ${sinTipo ? `<p class="error-msg" style="margin-bottom:.75rem">${sinTipo} factura(s) de proveedores sin Tipo asignado -- clasifícalos en "Categorías de proveedores".</p>` : ''}
+        <table>
+          <thead><tr><th>Fecha</th><th>Proveedor</th><th>N° Factura</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Tipo</th></tr></thead>
+          <tbody>
+            ${items.map(it => `
+              <tr>
+                <td>${it.fecha || '—'}</td>
+                <td>${it.proveedor_nombre}</td>
+                <td>${it.num_factura || '—'}</td>
+                <td>$${Math.round(it.subtotal).toLocaleString('es-CL')}</td>
+                <td>$${Math.round(it.iva).toLocaleString('es-CL')}</td>
+                <td>$${Math.round(it.total).toLocaleString('es-CL')}</td>
+                <td>
+                  <select class="field" data-tipo-proveedor="${it.proveedor_id}" data-nombre-proveedor="${(it.proveedor_nombre || '').replace(/"/g, '&quot;')}">
+                    <option value="">— Sin asignar —</option>
+                    ${TIPOS_PLANILLA_COMPRAS.map(t => `<option value="${t.id}" ${it.tipo === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
+                  </select>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot>
+            ${TIPOS_PLANILLA_COMPRAS.map(t => `<tr><td colspan="5" style="text-align:right">${t.label}</td><td colspan="2">$${Math.round(totalesPorTipo[t.id]).toLocaleString('es-CL')}</td></tr>`).join('')}
+            <tr><td colspan="5" style="text-align:right"><strong>Total</strong></td><td colspan="2"><strong>$${Math.round(totalGeneral).toLocaleString('es-CL')}</strong></td></tr>
+          </tfoot>
+        </table>
+      </div>` : ''}`;
+
+  document.getElementById('pc-mes').addEventListener('change', (e) => { state.planillaMes = e.target.value; });
+
+  document.getElementById('pc-buscar').addEventListener('click', async () => {
+    const errorEl = document.getElementById('pc-error');
+    errorEl.textContent = '';
+    const [anio, mes] = state.planillaMes.split('-').map(Number);
+    try {
+      const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
+      state.planillaItems = res.items;
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  document.getElementById('pc-catalogo').addEventListener('click', showCatalogoProveedoresTipo);
+
+  el.querySelectorAll('[data-tipo-proveedor]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const errorEl = document.getElementById('pc-error');
+      errorEl.textContent = '';
+      const proveedorId = parseInt(sel.dataset.tipoProveedor, 10);
+      if (!sel.value) return;
+      try {
+        await api('/planilla-compras/proveedores', {
+          method: 'PUT',
+          body: JSON.stringify({ odoo_partner_id: proveedorId, proveedor_nombre: sel.dataset.nombreProveedor, tipo: sel.value }),
+        });
+        state.planillaItems = state.planillaItems.map(it => it.proveedor_id === proveedorId ? { ...it, tipo: sel.value } : it);
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  });
+}
+
+async function showCatalogoProveedoresTipo() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:560px"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const proveedores = await api('/planilla-compras/proveedores');
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Categorías de proveedores</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Cada proveedor tiene un Tipo fijo (ej. Paltas Royal = Alimentos). Se asigna la primera vez desde la Planilla de Compras y queda guardado acá.</p>
+      ${proveedores.length ? `
+        <table>
+          <thead><tr><th>Proveedor</th><th>Tipo</th></tr></thead>
+          <tbody>
+            ${proveedores.map(p => `<tr><td>${p.proveedor_nombre}</td><td>${TIPOS_PLANILLA_COMPRAS.find(t => t.id === p.tipo)?.label || p.tipo}</td></tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="placeholder">Todavía no hay proveedores clasificados.</p>'}
+      <div style="margin-top:1.25rem">
+        <button type="button" class="btn" id="pc-catalogo-cerrar">Cerrar</button>
+      </div>`;
+    overlay.querySelector('#pc-catalogo-cerrar').onclick = () => overlay.remove();
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="pc-catalogo-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#pc-catalogo-cerrar-error').onclick = () => overlay.remove();
   }
 }
 

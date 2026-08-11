@@ -451,3 +451,31 @@ class DteProductoOut(BaseModel):
 class DteCrearFacturaOut(BaseModel):
     invoice_id: int
     invoice_name: str
+
+
+class PlanillaComprasItem(BaseModel):
+    factura_id: int
+    proveedor_id: int | None = None
+    proveedor_nombre: str
+    num_factura: str
+    fecha: str | None = None
+    subtotal: float
+    iva: float
+    total: float
+    tipo: str | None = None
+
+
+class PlanillaComprasOut(BaseModel):
+    items: list[PlanillaComprasItem]
+
+
+class ProveedorTipoOut(BaseModel):
+    odoo_partner_id: int
+    proveedor_nombre: str
+    tipo: str
+
+
+class ProveedorTipoIn(BaseModel):
+    odoo_partner_id: int
+    proveedor_nombre: str
+    tipo: str

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .routers import (auth, configuracion, facturas, facturas_dte, inventario, locales, mermas, parstock,
-                      pedidos, planilla, platos, proveedores, recetas, usuarios)
+                      pedidos, planilla, planilla_compras, platos, proveedores, recetas, usuarios)
 
 app = FastAPI(title="Margo · Compras — API")
 
@@ -34,6 +34,7 @@ app.include_router(configuracion.router)
 app.include_router(facturas.router)
 app.include_router(facturas_dte.router)
 app.include_router(planilla.router)
+app.include_router(planilla_compras.router)
 
 
 @app.get("/health")
