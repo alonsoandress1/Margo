@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 
 from ..db import get_db
 from ..deps import get_current_claims
@@ -319,11 +320,20 @@ def crear_factura(dte_id: int, background_tasks: BackgroundTasks, claims: dict =
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
             f"Faltan {len(sin_producto)} línea(s) sin producto asignado -- confirma todas antes de crear la factura")
 
+    # Un indice unico (dte_id) para estado en pendiente/procesando evita que
+    # dos clics casi simultaneos para el mismo DTE terminen creando dos
+    # facturas duplicadas en Odoo -- el chequeo de invoice_id no alcanza a
+    # detectarlo porque crear la factura demora varios segundos.
     db = get_db()
-    fila = db.table("facturas_dte_cola").insert({
-        "dte_id": dte_id, "folio": doc.get('l10n_latam_document_number') or '',
-        "proveedor_nombre": doc.get('issuer_name') or '', "estado": "pendiente", "creado_por": claims["sub"],
-    }).execute().data[0]
+    try:
+        fila = db.table("facturas_dte_cola").insert({
+            "dte_id": dte_id, "folio": doc.get('l10n_latam_document_number') or '',
+            "proveedor_nombre": doc.get('issuer_name') or '', "estado": "pendiente", "creado_por": claims["sub"],
+        }).execute().data[0]
+    except APIError as e:
+        if e.code == "23505":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Esta factura ya está en la cola -- espera a que termine") from e
+        raise
 
     background_tasks.add_task(_procesar_item_cola, fila["id"], dte_id)
     return ColaFacturaOut(**fila)
