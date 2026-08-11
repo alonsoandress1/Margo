@@ -65,11 +65,14 @@ def tcpos_descubrir(reporte: str | None = None, ejecutar: bool = False, desde: s
 
         import pdfplumber
         from io import BytesIO
-        texto = ""
+        salida = []
         with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-            for pagina in pdf.pages:
-                texto += (pagina.extract_text() or "") + "\n---PAGINA---\n"
-        return PlainTextResponse(texto)
+            for i, pagina in enumerate(pdf.pages):
+                for j, tabla in enumerate(pagina.extract_tables()):
+                    salida.append(f"--- pagina {i} tabla {j} ---")
+                    for fila in tabla:
+                        salida.append(str(fila))
+        return PlainTextResponse("\n".join(salida))
     except Exception:
         return PlainTextResponse(traceback.format_exc(), status_code=500)
 
