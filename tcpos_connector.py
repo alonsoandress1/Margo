@@ -103,12 +103,45 @@ if __name__ == "__main__":
     session = TcposWebReportSession(api_url, operator_code, password)
 
     try:
-        reportes = session.listar_reportes()
+        respuesta = session.listar_reportes()
     except Exception as e:
         print(f"✗ Error al listar reportes: {e}")
         raise SystemExit(1)
 
-    print(f"\n✓ {len(reportes)} reportes disponibles:\n")
+    print(f"\n✓ Respuesta cruda (para entender la forma exacta):\n")
+    print(_json.dumps(respuesta, indent=2, ensure_ascii=False) if not isinstance(respuesta, str) else respuesta)
+
+    # La respuesta puede venir en varias formas segun la version del
+    # servidor -- se intenta encontrar la lista real de reportes sin asumir
+    # una unica forma fija.
+    reportes = None
+    if isinstance(respuesta, list) and respuesta and isinstance(respuesta[0], dict):
+        reportes = respuesta
+    elif isinstance(respuesta, list) and respuesta and isinstance(respuesta[0], str):
+        try:
+            reportes = _json.loads(respuesta[0])
+        except ValueError:
+            pass
+    elif isinstance(respuesta, dict):
+        for v in respuesta.values():
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                reportes = v
+                break
+            if isinstance(v, str):
+                try:
+                    posible = _json.loads(v)
+                    if isinstance(posible, list) and posible and isinstance(posible[0], dict):
+                        reportes = posible
+                        break
+                except ValueError:
+                    pass
+
+    if reportes is None:
+        print("\n✗ No se pudo interpretar la forma de la respuesta automaticamente.")
+        print("Copia y pega la 'Respuesta cruda' de arriba en el chat (no tiene tu contraseña) y ajustamos el parseo.")
+        raise SystemExit(1)
+
+    print(f"\n✓ {len(reportes)} reportes disponibles (interpretados):\n")
     for r in reportes:
         print(f"  - {r.get('displayName')}  (formName={r.get('formName')}, assemblyName={r.get('assemblyName')})")
 
