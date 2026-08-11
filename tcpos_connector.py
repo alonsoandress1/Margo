@@ -95,6 +95,65 @@ class TcposWebReportSession:
             return resp.read()
 
 
+def construir_parametros(formulario: dict, overrides: dict) -> list[dict]:
+    """Arma la lista plana [{controlName, value}, ...] que espera
+    ejecutar_reporte(), a partir del formulario de parametros (tal cual lo
+    devuelve formulario_de_parametros()) y overrides puntuales
+    {controlName: valor}. Replica la logica de handleFormSubmit() de la app:
+
+    - Grupos de radio buttons (GroupBox con hijos DbRadioButton): se manda
+      un solo {controlName: <boton seleccionado>, value: true} -- el
+      seleccionado es el que este en overrides, o si ninguno del grupo esta
+      en overrides, el que ya viniera con value=true por defecto.
+    - Checklists (DbCheckedListBox): se manda {controlName, value: "id1,id2"}
+      -- los ids marcados vienen de overrides[nombre] (lista de ids) o, si
+      no hay override, de los items que ya vinieran checked=true.
+    - El resto de los controles con nombre: se manda tal cual, con el value
+      de overrides si esta, si no el value que ya traia el formulario.
+    - Controles sin nombre (labels, etc.) se ignoran.
+    """
+    parametros: list[dict] = []
+
+    def procesar(control: dict):
+        tipo = control.get("type")
+        nombre = control.get("name")
+
+        if tipo == "GroupBox":
+            hijos = control.get("controls") or []
+            radios = [c for c in hijos if c.get("type") == "DbRadioButton"]
+            if radios:
+                nombres_grupo = [r["name"] for r in radios]
+                hay_override = any(n in overrides for n in nombres_grupo)
+                if hay_override:
+                    seleccionado = next((r for r in radios if overrides.get(r["name"])), radios[0])
+                else:
+                    seleccionado = next((r for r in radios if r.get("value")), radios[0])
+                parametros.append({"controlName": seleccionado["name"], "value": True})
+            else:
+                for hijo in hijos:
+                    procesar(hijo)
+            return
+
+        if tipo == "DbCheckedListBox":
+            items = control.get("checkedListBoxItems") or []
+            if nombre in overrides:
+                ids_marcados = [str(v) for v in overrides[nombre]]
+            else:
+                ids_marcados = [str(it["id"]) for it in items if it.get("checked")]
+            parametros.append({"controlName": nombre, "value": ",".join(ids_marcados)})
+            return
+
+        if not nombre:
+            return  # labels y otros controles decorativos sin name
+
+        valor = overrides[nombre] if nombre in overrides else control.get("value")
+        parametros.append({"controlName": nombre, "value": valor})
+
+    for c in formulario.get("controls", []):
+        procesar(c)
+    return parametros
+
+
 # ── CLI de descubrimiento: solo lectura, no descarga nada todavia ─────────
 #
 # Uso: python tcpos_connector.py
@@ -180,5 +239,32 @@ if __name__ == "__main__":
         _json.dump(formulario, f, indent=2, ensure_ascii=False)
 
     print(f"\n✓ Formulario guardado en {salida} (en esta misma carpeta) -- es muy grande para pegarlo en el chat.")
-    print("No hace falta que lo copies -- avisa que ya está listo y lo reviso directo desde el archivo.")
+
+    intentar = input("\n¿Intentar generar el reporte de AYER para Margo Isidora, Group D? (s/n): ").strip().lower()
+    if intentar == "s":
+        from datetime import date, timedelta
+        ayer = (date.today() - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00")
+        overrides = {
+            "edDateFrom": ayer, "edDateTo": ayer,
+            "edTimeFrom": 0, "edTimeTo": 1439,
+            "rbCalendarDate": True,
+            "clbShops": [13],  # 1001 Margo Isidora
+            "rbGroupD": True,
+        }
+        parametros = construir_parametros(formulario, overrides)
+        print("\nParámetros armados:")
+        print(_json.dumps(parametros, indent=2, ensure_ascii=False))
+
+        print("\nEjecutando el reporte...")
+        try:
+            resultado = session.ejecutar_reporte(match["formName"], match["assemblyName"], parametros)
+        except Exception as e:
+            print(f"✗ Error al ejecutar el reporte: {e}")
+            raise SystemExit(1)
+
+        salida2 = "tcpos_ejecutar_resultado.json"
+        with open(salida2, "w", encoding="utf-8") as f:
+            _json.dump(resultado, f, indent=2, ensure_ascii=False) if not isinstance(resultado, str) else f.write(resultado)
+        print(f"\n✓ Respuesta guardada en {salida2} -- avisa que ya está listo.")
+
     input("\nPresiona Enter para cerrar...")
