@@ -265,6 +265,18 @@ if __name__ == "__main__":
         salida2 = "tcpos_ejecutar_resultado.json"
         with open(salida2, "w", encoding="utf-8") as f:
             _json.dump(resultado, f, indent=2, ensure_ascii=False) if not isinstance(resultado, str) else f.write(resultado)
-        print(f"\n✓ Respuesta guardada en {salida2} -- avisa que ya está listo.")
+        print(f"\n✓ Respuesta guardada en {salida2}.")
+
+        pdf_url = resultado.get("pdfUrl") if isinstance(resultado, dict) else None
+        if pdf_url:
+            print(f"\nDescargando el PDF generado ({pdf_url})...")
+            try:
+                contenido = session.descargar_archivo(pdf_url)
+                salida3 = "tcpos_reporte.pdf"
+                with open(salida3, "wb") as f:
+                    f.write(contenido)
+                print(f"✓ PDF guardado en {salida3} -- avisa que ya está listo.")
+            except Exception as e:
+                print(f"✗ No se pudo descargar el PDF: {e}")
 
     input("\nPresiona Enter para cerrar...")
