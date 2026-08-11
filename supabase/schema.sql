@@ -63,9 +63,21 @@ create table par_stock (
     unidad            text not null,
     categoria         text,
     par_cantidad      numeric not null,
-    seguimiento_mermas boolean not null default false,  -- si aparece en la pantalla diaria de Mermas
     updated_at        timestamptz not null default now(),
     updated_by        uuid references usuarios(id),
+    primary key (local_id, ingrediente_key)
+);
+
+-- ── Insumos a rastrear en Mermas -- copia identica de la planilla ──────
+-- Independiente del catalogo de Proveedores/Par Stock: la idea es que
+-- sea exactamente la misma lista de "Inventario Cocina Semanal", exista
+-- o no todavia como producto de compra registrado.
+create table mermas_seguimiento (
+    local_id        uuid not null references locales(id) on delete cascade,
+    ingrediente_key text not null,
+    nombre          text not null,
+    unidad          text not null,
+    created_at      timestamptz not null default now(),
     primary key (local_id, ingrediente_key)
 );
 

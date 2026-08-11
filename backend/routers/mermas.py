@@ -76,10 +76,12 @@ def listar_mermas(local_id: str, fecha: str | None = None, claims: dict = Depend
     fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
     db = get_db()
 
-    par_rows = db.table("par_stock").select("*").eq("local_id", local_id).eq("seguimiento_mermas", True).execute().data or []
-    if not par_rows:
+    # Lista fija: copia identica de la planilla, no depende de si el insumo
+    # ya esta registrado como producto de compra en Proveedores/Par Stock.
+    seguimiento = db.table("mermas_seguimiento").select("*").eq("local_id", local_id).execute().data or []
+    if not seguimiento:
         return []
-    keys = [r["ingrediente_key"] for r in par_rows]
+    keys = [r["ingrediente_key"] for r in seguimiento]
 
     cocina_rows = db.table("stock_cocina").select("ingrediente_key,cantidad_informada,mermas_total") \
         .eq("local_id", local_id).eq("fecha", fecha).in_("ingrediente_key", keys).execute().data or []
@@ -88,12 +90,14 @@ def listar_mermas(local_id: str, fecha: str | None = None, claims: dict = Depend
     stock_inicial = _stock_inicial_por_insumo(db, local_id, fecha)
     entregas = _entregas_por_insumo(db, local_id, fecha)
     ventas = _ventas_por_insumo(db, local_id, fecha)
+    # precio es un enriquecimiento opcional -- si el insumo todavia no esta
+    # en el catalogo de Proveedores, simplemente no hay precio (0), no bloquea nada.
     precios = productos_mas_baratos(db, keys)
 
     return [
         MermaItem(
-            ingrediente_key=r["ingrediente_key"], nombre=r["ingrediente_key"].split("||")[0],
-            unidad=r["unidad"], categoria=r["categoria"], fecha=fecha,
+            ingrediente_key=r["ingrediente_key"], nombre=r["nombre"],
+            unidad=r["unidad"], categoria=None, fecha=fecha,
             cantidad_informada=(informado.get(r["ingrediente_key"]) or {}).get("cantidad_informada"),
             mermas_total=(informado.get(r["ingrediente_key"]) or {}).get("mermas_total"),
             stock_inicial=stock_inicial.get(r["ingrediente_key"], 0),
@@ -101,7 +105,7 @@ def listar_mermas(local_id: str, fecha: str | None = None, claims: dict = Depend
             ventas=round(ventas.get(r["ingrediente_key"], 0), 3),
             precio=precios.get(r["ingrediente_key"], {}).get("price", 0),
         )
-        for r in par_rows
+        for r in seguimiento
     ]
 
 
