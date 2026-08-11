@@ -1810,7 +1810,10 @@ async function showDteModal(dteId) {
 
   async function recargar() {
     const dte = await api(`/facturas-dte/${dteId}`);
-    const todasMatcheadas = dte.lineas.every(l => l.product_id);
+    // "sugerido" = todavia no se escribio en Odoo, solo es una propuesta de
+    // nuestro mapeo -- hay que confirmarla (boton "Confirmar / cambiar")
+    // antes de que cuente como matcheada de verdad.
+    const todasMatcheadas = dte.lineas.every(l => l.product_id && !l.sugerido);
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
