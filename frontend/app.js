@@ -1028,16 +1028,26 @@ async function renderMermas(el, s) {
   const localId = state.mermasLocal && locales.some(l => l.id === state.mermasLocal) ? state.mermasLocal : locales[0].id;
   state.mermasLocal = localId;
 
-  const items = await api(`/mermas?local_id=${localId}`);
-  const hoy = items[0]?.fecha || new Date().toISOString().slice(0, 10);
+  const ayerIso = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  const fecha = state.mermasFecha || ayerIso;
+  state.mermasFecha = fecha;
+  const items = await api(`/mermas?local_id=${localId}&fecha=${fecha}`);
 
   el.innerHTML = `
     <h2>Mermas — Stock de Cocina</h2>
-    <label class="field-label">Local</label>
-    <select id="mermas-local" class="field" style="margin-bottom:.5rem;width:100%;max-width:280px">
-      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
-    </select>
-    <p class="placeholder" style="margin-bottom:1.25rem">Conteo de hoy (${hoy}) — lo que informa cocina cada mañana.</p>
+    <div class="item-row" style="max-width:560px">
+      <div style="flex:1">
+        <label class="field-label">Local</label>
+        <select id="mermas-local" class="field" style="width:100%">
+          ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:1">
+        <label class="field-label">Día</label>
+        <input type="date" id="mermas-fecha" class="field" style="width:100%" value="${fecha}">
+      </div>
+    </div>
+    <p class="placeholder" style="margin:.5rem 0 1.25rem">Ventas y Entregas se calculan solas (ventas viene de la descarga automática diaria) -- por defecto se muestra AYER, que es el día que ya tiene esos datos completos.</p>
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
     ${editable ? `
     <div class="card">
@@ -1045,7 +1055,7 @@ async function renderMermas(el, s) {
       <p class="placeholder" style="margin-bottom:1rem">Sube el Excel "Inventario Cocina Semanal", elige el día y revisa antes de confirmar -- no se guarda nada hasta que confirmes.</p>
       <div class="item-row">
         <input type="file" id="planilla-archivo" class="field" accept=".xlsx" style="flex:2">
-        <input type="date" id="planilla-fecha" class="field" value="${state.planillaFecha || hoy}">
+        <input type="date" id="planilla-fecha" class="field" value="${state.planillaFecha || fecha}">
       </div>
       ${state.planillaArchivo ? `<p class="placeholder" style="margin-bottom:.5rem">📄 ${state.planillaArchivo.name}</p>` : ''}
       <button type="button" id="planilla-leer" class="btn" ${state.planillaArchivo ? '' : 'disabled'}>1. Leer archivo</button>
@@ -1088,21 +1098,39 @@ async function renderMermas(el, s) {
     <div class="card">
       <form id="mermas-form">
         <table>
-          <thead><tr><th>Insumo</th><th>Unidad</th><th>Stock informado hoy</th></tr></thead>
+          <thead><tr>
+            <th>Insumo</th><th>Unidad</th><th>Stock Inicial</th><th>Entregas</th><th>Ventas</th>
+            <th>Mermas</th><th>Stock Real</th><th>Stock Informado</th><th>Diferencia</th>
+          </tr></thead>
           <tbody>
-            ${items.map(i => `
-              <tr>
+            ${items.map(i => {
+              const stockReal = i.stock_inicial + i.entregas - i.ventas - (i.mermas_total || 0);
+              const tieneInformado = i.cantidad_informada !== null && i.cantidad_informada !== undefined;
+              const diferencia = tieneInformado ? i.cantidad_informada - stockReal : null;
+              return `
+              <tr data-row-key="${i.ingrediente_key}" data-inicial="${i.stock_inicial}" data-entregas="${i.entregas}" data-ventas="${i.ventas}">
                 <td>${i.nombre}</td>
                 <td>${formatUnidad(i.unidad)}</td>
+                <td>${i.stock_inicial}</td>
+                <td>${i.entregas}</td>
+                <td>${i.ventas}</td>
                 <td>
                   ${editable
-                    ? `<input class="field merma-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:120px" value="${i.cantidad_informada ?? ''}">`
-                    : (i.cantidad_informada ?? '—')}
+                    ? `<input class="field merma-mermas-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.mermas_total ?? ''}">`
+                    : (i.mermas_total ?? '—')}
                 </td>
-              </tr>`).join('')}
+                <td class="merma-stock-real" data-key="${i.ingrediente_key}">${stockReal.toFixed(2)}</td>
+                <td>
+                  ${editable
+                    ? `<input class="field merma-informado-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.cantidad_informada ?? ''}">`
+                    : (tieneInformado ? i.cantidad_informada : '—')}
+                </td>
+                <td class="merma-diferencia" data-key="${i.ingrediente_key}">${diferencia !== null ? diferencia.toFixed(2) : '—'}</td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
-        ${editable ? '<br><button type="submit" class="btn btn-primary">Guardar mermas de hoy</button>' : ''}
+        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
         <p id="mermas-error" class="error-msg"></p>
       </form>
     </div>`;
@@ -1112,19 +1140,46 @@ async function renderMermas(el, s) {
     renderView();
   });
 
+  document.getElementById('mermas-fecha').addEventListener('change', (e) => {
+    state.mermasFecha = e.target.value;
+    renderView();
+  });
+
   if (editable) {
+    el.querySelectorAll('.merma-mermas-input, .merma-informado-input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const fila = inp.closest('tr[data-row-key]');
+        const inicial = parseFloat(fila.dataset.inicial) || 0;
+        const entregas = parseFloat(fila.dataset.entregas) || 0;
+        const ventas = parseFloat(fila.dataset.ventas) || 0;
+        const mermas = parseFloat(fila.querySelector('.merma-mermas-input').value) || 0;
+        const informadoStr = fila.querySelector('.merma-informado-input').value;
+        const stockReal = inicial + entregas - ventas - mermas;
+        fila.querySelector('.merma-stock-real').textContent = stockReal.toFixed(2);
+        const diferenciaCell = fila.querySelector('.merma-diferencia');
+        diferenciaCell.textContent = informadoStr !== '' ? (parseFloat(informadoStr) - stockReal).toFixed(2) : '—';
+      });
+    });
+
     document.getElementById('mermas-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errorEl = document.getElementById('mermas-error');
-      const inputs = Array.from(document.querySelectorAll('.merma-input')).filter(inp => inp.value !== '');
+      const filas = Array.from(document.querySelectorAll('tr[data-row-key]'));
       try {
-        for (const inp of inputs) {
+        for (const fila of filas) {
+          const key = fila.dataset.rowKey;
+          const informadoVal = fila.querySelector('.merma-informado-input').value;
+          const mermasVal = fila.querySelector('.merma-mermas-input').value;
+          if (informadoVal === '' && mermasVal === '') continue;
+          const original = items.find(i => i.ingrediente_key === key);
           await api('/mermas', {
             method: 'POST',
             body: JSON.stringify({
               local_id: localId,
-              ingrediente_key: inp.dataset.key,
-              cantidad_informada: parseFloat(inp.value) || 0,
+              ingrediente_key: key,
+              fecha,
+              cantidad_informada: informadoVal !== '' ? parseFloat(informadoVal) : (original?.cantidad_informada ?? 0),
+              mermas_total: mermasVal !== '' ? parseFloat(mermasVal) : (original?.mermas_total ?? null),
             }),
           });
         }

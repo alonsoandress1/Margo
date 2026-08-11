@@ -89,6 +89,7 @@ create table stock_cocina (
     ingrediente_key   text not null,
     fecha             date not null,
     cantidad_informada numeric not null,
+    mermas_total      numeric,  -- merma del dia ingresada a mano en la web
     mermas_desglose   jsonb,  -- {produccion, defectuosos, clientes, cortesia, reutilizar} -- solo si vino de la planilla
     created_by        uuid references usuarios(id),
     created_at        timestamptz not null default now(),

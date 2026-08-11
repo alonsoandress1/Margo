@@ -66,8 +66,9 @@ class InventarioItem(BaseModel):
 class StockCocinaIn(BaseModel):
     local_id: str
     ingrediente_key: str
-    fecha: str | None = None  # default: hoy
+    fecha: str | None = None  # default: ayer
     cantidad_informada: float
+    mermas_total: float | None = None
 
 
 class MermaItem(BaseModel):
@@ -76,7 +77,12 @@ class MermaItem(BaseModel):
     unidad: str
     categoria: str | None = None
     cantidad_informada: float | None = None
+    mermas_total: float | None = None
     fecha: str | None = None
+    stock_inicial: float = 0
+    entregas: float = 0
+    ventas: float = 0
+    precio: float = 0
 
 
 class ProveedorOut(BaseModel):
