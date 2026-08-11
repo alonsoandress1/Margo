@@ -23,6 +23,7 @@ let state = {
   locales: [],
   facturasPendientes: null,
   planillaItems: null,
+  planillaResumen: null,
   dteCola: [],
   dteColaTimer: null,
 };
@@ -2015,6 +2016,7 @@ async function renderPlanillaCompras(el, s) {
   const hoy = new Date();
   if (!state.planillaMes) state.planillaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
   const items = state.planillaItems || [];
+  const resumen = state.planillaResumen || {};
 
   const totalesPorTipo = TIPOS_PLANILLA_COMPRAS.reduce((acc, t) => { acc[t.id] = 0; return acc; }, {});
   let totalGeneral = 0;
@@ -2024,6 +2026,10 @@ async function renderPlanillaCompras(el, s) {
     if (it.tipo && totalesPorTipo[it.tipo] !== undefined) totalesPorTipo[it.tipo] += it.total;
     else sinTipo++;
   });
+
+  const metaPct = resumen.meta_pct != null ? resumen.meta_pct : 0.33;
+  const pctTexto = resumen.pct_costo_venta != null ? (resumen.pct_costo_venta * 100).toFixed(1) + '%' : '—';
+  const pctBien = resumen.pct_costo_venta != null && resumen.pct_costo_venta <= metaPct;
 
   el.innerHTML = `
     <h2>Planilla de Compras</h2>
@@ -2041,6 +2047,25 @@ async function renderPlanillaCompras(el, s) {
       </div>
     </div>
     <p id="pc-error" class="error-msg"></p>
+    ${state.planillaItems !== null ? `
+      <div class="card" style="margin-bottom:1rem">
+        <h3>% Costo Venta</h3>
+        <div class="item-row" style="max-width:420px;margin-bottom:.75rem">
+          <div style="flex:1">
+            <label class="field-label">Venta del período ($, con IVA)</label>
+            <input type="number" id="pc-venta-periodo" class="field" style="width:100%" value="${resumen.venta_periodo ?? ''}" placeholder="Ingresa la venta del mes">
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button type="button" id="pc-guardar-venta" class="btn">Guardar</button>
+          </div>
+        </div>
+        <p>
+          Costo Venta (Alimentos + Barra): <strong>$${Math.round(resumen.costo_venta || 0).toLocaleString('es-CL')}</strong>
+          &nbsp;·&nbsp; Venta Neta: <strong>${resumen.venta_neta != null ? '$' + Math.round(resumen.venta_neta).toLocaleString('es-CL') : '—'}</strong>
+          &nbsp;·&nbsp; % Costo Venta: <strong style="color:${resumen.pct_costo_venta == null ? 'inherit' : (pctBien ? '#1a7f37' : '#c0392b')}">${pctTexto}</strong>
+          ${resumen.pct_costo_venta != null ? `<span class="placeholder">(meta ${(metaPct * 100).toFixed(0)}% o menos -- ${pctBien ? 'BIEN' : 'MAL'})</span>` : ''}
+        </p>
+      </div>` : ''}
     ${state.planillaItems === null ? '<div class="card"><p class="placeholder">Buscá para ver las facturas del mes.</p></div>' : ''}
     ${state.planillaItems && !items.length ? '<div class="card"><p class="placeholder">No hay facturas ingresadas en Odoo para ese mes.</p></div>' : ''}
     ${items.length ? `
@@ -2081,6 +2106,7 @@ async function renderPlanillaCompras(el, s) {
     try {
       const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
       state.planillaItems = res.items;
+      state.planillaResumen = res.resumen;
       renderView();
     } catch (err) {
       errorEl.textContent = err.message;
@@ -2088,6 +2114,26 @@ async function renderPlanillaCompras(el, s) {
   });
 
   document.getElementById('pc-catalogo').addEventListener('click', showCatalogoProveedoresTipo);
+
+  document.getElementById('pc-guardar-venta')?.addEventListener('click', async () => {
+    const errorEl = document.getElementById('pc-error');
+    errorEl.textContent = '';
+    const valor = parseFloat(document.getElementById('pc-venta-periodo').value);
+    if (!valor) { errorEl.textContent = 'Ingresa un monto de venta válido.'; return; }
+    const [anio, mes] = state.planillaMes.split('-').map(Number);
+    try {
+      await api('/planilla-compras/venta-periodo', {
+        method: 'PUT',
+        body: JSON.stringify({ anio, mes, venta_periodo: valor }),
+      });
+      const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
+      state.planillaItems = res.items;
+      state.planillaResumen = res.resumen;
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
 
   el.querySelectorAll('[data-tipo-proveedor]').forEach(sel => {
     sel.addEventListener('change', async () => {

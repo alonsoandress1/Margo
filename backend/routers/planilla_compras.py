@@ -23,12 +23,14 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import PlanillaComprasItem, PlanillaComprasOut, ProveedorTipoIn, ProveedorTipoOut
+from ..schemas import (PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen, ProveedorTipoIn,
+                       ProveedorTipoOut, VentaPeriodoIn)
 
 router = APIRouter(prefix="/planilla-compras", tags=["planilla-compras"])
 
 COMPANY_ID_DONA_DELFINA = 2
 TIPOS_VALIDOS = {"AL", "BA", "GF", "OT", "AS"}
+TIPOS_COSTO_VENTA = {"AL", "BA"}  # igual que el Excel real: Costo Venta = N6+O6 (solo Alimentos + Barra)
 
 
 def _require_admin(claims: dict):
@@ -86,7 +88,34 @@ def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
             subtotal=subtotal, iva=total - subtotal, total=total,
             tipo=tipo_por_partner.get(partner_id),
         ))
-    return PlanillaComprasOut(items=items)
+
+    # % Costo Venta -- misma formula del Excel real: Costo Venta = compras
+    # Tipo AL+BA del mes (subtotal, sin IVA); Venta Neta = Venta del Periodo
+    # (ingresada a mano, igual que en el Excel) / 1.19.
+    costo_venta = sum(it.subtotal for it in items if it.tipo in TIPOS_COSTO_VENTA)
+    fila_venta = db.table("planilla_compras_venta_periodo").select("venta_periodo") \
+        .eq("anio", anio).eq("mes", mes).execute().data
+    venta_periodo = fila_venta[0]["venta_periodo"] if fila_venta else None
+    venta_neta = venta_periodo / 1.19 if venta_periodo else None
+    pct_costo_venta = costo_venta / venta_neta if venta_neta else None
+
+    resumen = PlanillaComprasResumen(
+        venta_periodo=venta_periodo, venta_neta=venta_neta,
+        costo_venta=costo_venta, pct_costo_venta=pct_costo_venta,
+    )
+    return PlanillaComprasOut(items=items, resumen=resumen)
+
+
+@router.put("/venta-periodo", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_venta_periodo(body: VentaPeriodoIn, claims: dict = Depends(get_current_claims)):
+    """Venta del periodo ($) del mes -- se ingresa a mano, igual que en el
+    Excel real (no sale de TCPOS ni de ningun otro sistema todavia)."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("planilla_compras_venta_periodo").upsert({
+        "anio": body.anio, "mes": body.mes, "venta_periodo": body.venta_periodo,
+        "actualizado_por": claims["sub"],
+    }, on_conflict="anio,mes").execute()
 
 
 @router.get("/proveedores", response_model=list[ProveedorTipoOut])

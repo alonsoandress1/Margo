@@ -477,8 +477,23 @@ class PlanillaComprasItem(BaseModel):
     tipo: str | None = None
 
 
+class PlanillaComprasResumen(BaseModel):
+    venta_periodo: float | None = None  # ingresado a mano, igual que en el Excel real
+    venta_neta: float | None = None  # venta_periodo / 1.19
+    costo_venta: float | None = None  # suma de compras Tipo AL + BA del mes
+    pct_costo_venta: float | None = None  # costo_venta / venta_neta
+    meta_pct: float = 0.33
+
+
 class PlanillaComprasOut(BaseModel):
     items: list[PlanillaComprasItem]
+    resumen: PlanillaComprasResumen
+
+
+class VentaPeriodoIn(BaseModel):
+    anio: int
+    mes: int
+    venta_periodo: float
 
 
 class ProveedorTipoOut(BaseModel):
