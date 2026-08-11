@@ -25,7 +25,8 @@ _TCPOS_OUTLET_ID_MARGO_ISIDORA = 13  # "1001 Margo Isidora" == local "Doña Delf
 
 
 @router.get("/tcpos-descubrir")
-def tcpos_descubrir(reporte: str | None = None, claims: dict = Depends(get_current_claims)):
+def tcpos_descubrir(reporte: str | None = None, ejecutar: bool = False, desde: str | None = None,
+                     hasta: str | None = None, claims: dict = Depends(get_current_claims)):
     """TEMPORAL -- solo para descubrir el nombre/parametros exactos de un
     reporte de TCPOS (ej. 'Financial Overview') usando las credenciales de
     servicio que ya viven en Render, sin que nadie las escriba/vea en el
@@ -47,7 +48,28 @@ def tcpos_descubrir(reporte: str | None = None, claims: dict = Depends(get_curre
         if not match:
             return PlainTextResponse(f"No se encontró un reporte con displayName='{reporte}'", status_code=404)
         formulario = session.formulario_de_parametros(match["formName"], match["assemblyName"])
-        return PlainTextResponse(_json.dumps({"match": match, "formulario": formulario}, default=str, ensure_ascii=False))
+        if not ejecutar:
+            return PlainTextResponse(_json.dumps({"match": match, "formulario": formulario}, default=str, ensure_ascii=False))
+
+        overrides = {
+            "edDateFrom": f"{desde}T00:00:00", "edDateTo": f"{hasta}T00:00:00",
+            "rbSolarDate": True, "clbShops": [_TCPOS_OUTLET_ID_MARGO_ISIDORA],
+            "ckWithdrawalDeposit": True,
+        }
+        parametros = construir_parametros(formulario, overrides)
+        resultado = session.ejecutar_reporte(match["formName"], match["assemblyName"], parametros)
+        pdf_url = resultado.get("pdfUrl") if isinstance(resultado, dict) else None
+        if not pdf_url:
+            return PlainTextResponse(_json.dumps({"resultado": resultado}, default=str, ensure_ascii=False))
+        pdf_bytes = session.descargar_archivo(pdf_url)
+
+        import pdfplumber
+        from io import BytesIO
+        texto = ""
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            for pagina in pdf.pages:
+                texto += (pagina.extract_text() or "") + "\n---PAGINA---\n"
+        return PlainTextResponse(texto)
     except Exception:
         return PlainTextResponse(traceback.format_exc(), status_code=500)
 
