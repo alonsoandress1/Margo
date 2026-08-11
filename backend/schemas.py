@@ -297,6 +297,45 @@ class FacturaTrackingOut(BaseModel):
     procesada_en: str
 
 
+class PlanillaHojasOut(BaseModel):
+    hojas: list[str]
+
+
+class PlanillaVentaPreview(BaseModel):
+    codigo: str
+    nombre: str
+    cantidad: float
+    plato_id: str | None = None
+    reconocido: bool
+
+
+class PlanillaInsumoPreview(BaseModel):
+    nombre: str
+    ingrediente_key: str | None = None
+    stock_informado: float | None = None
+    mermas_desglose: dict[str, float] = {}
+    entrega_cantidad: float = 0
+    reconocido: bool
+
+
+class PlanillaPreviewOut(BaseModel):
+    ventas: list[PlanillaVentaPreview]
+    insumos: list[PlanillaInsumoPreview]
+
+
+class PlanillaConfirmarIn(BaseModel):
+    local_id: str
+    fecha: str  # YYYY-MM-DD
+    ventas: list[PlanillaVentaPreview]
+    insumos: list[PlanillaInsumoPreview]
+
+
+class PlanillaConfirmarOut(BaseModel):
+    ventas_guardadas: int
+    insumos_guardados: int
+    entregas_registradas: int
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str

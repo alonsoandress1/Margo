@@ -83,16 +83,35 @@ create table bodega_movimientos (
 );
 create index on bodega_movimientos (local_id, ingrediente_key);
 
--- ── Stock de Cocina (conteo manual diario, hoy vía Excel Mermas) ───────
+-- ── Stock de Cocina (conteo diario -- manual o importado de la planilla) ──
 create table stock_cocina (
     local_id          uuid not null references locales(id) on delete cascade,
     ingrediente_key   text not null,
     fecha             date not null,
     cantidad_informada numeric not null,
+    mermas_desglose   jsonb,  -- {produccion, defectuosos, clientes, cortesia, reutilizar} -- solo si vino de la planilla
     created_by        uuid references usuarios(id),
     created_at        timestamptz not null default now(),
     primary key (local_id, ingrediente_key, fecha)
 );
+
+-- ── Historial de ventas por plato (para el motor de pronostico) ────────
+-- Se llena importando la planilla semanal de mermas (hoja "VENTAS" de
+-- cada dia) -- es la base de datos que Fase B (pronostico a 3 dias)
+-- necesita acumular antes de poder proyectar nada.
+create table ventas_historial (
+    id          uuid primary key default gen_random_uuid(),
+    local_id    uuid not null references locales(id) on delete cascade,
+    fecha       date not null,
+    plato_id    uuid references platos(id),
+    plato_sku   text not null,
+    plato_nombre text not null,
+    cantidad    numeric not null,
+    created_by  uuid references usuarios(id),
+    created_at  timestamptz not null default now(),
+    unique (local_id, fecha, plato_sku)
+);
+create index on ventas_historial (local_id, fecha);
 
 -- ── Proveedores (catálogo, solo administrador lo gestiona) ─────────────
 create table proveedores (

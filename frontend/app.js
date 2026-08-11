@@ -20,6 +20,11 @@ let state = {
   section: 'pedidos',
   locales: [],
   facturasPendientes: null,
+  planillaArchivo: null,
+  planillaHojas: null,
+  planillaHojaSel: null,
+  planillaFecha: null,
+  planillaPreview: null,
 };
 
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
@@ -58,6 +63,26 @@ async function api(path, options = {}) {
     throw new Error(msg);
   }
   return res.status === 204 ? null : res.json();
+}
+
+async function apiUpload(path, formData) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+    body: formData,
+  });
+  if (res.status === 401) {
+    logout();
+    throw new Error('Sesión expirada');
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    let msg = `Error ${res.status}`;
+    if (typeof body.detail === 'string') msg = body.detail;
+    else if (Array.isArray(body.detail)) msg = body.detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+    throw new Error(msg);
+  }
+  return res.json();
 }
 
 // ---------- Auth ----------
@@ -1014,6 +1039,52 @@ async function renderMermas(el, s) {
     </select>
     <p class="placeholder" style="margin-bottom:1.25rem">Conteo de hoy (${hoy}) — lo que informa cocina cada mañana.</p>
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
+    ${editable ? `
+    <div class="card">
+      <h3>Importar planilla semanal</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Sube el Excel "Inventario Cocina Semanal", elige el día y revisa antes de confirmar -- no se guarda nada hasta que confirmes.</p>
+      <div class="item-row">
+        <input type="file" id="planilla-archivo" class="field" accept=".xlsx" style="flex:2">
+        <input type="date" id="planilla-fecha" class="field" value="${state.planillaFecha || hoy}">
+      </div>
+      ${state.planillaArchivo ? `<p class="placeholder" style="margin-bottom:.5rem">📄 ${state.planillaArchivo.name}</p>` : ''}
+      <button type="button" id="planilla-leer" class="btn" ${state.planillaArchivo ? '' : 'disabled'}>1. Leer archivo</button>
+      ${state.planillaHojas ? `
+      <div class="item-row" style="margin-top:.75rem">
+        <select id="planilla-hoja" class="field" style="max-width:280px">
+          <option value="">-- selecciona el día --</option>
+          ${state.planillaHojas.map(h => `<option value="${h}" ${h === state.planillaHojaSel ? 'selected' : ''}>${h}</option>`).join('')}
+        </select>
+        <button type="button" id="planilla-preview" class="btn" ${state.planillaHojaSel ? '' : 'disabled'}>2. Generar vista previa</button>
+      </div>` : ''}
+      <p id="planilla-error" class="error-msg"></p>
+      ${state.planillaPreview ? `
+      <div style="margin-top:1.25rem">
+        <h3>Ventas (${state.planillaPreview.ventas.length} platos)</h3>
+        <table>
+          <thead><tr><th>Código</th><th>Plato</th><th>Cantidad</th><th>Estado</th></tr></thead>
+          <tbody>
+            ${state.planillaPreview.ventas.map(v => `
+              <tr>
+                <td>${v.codigo}</td><td>${v.nombre}</td><td>${v.cantidad}</td>
+                <td>${v.reconocido ? '✓' : '⚠ no está en Platos'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        <h3 style="margin-top:1.25rem">Insumos (${state.planillaPreview.insumos.length})</h3>
+        <table>
+          <thead><tr><th>Insumo</th><th>Stock informado</th><th>Entrega a cocina</th><th>Estado</th></tr></thead>
+          <tbody>
+            ${state.planillaPreview.insumos.map(i => `
+              <tr>
+                <td>${i.nombre}</td><td>${i.stock_informado ?? '—'}</td><td>${i.entrega_cantidad || '—'}</td>
+                <td>${i.reconocido ? '✓ En catálogo' : '⚠ No reconocido -- no se ingresa'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        <button type="button" id="planilla-confirmar" class="btn btn-primary" style="margin-top:1rem">3. Confirmar importación</button>
+      </div>` : ''}
+    </div>` : ''}
     <div class="card">
       <form id="mermas-form">
         <table>
@@ -1057,6 +1128,78 @@ async function renderMermas(el, s) {
             }),
           });
         }
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById('planilla-archivo').addEventListener('change', (e) => {
+      state.planillaArchivo = e.target.files[0] || null;
+      state.planillaHojas = null;
+      state.planillaHojaSel = null;
+      state.planillaPreview = null;
+      renderView();
+    });
+
+    document.getElementById('planilla-fecha').addEventListener('change', (e) => {
+      state.planillaFecha = e.target.value;
+    });
+
+    document.getElementById('planilla-leer')?.addEventListener('click', async () => {
+      const errorEl = document.getElementById('planilla-error');
+      errorEl.textContent = '';
+      try {
+        const form = new FormData();
+        form.append('archivo', state.planillaArchivo);
+        const res = await apiUpload('/planilla/hojas', form);
+        state.planillaHojas = res.hojas;
+        state.planillaHojaSel = null;
+        state.planillaPreview = null;
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById('planilla-hoja')?.addEventListener('change', (e) => {
+      state.planillaHojaSel = e.target.value || null;
+      state.planillaPreview = null;
+      renderView();
+    });
+
+    document.getElementById('planilla-preview')?.addEventListener('click', async () => {
+      const errorEl = document.getElementById('planilla-error');
+      errorEl.textContent = '';
+      try {
+        const form = new FormData();
+        form.append('archivo', state.planillaArchivo);
+        form.append('hoja', state.planillaHojaSel);
+        form.append('local_id', localId);
+        state.planillaPreview = await apiUpload('/planilla/importar', form);
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById('planilla-confirmar')?.addEventListener('click', async () => {
+      const errorEl = document.getElementById('planilla-error');
+      const fecha = document.getElementById('planilla-fecha').value;
+      if (!confirm(`¿Confirmar importación del ${fecha}? Se guardarán las ventas al historial y el stock informado/entregas de los insumos reconocidos.`)) return;
+      try {
+        const res = await api('/planilla/confirmar', {
+          method: 'POST',
+          body: JSON.stringify({
+            local_id: localId, fecha,
+            ventas: state.planillaPreview.ventas, insumos: state.planillaPreview.insumos,
+          }),
+        });
+        state.planillaArchivo = null;
+        state.planillaHojas = null;
+        state.planillaHojaSel = null;
+        state.planillaPreview = null;
+        alert(`Importación guardada: ${res.ventas_guardadas} ventas, ${res.insumos_guardados} insumos, ${res.entregas_registradas} entregas a cocina.`);
         renderView();
       } catch (err) {
         errorEl.textContent = err.message;
