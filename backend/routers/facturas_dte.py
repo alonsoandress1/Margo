@@ -173,26 +173,126 @@ def confirmar_match(body: DteMatchLineaIn, claims: dict = Depends(get_current_cl
         }, on_conflict="proveedor_rut,codigo_tipo,codigo_valor").execute()
 
 
+def _resolver_journal(cliente: OdooClient, company_id: int) -> int:
+    js = cliente._call('account.journal', 'search_read',
+        [[['type', '=', 'purchase'], ['company_id', '=', company_id], ['name', 'ilike', 'Facturas de proveedores']]],
+        {'fields': ['id']})
+    if len(js) != 1:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+            f"No encontré un único diario 'Facturas de proveedores' para la empresa {company_id} en Odoo (encontrados: {len(js)})")
+    return js[0]['id']
+
+
+def _resolver_impuesto(cliente: OdooClient, company_id: int, nombre: str) -> int:
+    ts = cliente._call('account.tax', 'search_read',
+        [[['type_tax_use', '=', 'purchase'], ['company_id', '=', company_id], ['name', '=', nombre]]],
+        {'fields': ['id']})
+    if len(ts) != 1:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+            f"No encontré el impuesto '{nombre}' para la empresa {company_id} en Odoo (encontrados: {len(ts)})")
+    return ts[0]['id']
+
+
+def _resolver_tipo_documento(cliente: OdooClient, code: str) -> int:
+    ds = cliente._call('l10n_latam.document.type', 'search_read', [[['code', '=', code]]], {'fields': ['id']})
+    if not ds:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Tipo de documento SII '{code}' no reconocido en Odoo")
+    return ds[0]['id']
+
+
 @router.post("/{dte_id}/crear-factura", response_model=DteCrearFacturaOut)
 def crear_factura(dte_id: int, claims: dict = Depends(get_current_claims)):
     """Ultimo paso: todas las lineas ya deben tener product_id (confirmado a
-    mano via /lineas/match). Llama al mismo metodo que el boton 'Crear
-    Factura Proveedor' de Odoo -- deja la factura como BORRADOR, no la
-    postea (eso lo revisa contabilidad en Odoo, no nosotros)."""
+    mano via /lineas/match).
+
+    El boton 'Crear Factura Proveedor' de Odoo (metodo create_invoice) esta
+    roto en esta instancia -- probado directo en la UI de Odoo, mismo error:
+    KeyError: 'ir.property' en el modulo de terceros od_dte (usa un modelo
+    que ya no existe en esta version de Odoo). Por eso creamos la factura
+    (account.move) directo, replicando el patron de una factura real ya
+    creada desde una OC: mismo diario/tipo de documento SII, product_id +
+    cantidad + precio tal cual el DTE. La cuenta contable de cada linea se
+    deja vacia a proposito -- Odoo no la completa sola sin pasar por el
+    boton roto, y contabilidad la asigna al revisar el borrador. El
+    impuesto por producto se guarda en facturas_producto_impuesto (default
+    'IVA 19% Compra' si el producto no esta ahi) -- los impuestos son por
+    EMPRESA en Odoo, se busca el id real segun la empresa de cada DTE."""
     _require_admin(claims)
     cliente = _odoo()
 
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'issuer_rut', 'date', 'invoice_id', 'company_id',
+                     'l10n_latam_document_type_id_code', 'l10n_latam_document_number']})
+    if not docs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
+    doc = docs[0]
+    if doc.get('invoice_id'):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este DTE ya tiene una factura creada")
+    if doc.get('l10n_latam_document_type_id_code') != '33':
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+            f"Tipo de documento SII '{doc.get('l10n_latam_document_type_id_code')}' todavía no soportado -- solo Factura Electrónica (33)")
+
     lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
-        {'fields': ['id', 'product_id']})
+        {'fields': ['id', 'product_id', 'qty', 'item_price']})
     sin_producto = [l['id'] for l in lineas if not l.get('product_id')]
     if sin_producto:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
             f"Faltan {len(sin_producto)} línea(s) sin producto asignado -- confirma todas antes de crear la factura")
 
-    cliente._call('l10n_cl.supplier.xml', 'create_invoice', [[dte_id]])
+    company_id = doc['company_id'][0]
+    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
+    if len(partners) != 1:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+            f"No encontré (o encontré más de uno) el proveedor con RUT {doc['issuer_rut']} en Odoo")
+    partner_id = partners[0]['id']
 
-    doc = cliente._call('l10n_cl.supplier.xml', 'read', [[dte_id]], {'fields': ['invoice_id']})[0]
-    if not doc.get('invoice_id'):
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Odoo no devolvió la factura creada -- revisa el documento directo en Odoo")
-    invoice_id, invoice_name = doc['invoice_id']
-    return DteCrearFacturaOut(invoice_id=invoice_id, invoice_name=invoice_name)
+    empresa = cliente._call('res.company', 'read', [[company_id]], {'fields': ['currency_id']})[0]
+    currency_id = empresa['currency_id'][0]
+
+    journal_id = _resolver_journal(cliente, company_id)
+    doctype_id = _resolver_tipo_documento(cliente, '33')
+
+    product_ids = list({l['product_id'][0] for l in lineas})
+    productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id']})
+    uom_por_producto = {p['id']: p['uom_id'][0] for p in productos}
+
+    db = get_db()
+    mapeos_tax = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
+        .in_("odoo_product_id", product_ids).execute().data or []
+    nombre_impuesto_por_producto = {m["odoo_product_id"]: m["impuesto_nombre"] for m in mapeos_tax}
+
+    impuesto_id_por_nombre: dict[str, int] = {}
+
+    def _impuesto_id(nombre: str) -> int:
+        if nombre not in impuesto_id_por_nombre:
+            impuesto_id_por_nombre[nombre] = _resolver_impuesto(cliente, company_id, nombre)
+        return impuesto_id_por_nombre[nombre]
+
+    order_lines = []
+    for l in lineas:
+        pid = l['product_id'][0]
+        nombre_imp = nombre_impuesto_por_producto.get(pid, 'IVA 19% Compra')
+        order_lines.append((0, 0, {
+            'product_id': pid,
+            'quantity': l.get('qty') or 0,
+            'price_unit': float(l.get('item_price') or 0),
+            'product_uom_id': uom_por_producto.get(pid),
+            'tax_ids': [(6, 0, [_impuesto_id(nombre_imp)])],
+        }))
+
+    vals = {
+        'move_type': 'in_invoice',
+        'company_id': company_id,
+        'journal_id': journal_id,
+        'partner_id': partner_id,
+        'currency_id': currency_id,
+        'invoice_date': doc['date'],
+        'l10n_latam_document_type_id': doctype_id,
+        'l10n_latam_document_number': str(doc['l10n_latam_document_number']).zfill(6),
+        'invoice_line_ids': order_lines,
+    }
+    move_id = cliente._call('account.move', 'create', [vals])
+    cliente._call('l10n_cl.supplier.xml', 'write', [[dte_id], {'invoice_id': move_id}])
+
+    move = cliente._call('account.move', 'read', [[move_id]], {'fields': ['name']})[0]
+    return DteCrearFacturaOut(invoice_id=move_id, invoice_name=move['name'])
