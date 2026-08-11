@@ -59,9 +59,15 @@ def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
     desde = f"{anio:04d}-{mes:02d}-01"
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
 
+    # invoice_origin != False -- solo facturas que vienen de una Orden de
+    # Compra (el flujo OC -> recepcion -> factura). Sin eso, "Facturas de
+    # proveedores" tambien trae bancos, seguros, arriendos (inmobiliarias),
+    # telefonia, etc. -- gastos administrativos que nunca pasan por una OC
+    # y que esta planilla NO debe mostrar (solo compras de mercaderia).
     moves = cliente._call('account.move', 'search_read',
         [[['move_type', '=', 'in_invoice'], ['company_id', '=', COMPANY_ID_DONA_DELFINA],
-          ['invoice_date', '>=', desde], ['invoice_date', '<=', hasta], ['state', '!=', 'cancel']]],
+          ['invoice_date', '>=', desde], ['invoice_date', '<=', hasta], ['state', '!=', 'cancel'],
+          ['invoice_origin', '!=', False]]],
         {'fields': ['id', 'partner_id', 'l10n_latam_document_number', 'invoice_date', 'amount_untaxed', 'amount_total'],
          'order': 'invoice_date'})
 
