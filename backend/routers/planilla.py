@@ -51,7 +51,11 @@ def tcpos_descubrir(reporte: str | None = None, claims: dict = Depends(get_curre
         formulario = session.formulario_de_parametros(match["formName"], match["assemblyName"])
     except Exception as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Error al pedir el formulario: {e}")
-    return {"match": match, "formulario": formulario}
+    try:
+        import json as _json
+        return _json.loads(_json.dumps({"match": match, "formulario": formulario}, default=str))
+    except Exception as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo serializar la respuesta: {type(e).__name__}: {e}")
 
 
 def _verificar_cron_secret(x_cron_secret: str | None = Header(default=None)):
