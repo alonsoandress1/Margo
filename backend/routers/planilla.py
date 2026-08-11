@@ -39,10 +39,11 @@ def tcpos_descubrir(reporte: str | None = None, claims: dict = Depends(get_curre
         session = TcposWebReportSession(
             os.environ["TCPOS_URL"], os.environ["TCPOS_OPERATOR_CODE"], os.environ["TCPOS_PASSWORD"],
         )
-        reportes = session.listar_reportes()
+        reportes_resp = session.listar_reportes()
+        lista_reportes = reportes_resp.get("reports", []) if isinstance(reportes_resp, dict) else reportes_resp
         if not reporte:
-            return PlainTextResponse(_json.dumps({"reportes": reportes}, default=str, ensure_ascii=False))
-        match = next((r for r in reportes if r.get("displayName", "").strip().lower() == reporte.lower()), None)
+            return PlainTextResponse(_json.dumps({"reportes": lista_reportes}, default=str, ensure_ascii=False))
+        match = next((r for r in lista_reportes if r.get("displayName", "").strip().lower() == reporte.lower()), None)
         if not match:
             return PlainTextResponse(f"No se encontró un reporte con displayName='{reporte}'", status_code=404)
         formulario = session.formulario_de_parametros(match["formName"], match["assemblyName"])
