@@ -64,11 +64,18 @@ class InventarioItem(BaseModel):
 
 
 class StockCocinaIn(BaseModel):
+    """Bloque 'Control de Stock' -- Stock Informado va junto al desglose de
+    Mermas por causa, igual que en la planilla real (no son cosas separadas).
+    mermas_reutilizar solo aplica a insumos del tramo 'kg'."""
     local_id: str
     ingrediente_key: str
     fecha: str | None = None  # default: ayer
     cantidad_informada: float
-    mermas_total: float | None = None
+    mermas_produccion: float | None = None
+    mermas_defectuosos: float | None = None
+    mermas_clientes: float | None = None
+    mermas_cortesia: float | None = None
+    mermas_reutilizar: float | None = None
 
 
 class MermaItem(BaseModel):
@@ -76,8 +83,14 @@ class MermaItem(BaseModel):
     nombre: str
     unidad: str
     categoria: str | None = None
+    tramo: str = "kg"  # 'kg' (tiene Reutilizar) o 'unidades' (no tiene) -- igual que el Excel
     cantidad_informada: float | None = None
-    mermas_total: float | None = None
+    mermas_total: float | None = None  # SIEMPRE calculado (suma del desglose) -- solo lectura en la tabla resumen
+    mermas_produccion: float | None = None
+    mermas_defectuosos: float | None = None
+    mermas_clientes: float | None = None
+    mermas_cortesia: float | None = None
+    mermas_reutilizar: float | None = None
     fecha: str | None = None
     stock_inicial: float = 0
     entregas: float = 0  # total del dia (bodega + produccion) -- SIEMPRE calculado, igual que en la planilla real
@@ -360,45 +373,6 @@ class FacturaTrackingOut(BaseModel):
     pedido_id: str | None = None
     items: list[dict] = []
     procesada_en: str
-
-
-class PlanillaHojasOut(BaseModel):
-    hojas: list[str]
-
-
-class PlanillaVentaPreview(BaseModel):
-    codigo: str
-    nombre: str
-    cantidad: float
-    plato_id: str | None = None
-    reconocido: bool
-
-
-class PlanillaInsumoPreview(BaseModel):
-    nombre: str
-    ingrediente_key: str | None = None
-    stock_informado: float | None = None
-    mermas_desglose: dict[str, float] = {}
-    entrega_cantidad: float = 0
-    reconocido: bool
-
-
-class PlanillaPreviewOut(BaseModel):
-    ventas: list[PlanillaVentaPreview]
-    insumos: list[PlanillaInsumoPreview]
-
-
-class PlanillaConfirmarIn(BaseModel):
-    local_id: str
-    fecha: str  # YYYY-MM-DD
-    ventas: list[PlanillaVentaPreview]
-    insumos: list[PlanillaInsumoPreview]
-
-
-class PlanillaConfirmarOut(BaseModel):
-    ventas_guardadas: int
-    insumos_guardados: int
-    entregas_registradas: int
 
 
 class LoginRequest(BaseModel):

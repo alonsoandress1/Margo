@@ -77,6 +77,7 @@ create table mermas_seguimiento (
     ingrediente_key text not null,
     nombre          text not null,
     unidad          text not null,
+    tramo           text not null default 'kg' check (tramo in ('kg', 'unidades')),  -- 'kg' tiene columna Reutilizar en Mermas, 'unidades' no -- igual que el Excel real
     created_at      timestamptz not null default now(),
     primary key (local_id, ingrediente_key)
 );

@@ -20,11 +20,6 @@ let state = {
   section: 'pedidos',
   locales: [],
   facturasPendientes: null,
-  planillaArchivo: null,
-  planillaHojas: null,
-  planillaHojaSel: null,
-  planillaFecha: null,
-  planillaPreview: null,
 };
 
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
@@ -83,6 +78,27 @@ async function apiUpload(path, formData) {
     throw new Error(msg);
   }
   return res.json();
+}
+
+async function apiDownload(path, filename) {
+  const res = await fetch(path, {
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+  });
+  if (res.status === 401) {
+    logout();
+    throw new Error('Sesión expirada');
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body.detail === 'string' ? body.detail : `Error ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ---------- Auth ----------
@@ -1049,92 +1065,83 @@ async function renderMermas(el, s) {
         <label class="field-label">Día</label>
         <input type="date" id="mermas-fecha" class="field" style="width:100%" value="${fecha}">
       </div>
+      <div style="display:flex;align-items:flex-end">
+        <button type="button" id="mermas-exportar" class="btn">Exportar Excel</button>
+      </div>
     </div>
     <p class="placeholder" style="margin:.5rem 0 1.25rem">Ventas y Entregas se calculan solas (ventas viene de la descarga automática diaria) -- por defecto se muestra AYER, que es el día que ya tiene esos datos completos.</p>
+    <p id="export-error" class="error-msg"></p>
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
-    ${editable ? `
     <div class="card">
-      <h3>Importar planilla semanal</h3>
-      <p class="placeholder" style="margin-bottom:1rem">Sube el Excel "Inventario Cocina Semanal", elige el día y revisa antes de confirmar -- no se guarda nada hasta que confirmes.</p>
-      <div class="item-row">
-        <input type="file" id="planilla-archivo" class="field" accept=".xlsx" style="flex:2">
-        <input type="date" id="planilla-fecha" class="field" value="${state.planillaFecha || fecha}">
-      </div>
-      ${state.planillaArchivo ? `<p class="placeholder" style="margin-bottom:.5rem">📄 ${state.planillaArchivo.name}</p>` : ''}
-      <button type="button" id="planilla-leer" class="btn" ${state.planillaArchivo ? '' : 'disabled'}>1. Leer archivo</button>
-      ${state.planillaHojas ? `
-      <div class="item-row" style="margin-top:.75rem">
-        <select id="planilla-hoja" class="field" style="max-width:280px">
-          <option value="">-- selecciona el día --</option>
-          ${state.planillaHojas.map(h => `<option value="${h}" ${h === state.planillaHojaSel ? 'selected' : ''}>${h}</option>`).join('')}
-        </select>
-        <button type="button" id="planilla-preview" class="btn" ${state.planillaHojaSel ? '' : 'disabled'}>2. Generar vista previa</button>
-      </div>` : ''}
-      <p id="planilla-error" class="error-msg"></p>
-      ${state.planillaPreview ? `
-      <div style="margin-top:1.25rem">
-        <h3>Ventas (${state.planillaPreview.ventas.length} platos)</h3>
-        <table>
-          <thead><tr><th>Código</th><th>Plato</th><th>Cantidad</th><th>Estado</th></tr></thead>
-          <tbody>
-            ${state.planillaPreview.ventas.map(v => `
-              <tr>
-                <td>${v.codigo}</td><td>${v.nombre}</td><td>${v.cantidad}</td>
-                <td>${v.reconocido ? '✓' : '⚠ no está en Platos'}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-        <h3 style="margin-top:1.25rem">Insumos (${state.planillaPreview.insumos.length})</h3>
-        <table>
-          <thead><tr><th>Insumo</th><th>Stock informado</th><th>Entrega a cocina</th><th>Estado</th></tr></thead>
-          <tbody>
-            ${state.planillaPreview.insumos.map(i => `
-              <tr>
-                <td>${i.nombre}</td><td>${i.stock_informado ?? '—'}</td><td>${i.entrega_cantidad || '—'}</td>
-                <td>${i.reconocido ? '✓ En catálogo' : '⚠ No reconocido -- no se ingresa'}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-        <button type="button" id="planilla-confirmar" class="btn btn-primary" style="margin-top:1rem">3. Confirmar importación</button>
-      </div>` : ''}
-    </div>` : ''}
+      <table>
+        <thead><tr>
+          <th>Insumo</th><th>Unidad</th><th>Stock Inicial</th><th>Entregas</th><th>Ventas</th>
+          <th>Mermas</th><th>Stock Real</th><th>Stock Informado</th><th>Diferencia</th>
+        </tr></thead>
+        <tbody>
+          ${items.map(i => {
+            const stockReal = i.stock_inicial + i.entregas - i.ventas - (i.mermas_total || 0);
+            const tieneInformado = i.cantidad_informada !== null && i.cantidad_informada !== undefined;
+            const diferencia = tieneInformado ? i.cantidad_informada - stockReal : null;
+            return `
+            <tr>
+              <td>${i.nombre}</td>
+              <td>${formatUnidad(i.unidad)}</td>
+              <td>${i.stock_inicial}</td>
+              <td>${i.entregas}</td>
+              <td>${i.ventas}</td>
+              <td>${i.mermas_total ?? '—'}</td>
+              <td>${stockReal.toFixed(2)}</td>
+              <td>${tieneInformado ? i.cantidad_informada : '—'}</td>
+              <td>${diferencia !== null ? diferencia.toFixed(2) : '—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
     <div class="card">
-      <form id="mermas-form">
+      <h3>Control de Stock</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Stock Informado (conteo físico de Cocina) y Mermas por causa, lado a lado -- igual que en la planilla. Esto alimenta las columnas Mermas y Stock Informado de la tabla de arriba.</p>
+      <form id="stock-form">
         <table>
           <thead><tr>
-            <th>Insumo</th><th>Unidad</th><th>Stock Inicial</th><th>Entregas</th><th>Ventas</th>
-            <th>Mermas</th><th>Stock Real</th><th>Stock Informado</th><th>Diferencia</th>
+            <th>Insumo</th><th>Unidad</th><th>Stock Informado</th>
+            <th>Producción</th><th>Defectuosos</th><th>Clientes</th><th>Cortesía</th><th>Reutilizar</th>
           </tr></thead>
           <tbody>
-            ${items.map(i => {
-              const stockReal = i.stock_inicial + i.entregas - i.ventas - (i.mermas_total || 0);
-              const tieneInformado = i.cantidad_informada !== null && i.cantidad_informada !== undefined;
-              const diferencia = tieneInformado ? i.cantidad_informada - stockReal : null;
-              return `
-              <tr data-row-key="${i.ingrediente_key}" data-inicial="${i.stock_inicial}" data-entregas="${i.entregas}" data-ventas="${i.ventas}">
+            ${items.filter(i => i.tramo === 'kg').map(i => `
+              <tr data-stock-row-key="${i.ingrediente_key}">
                 <td>${i.nombre}</td>
                 <td>${formatUnidad(i.unidad)}</td>
-                <td>${i.stock_inicial}</td>
-                <td>${i.entregas}</td>
-                <td>${i.ventas}</td>
-                <td>
-                  ${editable
-                    ? `<input class="field merma-mermas-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.mermas_total ?? ''}">`
-                    : (i.mermas_total ?? '—')}
-                </td>
-                <td class="merma-stock-real" data-key="${i.ingrediente_key}">${stockReal.toFixed(2)}</td>
-                <td>
-                  ${editable
-                    ? `<input class="field merma-informado-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.cantidad_informada ?? ''}">`
-                    : (tieneInformado ? i.cantidad_informada : '—')}
-                </td>
-                <td class="merma-diferencia" data-key="${i.ingrediente_key}">${diferencia !== null ? diferencia.toFixed(2) : '—'}</td>
-              </tr>`;
-            }).join('')}
+                <td>${editable ? `<input class="field stock-informado-input" type="number" step="0.01" style="width:90px" value="${i.cantidad_informada ?? ''}">` : (i.cantidad_informada ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-produccion-input" type="number" step="0.01" style="width:80px" value="${i.mermas_produccion ?? ''}">` : (i.mermas_produccion ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-defectuosos-input" type="number" step="0.01" style="width:80px" value="${i.mermas_defectuosos ?? ''}">` : (i.mermas_defectuosos ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-clientes-input" type="number" step="0.01" style="width:80px" value="${i.mermas_clientes ?? ''}">` : (i.mermas_clientes ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-cortesia-input" type="number" step="0.01" style="width:80px" value="${i.mermas_cortesia ?? ''}">` : (i.mermas_cortesia ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-reutilizar-input" type="number" step="0.01" style="width:80px" value="${i.mermas_reutilizar ?? ''}">` : (i.mermas_reutilizar ?? '—')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        <table style="margin-top:1.5rem">
+          <thead><tr>
+            <th>Insumo</th><th>Unidad</th><th>Stock Informado</th>
+            <th>Producción</th><th>Defectuosos</th><th>Clientes</th><th>Cortesía</th>
+          </tr></thead>
+          <tbody>
+            ${items.filter(i => i.tramo === 'unidades').map(i => `
+              <tr data-stock-row-key="${i.ingrediente_key}">
+                <td>${i.nombre}</td>
+                <td>${formatUnidad(i.unidad)}</td>
+                <td>${editable ? `<input class="field stock-informado-input" type="number" step="0.01" style="width:90px" value="${i.cantidad_informada ?? ''}">` : (i.cantidad_informada ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-produccion-input" type="number" step="0.01" style="width:80px" value="${i.mermas_produccion ?? ''}">` : (i.mermas_produccion ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-defectuosos-input" type="number" step="0.01" style="width:80px" value="${i.mermas_defectuosos ?? ''}">` : (i.mermas_defectuosos ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-clientes-input" type="number" step="0.01" style="width:80px" value="${i.mermas_clientes ?? ''}">` : (i.mermas_clientes ?? '—')}</td>
+                <td>${editable ? `<input class="field stock-cortesia-input" type="number" step="0.01" style="width:80px" value="${i.mermas_cortesia ?? ''}">` : (i.mermas_cortesia ?? '—')}</td>
+              </tr>`).join('')}
           </tbody>
         </table>
         ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
-        <p id="mermas-error" class="error-msg"></p>
+        <p id="stock-error" class="error-msg"></p>
       </form>
     </div>
     <div class="card">
@@ -1231,32 +1238,31 @@ async function renderMermas(el, s) {
     renderView();
   });
 
-  if (editable) {
-    el.querySelectorAll('.merma-mermas-input, .merma-informado-input').forEach(inp => {
-      inp.addEventListener('input', () => {
-        const fila = inp.closest('tr[data-row-key]');
-        const inicial = parseFloat(fila.dataset.inicial) || 0;
-        const entregas = parseFloat(fila.dataset.entregas) || 0;
-        const ventas = parseFloat(fila.dataset.ventas) || 0;
-        const mermas = parseFloat(fila.querySelector('.merma-mermas-input').value) || 0;
-        const informadoStr = fila.querySelector('.merma-informado-input').value;
-        const stockReal = inicial + entregas - ventas - mermas;
-        fila.querySelector('.merma-stock-real').textContent = stockReal.toFixed(2);
-        const diferenciaCell = fila.querySelector('.merma-diferencia');
-        diferenciaCell.textContent = informadoStr !== '' ? (parseFloat(informadoStr) - stockReal).toFixed(2) : '—';
-      });
-    });
+  document.getElementById('mermas-exportar').addEventListener('click', async () => {
+    const errorEl = document.getElementById('export-error');
+    errorEl.textContent = '';
+    try {
+      await apiDownload(`/mermas/exportar?local_id=${localId}&fecha=${fecha}`, `Inventario Cocina ${fecha}.xlsx`);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
 
-    document.getElementById('mermas-form').addEventListener('submit', async (e) => {
+  if (editable) {
+    document.getElementById('stock-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const errorEl = document.getElementById('mermas-error');
-      const filas = Array.from(document.querySelectorAll('tr[data-row-key]'));
+      const errorEl = document.getElementById('stock-error');
+      const filas = Array.from(document.querySelectorAll('tr[data-stock-row-key]'));
       try {
         for (const fila of filas) {
-          const key = fila.dataset.rowKey;
-          const informadoVal = fila.querySelector('.merma-informado-input').value;
-          const mermasVal = fila.querySelector('.merma-mermas-input').value;
-          if (informadoVal === '' && mermasVal === '') continue;
+          const key = fila.dataset.stockRowKey;
+          const informadoVal = fila.querySelector('.stock-informado-input').value;
+          const produccionVal = fila.querySelector('.stock-produccion-input').value;
+          const defectuososVal = fila.querySelector('.stock-defectuosos-input').value;
+          const clientesVal = fila.querySelector('.stock-clientes-input').value;
+          const cortesiaVal = fila.querySelector('.stock-cortesia-input').value;
+          const reutilizarVal = fila.querySelector('.stock-reutilizar-input')?.value ?? '';
+          if ([informadoVal, produccionVal, defectuososVal, clientesVal, cortesiaVal, reutilizarVal].every(v => v === '')) continue;
           const original = items.find(i => i.ingrediente_key === key);
           await api('/mermas', {
             method: 'POST',
@@ -1265,7 +1271,11 @@ async function renderMermas(el, s) {
               ingrediente_key: key,
               fecha,
               cantidad_informada: informadoVal !== '' ? parseFloat(informadoVal) : (original?.cantidad_informada ?? 0),
-              mermas_total: mermasVal !== '' ? parseFloat(mermasVal) : (original?.mermas_total ?? null),
+              mermas_produccion: produccionVal !== '' ? parseFloat(produccionVal) : (original?.mermas_produccion ?? null),
+              mermas_defectuosos: defectuososVal !== '' ? parseFloat(defectuososVal) : (original?.mermas_defectuosos ?? null),
+              mermas_clientes: clientesVal !== '' ? parseFloat(clientesVal) : (original?.mermas_clientes ?? null),
+              mermas_cortesia: cortesiaVal !== '' ? parseFloat(cortesiaVal) : (original?.mermas_cortesia ?? null),
+              mermas_reutilizar: reutilizarVal !== '' ? parseFloat(reutilizarVal) : (original?.mermas_reutilizar ?? null),
             }),
           });
         }
@@ -1364,77 +1374,6 @@ async function renderMermas(el, s) {
       }
     });
 
-    document.getElementById('planilla-archivo').addEventListener('change', (e) => {
-      state.planillaArchivo = e.target.files[0] || null;
-      state.planillaHojas = null;
-      state.planillaHojaSel = null;
-      state.planillaPreview = null;
-      renderView();
-    });
-
-    document.getElementById('planilla-fecha').addEventListener('change', (e) => {
-      state.planillaFecha = e.target.value;
-    });
-
-    document.getElementById('planilla-leer')?.addEventListener('click', async () => {
-      const errorEl = document.getElementById('planilla-error');
-      errorEl.textContent = '';
-      try {
-        const form = new FormData();
-        form.append('archivo', state.planillaArchivo);
-        const res = await apiUpload('/planilla/hojas', form);
-        state.planillaHojas = res.hojas;
-        state.planillaHojaSel = null;
-        state.planillaPreview = null;
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
-
-    document.getElementById('planilla-hoja')?.addEventListener('change', (e) => {
-      state.planillaHojaSel = e.target.value || null;
-      state.planillaPreview = null;
-      renderView();
-    });
-
-    document.getElementById('planilla-preview')?.addEventListener('click', async () => {
-      const errorEl = document.getElementById('planilla-error');
-      errorEl.textContent = '';
-      try {
-        const form = new FormData();
-        form.append('archivo', state.planillaArchivo);
-        form.append('hoja', state.planillaHojaSel);
-        form.append('local_id', localId);
-        state.planillaPreview = await apiUpload('/planilla/importar', form);
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
-
-    document.getElementById('planilla-confirmar')?.addEventListener('click', async () => {
-      const errorEl = document.getElementById('planilla-error');
-      const fecha = document.getElementById('planilla-fecha').value;
-      if (!confirm(`¿Confirmar importación del ${fecha}? Se guardarán las ventas al historial y el stock informado/entregas de los insumos reconocidos.`)) return;
-      try {
-        const res = await api('/planilla/confirmar', {
-          method: 'POST',
-          body: JSON.stringify({
-            local_id: localId, fecha,
-            ventas: state.planillaPreview.ventas, insumos: state.planillaPreview.insumos,
-          }),
-        });
-        state.planillaArchivo = null;
-        state.planillaHojas = null;
-        state.planillaHojaSel = null;
-        state.planillaPreview = null;
-        alert(`Importación guardada: ${res.ventas_guardadas} ventas, ${res.insumos_guardados} insumos, ${res.entregas_registradas} entregas a cocina.`);
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
   }
 }
 
