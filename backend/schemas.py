@@ -106,6 +106,15 @@ class EntregaIn(BaseModel):
     cantidad: float
 
 
+class ResumenDiferenciaItem(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad: str
+    diferencia_total: float
+    precio: float
+    total_dscto: float  # diferencia_total * precio, solo si diferencia_total es negativa (faltante) -- igual que el Excel
+
+
 class ProteinaProduccionOut(BaseModel):
     receta_id: str
     orden: int

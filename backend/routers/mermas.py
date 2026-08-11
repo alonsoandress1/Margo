@@ -9,13 +9,18 @@ from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..excel_exporter import exportar_dia
 from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, MermaItem, PasteleriaIn, PasteleriaOut,
-                       ProteinaProduccionIn, ProteinaProduccionOut, StockCocinaIn)
+                       ProteinaProduccionIn, ProteinaProduccionOut, ResumenDiferenciaItem, StockCocinaIn)
 
 router = APIRouter(prefix="/mermas", tags=["mermas"])
 
 
 def _dia_anterior(fecha: str) -> str:
     return (date.fromisoformat(fecha) - timedelta(days=1)).isoformat()
+
+
+def _lunes_de_la_semana(fecha_iso: str) -> date:
+    d = date.fromisoformat(fecha_iso)
+    return d - timedelta(days=d.weekday())  # weekday() 0=Lunes
 
 
 def _stock_inicial_por_insumo(db, local_id: str, fecha: str) -> dict[str, float]:
@@ -121,6 +126,33 @@ def _ventas_por_insumo(db, local_id: str, fecha: str) -> dict[str, float]:
             continue
         vendido = cantidad_por_plato.get(r["plato_id"], 0)
         resultado[key] = resultado.get(key, 0) + vendido * r["cantidad"]
+    return resultado
+
+
+def _diferencias_del_dia(db, local_id: str, fecha: str, keys: list[str]) -> dict[str, float]:
+    """Diferencia = Stock Informado - Stock Real de un dia, por insumo --
+    misma cuenta que la columna Diferencias del bloque resumen, pero sin
+    armar el MermaItem completo (usado para el rollup semanal)."""
+    cocina_rows = db.table("stock_cocina").select("ingrediente_key,cantidad_informada,mermas_total") \
+        .eq("local_id", local_id).eq("fecha", fecha).in_("ingrediente_key", keys).execute().data or []
+    informado = {c["ingrediente_key"]: c for c in cocina_rows}
+    if not informado:
+        return {}
+
+    stock_inicial = _stock_inicial_por_insumo(db, local_id, fecha)
+    entregas_bodega = _entregas_por_insumo(db, local_id, fecha)
+    produccion = _produccion_por_insumo(db, local_id, fecha)
+    mermas_produccion = _mermas_produccion_por_insumo(db, local_id, fecha)
+    ventas = _ventas_por_insumo(db, local_id, fecha)
+
+    resultado: dict[str, float] = {}
+    for key, fila in informado.items():
+        if fila.get("cantidad_informada") is None:
+            continue
+        entregas = entregas_bodega.get(key, 0) + produccion.get(key, 0)
+        mermas_total = (fila.get("mermas_total") or 0) + mermas_produccion.get(key, 0)
+        stock_real = stock_inicial.get(key, 0) + entregas - ventas.get(key, 0) - mermas_total
+        resultado[key] = fila["cantidad_informada"] - stock_real
     return resultado
 
 
@@ -413,3 +445,43 @@ def exportar(local_id: str, fecha: str | None = None, claims: dict = Depends(get
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="Inventario Cocina {fecha}.xlsx"'},
     )
+
+
+@router.get("/resumen-semana", response_model=list[ResumenDiferenciaItem])
+def resumen_semana(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
+    """Resumen tipo hoja 'MERMAS Sx' del Excel real: por insumo, la
+    Diferencia total de la semana (Lunes a Viernes, misma fórmula real
+    =SUM('S1 Lunes:S1 Viernes'!K4)) y el $ perdido cuando la diferencia es
+    un faltante (negativa)."""
+    verificar_acceso_local(claims, local_id)
+    fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
+    db = get_db()
+
+    seguimiento = db.table("mermas_seguimiento").select("*").eq("local_id", local_id).execute().data or []
+    if not seguimiento:
+        return []
+    keys = [r["ingrediente_key"] for r in seguimiento]
+    precios = productos_mas_baratos(db, keys)
+
+    lunes = _lunes_de_la_semana(fecha)
+    dias_semana = [(lunes + timedelta(days=i)).isoformat() for i in range(5)]  # Lunes..Viernes
+
+    totales: dict[str, float] = {}
+    for dia in dias_semana:
+        diferencias = _diferencias_del_dia(db, local_id, dia, keys)
+        for key, dif in diferencias.items():
+            totales[key] = totales.get(key, 0) + dif
+
+    resultado = []
+    for r in seguimiento:
+        key = r["ingrediente_key"]
+        if key not in totales:
+            continue
+        diferencia_total = round(totales[key], 3)
+        precio = precios.get(key, {}).get("price", 0)
+        total_dscto = diferencia_total * precio if diferencia_total < 0 else 0
+        resultado.append(ResumenDiferenciaItem(
+            ingrediente_key=key, nombre=r["nombre"], unidad=r["unidad"],
+            diferencia_total=diferencia_total, precio=precio, total_dscto=round(total_dscto, 2),
+        ))
+    return resultado

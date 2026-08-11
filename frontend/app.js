@@ -37,6 +37,44 @@ function unidadOptionsHtml(seleccionada) {
   return UNIDADES_CATALOGO.map(u => `<option value="${u.value}" ${u.value === seleccionada ? 'selected' : ''}>${u.label}</option>`).join('');
 }
 
+const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+function fechaISOaLocal(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function lunesDeLaSemana(fechaISO) {
+  const d = fechaISOaLocal(fechaISO);
+  const diaSemana = (d.getDay() + 6) % 7; // 0=Lunes
+  d.setDate(d.getDate() - diaSemana);
+  return d;
+}
+
+function isoDeDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function etiquetaSemana(fechaISO) {
+  const lunes = lunesDeLaSemana(fechaISO);
+  const domingo = new Date(lunes);
+  domingo.setDate(domingo.getDate() + 6);
+  if (lunes.getMonth() === domingo.getMonth()) {
+    return `Semana del ${lunes.getDate()} al ${domingo.getDate()} de ${MESES[lunes.getMonth()]}`;
+  }
+  return `Semana del ${lunes.getDate()} de ${MESES[lunes.getMonth()]} al ${domingo.getDate()} de ${MESES[domingo.getMonth()]}`;
+}
+
+function diasDeLaSemana(fechaISO) {
+  const lunes = lunesDeLaSemana(fechaISO);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(lunes);
+    d.setDate(d.getDate() + i);
+    return { iso: isoDeDate(d), etiqueta: DIAS_SEMANA[i], numero: d.getDate() };
+  });
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -1051,6 +1089,9 @@ async function renderMermas(el, s) {
   const proteinas = await api(`/mermas/proteinas?local_id=${localId}&fecha=${fecha}`);
   const pasteleria = await api(`/mermas/pasteleria?local_id=${localId}&fecha=${fecha}`);
   const chocolates = await api(`/mermas/chocolates?local_id=${localId}&fecha=${fecha}`);
+  const resumenSemana = await api(`/mermas/resumen-semana?local_id=${localId}&fecha=${fecha}`);
+
+  const diasSemana = diasDeLaSemana(fecha);
 
   el.innerHTML = `
     <h2>Mermas — Stock de Cocina</h2>
@@ -1062,16 +1103,38 @@ async function renderMermas(el, s) {
         </select>
       </div>
       <div style="flex:1">
-        <label class="field-label">Día</label>
+        <label class="field-label">Ir a fecha</label>
         <input type="date" id="mermas-fecha" class="field" style="width:100%" value="${fecha}">
       </div>
       <div style="display:flex;align-items:flex-end">
         <button type="button" id="mermas-exportar" class="btn">Exportar Excel</button>
       </div>
     </div>
+    <h3 style="margin:1rem 0 .5rem">${etiquetaSemana(fecha)}</h3>
+    <div class="item-row" style="gap:.4rem;margin-bottom:.75rem">
+      ${diasSemana.map(d => `
+        <button type="button" class="btn ${d.iso === fecha ? 'btn-primary' : ''}" data-dia-semana="${d.iso}">${d.etiqueta} ${d.numero}</button>
+      `).join('')}
+    </div>
     <p class="placeholder" style="margin:.5rem 0 1.25rem">Ventas y Entregas se calculan solas (ventas viene de la descarga automática diaria) -- por defecto se muestra AYER, que es el día que ya tiene esos datos completos.</p>
     <p id="export-error" class="error-msg"></p>
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
+    <div class="card">
+      <h3>Resumen de Diferencias -- ${etiquetaSemana(fecha)}</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Diferencia acumulada Lunes a Viernes por insumo, y el $ estimado en faltantes (solo cuando la diferencia es negativa) -- igual que la hoja resumen de la planilla real.</p>
+      <table>
+        <thead><tr><th>Insumo</th><th>Diferencia total</th><th>Precio</th><th>Total $ faltante</th></tr></thead>
+        <tbody>
+          ${resumenSemana.length ? resumenSemana.map(r => `
+            <tr>
+              <td>${r.nombre}</td>
+              <td style="${r.diferencia_total < 0 ? 'color:var(--danger,#e07a7a)' : ''}">${r.diferencia_total.toFixed(2)} ${formatUnidad(r.unidad)}</td>
+              <td>${r.precio ? '$' + r.precio.toLocaleString('es-CL') : '—'}</td>
+              <td>${r.total_dscto ? '$' + Math.abs(r.total_dscto).toLocaleString('es-CL') : '—'}</td>
+            </tr>`).join('') : `<tr><td colspan="4" class="placeholder">Sin datos de Stock Informado esta semana todavía.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
     <div class="card">
       <table>
         <thead><tr>
@@ -1102,7 +1165,7 @@ async function renderMermas(el, s) {
     <div class="card">
       <h3>Control de Stock</h3>
       <p class="placeholder" style="margin-bottom:1rem">Stock Informado (conteo físico de Cocina) y Mermas por causa, lado a lado -- igual que en la planilla. Esto alimenta las columnas Mermas y Stock Informado de la tabla de arriba.</p>
-      <form id="stock-form">
+      <div id="stock-form">
         <table>
           <thead><tr>
             <th>Insumo</th><th>Unidad</th><th>Stock Informado</th>
@@ -1140,14 +1203,12 @@ async function renderMermas(el, s) {
               </tr>`).join('')}
           </tbody>
         </table>
-        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
-        <p id="stock-error" class="error-msg"></p>
-      </form>
+      </div>
     </div>
     <div class="card">
       <h3>Entregas a Cocina / Salida de Bodega</h3>
       <p class="placeholder" style="margin-bottom:1rem">Lo que Bodega le entrega a Cocina este día, insumo por insumo. Esto es lo que alimenta la columna Entregas de la tabla de arriba (junto con lo producido en Cocina, si aplica).</p>
-      <form id="entregas-form">
+      <div id="entregas-form">
         <table>
           <thead><tr><th>Insumo</th><th>Unidad</th><th>Cantidad</th></tr></thead>
           <tbody>
@@ -1163,14 +1224,12 @@ async function renderMermas(el, s) {
               </tr>`).join('')}
           </tbody>
         </table>
-        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar Entregas (${fecha})</button>` : ''}
-        <p id="entregas-error" class="error-msg"></p>
-      </form>
+      </div>
     </div>
     <div class="card">
       <h3>Entregas de proteínas para producciones de cocina</h3>
       <p class="placeholder" style="margin-bottom:1rem">Lista fija -- son siempre los mismos traspasos de materia prima a producto elaborado. Solo se cargan las cantidades del día.</p>
-      <form id="proteinas-form">
+      <div id="proteinas-form">
         <table>
           <thead><tr><th>Materia prima</th><th>Cantidad</th><th>Producto final</th><th>Cantidad producida</th><th>Mermas</th></tr></thead>
           <tbody>
@@ -1184,14 +1243,12 @@ async function renderMermas(el, s) {
               </tr>`).join('')}
           </tbody>
         </table>
-        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
-        <p id="proteinas-error" class="error-msg"></p>
-      </form>
+      </div>
     </div>
     <div class="card">
       <h3>Registro Producciones Pastelería</h3>
       <p class="placeholder" style="margin-bottom:1rem">Lista fija de productos de pastelería. Cuántas unidades se hicieron este día.</p>
-      <form id="pasteleria-form">
+      <div id="pasteleria-form">
         <table>
           <thead><tr><th>Producto</th><th>Unidad</th><th>Cantidad producida</th></tr></thead>
           <tbody>
@@ -1203,14 +1260,12 @@ async function renderMermas(el, s) {
               </tr>`).join('')}
           </tbody>
         </table>
-        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
-        <p id="pasteleria-error" class="error-msg"></p>
-      </form>
+      </div>
     </div>
     <div class="card">
       <h3>Registro de Chocolates</h3>
       <p class="placeholder" style="margin-bottom:1rem">Lista fija de chocolates/coberturas. Cantidad entregada por Bodega y cantidad utilizada ese día.</p>
-      <form id="chocolates-form">
+      <div id="chocolates-form">
         <table>
           <thead><tr><th>Producto</th><th>Unidad</th><th>Cantidad Entregada</th><th>Cant. Utilizada</th></tr></thead>
           <tbody>
@@ -1223,10 +1278,13 @@ async function renderMermas(el, s) {
               </tr>`).join('')}
           </tbody>
         </table>
-        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
-        <p id="chocolates-error" class="error-msg"></p>
-      </form>
-    </div>`;
+      </div>
+    </div>
+    ${editable ? `
+    <div class="card">
+      <button type="button" id="mermas-guardar-todo" class="btn btn-primary">Guardar (${fecha})</button>
+      <p id="guardar-error" class="error-msg"></p>
+    </div>` : ''}`;
 
   document.getElementById('mermas-local').addEventListener('change', (e) => {
     state.mermasLocal = e.target.value;
@@ -1236,6 +1294,13 @@ async function renderMermas(el, s) {
   document.getElementById('mermas-fecha').addEventListener('change', (e) => {
     state.mermasFecha = e.target.value;
     renderView();
+  });
+
+  el.querySelectorAll('[data-dia-semana]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.mermasFecha = btn.dataset.diaSemana;
+      renderView();
+    });
   });
 
   document.getElementById('mermas-exportar').addEventListener('click', async () => {
@@ -1248,132 +1313,111 @@ async function renderMermas(el, s) {
     }
   });
 
+  async function guardarControlStock() {
+    const filas = Array.from(document.querySelectorAll('tr[data-stock-row-key]'));
+    for (const fila of filas) {
+      const key = fila.dataset.stockRowKey;
+      const informadoVal = fila.querySelector('.stock-informado-input').value;
+      const produccionVal = fila.querySelector('.stock-produccion-input').value;
+      const defectuososVal = fila.querySelector('.stock-defectuosos-input').value;
+      const clientesVal = fila.querySelector('.stock-clientes-input').value;
+      const cortesiaVal = fila.querySelector('.stock-cortesia-input').value;
+      const reutilizarVal = fila.querySelector('.stock-reutilizar-input')?.value ?? '';
+      if ([informadoVal, produccionVal, defectuososVal, clientesVal, cortesiaVal, reutilizarVal].every(v => v === '')) continue;
+      const original = items.find(i => i.ingrediente_key === key);
+      await api('/mermas', {
+        method: 'POST',
+        body: JSON.stringify({
+          local_id: localId,
+          ingrediente_key: key,
+          fecha,
+          cantidad_informada: informadoVal !== '' ? parseFloat(informadoVal) : (original?.cantidad_informada ?? 0),
+          mermas_produccion: produccionVal !== '' ? parseFloat(produccionVal) : (original?.mermas_produccion ?? null),
+          mermas_defectuosos: defectuososVal !== '' ? parseFloat(defectuososVal) : (original?.mermas_defectuosos ?? null),
+          mermas_clientes: clientesVal !== '' ? parseFloat(clientesVal) : (original?.mermas_clientes ?? null),
+          mermas_cortesia: cortesiaVal !== '' ? parseFloat(cortesiaVal) : (original?.mermas_cortesia ?? null),
+          mermas_reutilizar: reutilizarVal !== '' ? parseFloat(reutilizarVal) : (original?.mermas_reutilizar ?? null),
+        }),
+      });
+    }
+  }
+
+  async function guardarEntregas() {
+    const filas = Array.from(document.querySelectorAll('tr[data-entrega-row-key]'));
+    for (const fila of filas) {
+      const key = fila.dataset.entregaRowKey;
+      const val = fila.querySelector('.entrega-cantidad-input').value;
+      if (val === '') continue;
+      await api('/mermas/entregas', {
+        method: 'POST',
+        body: JSON.stringify({ local_id: localId, ingrediente_key: key, fecha, cantidad: parseFloat(val) }),
+      });
+    }
+  }
+
+  async function guardarProteinas() {
+    const filas = Array.from(document.querySelectorAll('tr[data-receta-id]'));
+    for (const fila of filas) {
+      const consumidaVal = fila.querySelector('.prot-consumida-input')?.value ?? '';
+      const producidaVal = fila.querySelector('.prot-producida-input')?.value ?? '';
+      const mermasVal = fila.querySelector('.prot-mermas-input')?.value ?? '';
+      if (consumidaVal === '' && producidaVal === '' && mermasVal === '') continue;
+      await api('/mermas/proteinas', {
+        method: 'POST',
+        body: JSON.stringify({
+          local_id: localId, receta_id: fila.dataset.recetaId, fecha,
+          cantidad_consumida: consumidaVal !== '' ? parseFloat(consumidaVal) : null,
+          cantidad_producida: producidaVal !== '' ? parseFloat(producidaVal) : null,
+          mermas: mermasVal !== '' ? parseFloat(mermasVal) : null,
+        }),
+      });
+    }
+  }
+
+  async function guardarPasteleria() {
+    const filas = Array.from(document.querySelectorAll('#pasteleria-form tr[data-producto-key]'));
+    for (const fila of filas) {
+      const val = fila.querySelector('.past-cantidad-input')?.value ?? '';
+      if (val === '') continue;
+      await api('/mermas/pasteleria', {
+        method: 'POST',
+        body: JSON.stringify({ local_id: localId, producto_key: fila.dataset.productoKey, fecha, cantidad_producida: parseFloat(val) }),
+      });
+    }
+  }
+
+  async function guardarChocolates() {
+    const filas = Array.from(document.querySelectorAll('#chocolates-form tr[data-producto-key]'));
+    for (const fila of filas) {
+      const entregadaVal = fila.querySelector('.choc-entregada-input')?.value ?? '';
+      const utilizadaVal = fila.querySelector('.choc-utilizada-input')?.value ?? '';
+      if (entregadaVal === '' && utilizadaVal === '') continue;
+      await api('/mermas/chocolates', {
+        method: 'POST',
+        body: JSON.stringify({
+          local_id: localId, producto_key: fila.dataset.productoKey, fecha,
+          cantidad_entregada: entregadaVal !== '' ? parseFloat(entregadaVal) : null,
+          cantidad_utilizada: utilizadaVal !== '' ? parseFloat(utilizadaVal) : null,
+        }),
+      });
+    }
+  }
+
   if (editable) {
-    document.getElementById('stock-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('stock-error');
-      const filas = Array.from(document.querySelectorAll('tr[data-stock-row-key]'));
+    document.getElementById('mermas-guardar-todo').addEventListener('click', async () => {
+      const errorEl = document.getElementById('guardar-error');
+      errorEl.textContent = '';
       try {
-        for (const fila of filas) {
-          const key = fila.dataset.stockRowKey;
-          const informadoVal = fila.querySelector('.stock-informado-input').value;
-          const produccionVal = fila.querySelector('.stock-produccion-input').value;
-          const defectuososVal = fila.querySelector('.stock-defectuosos-input').value;
-          const clientesVal = fila.querySelector('.stock-clientes-input').value;
-          const cortesiaVal = fila.querySelector('.stock-cortesia-input').value;
-          const reutilizarVal = fila.querySelector('.stock-reutilizar-input')?.value ?? '';
-          if ([informadoVal, produccionVal, defectuososVal, clientesVal, cortesiaVal, reutilizarVal].every(v => v === '')) continue;
-          const original = items.find(i => i.ingrediente_key === key);
-          await api('/mermas', {
-            method: 'POST',
-            body: JSON.stringify({
-              local_id: localId,
-              ingrediente_key: key,
-              fecha,
-              cantidad_informada: informadoVal !== '' ? parseFloat(informadoVal) : (original?.cantidad_informada ?? 0),
-              mermas_produccion: produccionVal !== '' ? parseFloat(produccionVal) : (original?.mermas_produccion ?? null),
-              mermas_defectuosos: defectuososVal !== '' ? parseFloat(defectuososVal) : (original?.mermas_defectuosos ?? null),
-              mermas_clientes: clientesVal !== '' ? parseFloat(clientesVal) : (original?.mermas_clientes ?? null),
-              mermas_cortesia: cortesiaVal !== '' ? parseFloat(cortesiaVal) : (original?.mermas_cortesia ?? null),
-              mermas_reutilizar: reutilizarVal !== '' ? parseFloat(reutilizarVal) : (original?.mermas_reutilizar ?? null),
-            }),
-          });
-        }
+        await guardarControlStock();
+        await guardarEntregas();
+        await guardarProteinas();
+        await guardarPasteleria();
+        await guardarChocolates();
         renderView();
       } catch (err) {
         errorEl.textContent = err.message;
       }
     });
-
-    document.getElementById('entregas-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('entregas-error');
-      const filas = Array.from(document.querySelectorAll('tr[data-entrega-row-key]'));
-      try {
-        for (const fila of filas) {
-          const key = fila.dataset.entregaRowKey;
-          const val = fila.querySelector('.entrega-cantidad-input').value;
-          if (val === '') continue;
-          await api('/mermas/entregas', {
-            method: 'POST',
-            body: JSON.stringify({ local_id: localId, ingrediente_key: key, fecha, cantidad: parseFloat(val) }),
-          });
-        }
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
-
-    document.getElementById('proteinas-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('proteinas-error');
-      const filas = Array.from(document.querySelectorAll('tr[data-receta-id]'));
-      try {
-        for (const fila of filas) {
-          const consumidaVal = fila.querySelector('.prot-consumida-input')?.value ?? '';
-          const producidaVal = fila.querySelector('.prot-producida-input')?.value ?? '';
-          const mermasVal = fila.querySelector('.prot-mermas-input')?.value ?? '';
-          if (consumidaVal === '' && producidaVal === '' && mermasVal === '') continue;
-          await api('/mermas/proteinas', {
-            method: 'POST',
-            body: JSON.stringify({
-              local_id: localId, receta_id: fila.dataset.recetaId, fecha,
-              cantidad_consumida: consumidaVal !== '' ? parseFloat(consumidaVal) : null,
-              cantidad_producida: producidaVal !== '' ? parseFloat(producidaVal) : null,
-              mermas: mermasVal !== '' ? parseFloat(mermasVal) : null,
-            }),
-          });
-        }
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
-
-    document.getElementById('pasteleria-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('pasteleria-error');
-      const filas = Array.from(document.querySelectorAll('tr[data-producto-key]')).filter(f => f.closest('#pasteleria-form'));
-      try {
-        for (const fila of filas) {
-          const val = fila.querySelector('.past-cantidad-input')?.value ?? '';
-          if (val === '') continue;
-          await api('/mermas/pasteleria', {
-            method: 'POST',
-            body: JSON.stringify({ local_id: localId, producto_key: fila.dataset.productoKey, fecha, cantidad_producida: parseFloat(val) }),
-          });
-        }
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
-
-    document.getElementById('chocolates-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('chocolates-error');
-      const filas = Array.from(document.querySelectorAll('tr[data-producto-key]')).filter(f => f.closest('#chocolates-form'));
-      try {
-        for (const fila of filas) {
-          const entregadaVal = fila.querySelector('.choc-entregada-input')?.value ?? '';
-          const utilizadaVal = fila.querySelector('.choc-utilizada-input')?.value ?? '';
-          if (entregadaVal === '' && utilizadaVal === '') continue;
-          await api('/mermas/chocolates', {
-            method: 'POST',
-            body: JSON.stringify({
-              local_id: localId, producto_key: fila.dataset.productoKey, fecha,
-              cantidad_entregada: entregadaVal !== '' ? parseFloat(entregadaVal) : null,
-              cantidad_utilizada: utilizadaVal !== '' ? parseFloat(utilizadaVal) : null,
-            }),
-          });
-        }
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
-
   }
 }
 
