@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import PlainTextResponse
 
 from ..db import get_db
 from ..deps import get_current_claims
@@ -32,30 +33,22 @@ def tcpos_descubrir(reporte: str | None = None, claims: dict = Depends(get_curre
     confirme el reporte de venta del periodo."""
     if claims["rol"] != "administrador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
+    import json as _json
+    import traceback
     try:
         session = TcposWebReportSession(
             os.environ["TCPOS_URL"], os.environ["TCPOS_OPERATOR_CODE"], os.environ["TCPOS_PASSWORD"],
         )
-    except KeyError as e:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
-    try:
         reportes = session.listar_reportes()
-    except Exception as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Error al listar reportes: {e}")
-    if not reporte:
-        return {"reportes": reportes}
-    match = next((r for r in reportes if r.get("displayName", "").strip().lower() == reporte.lower()), None)
-    if not match:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No se encontró un reporte con displayName='{reporte}'")
-    try:
+        if not reporte:
+            return PlainTextResponse(_json.dumps({"reportes": reportes}, default=str, ensure_ascii=False))
+        match = next((r for r in reportes if r.get("displayName", "").strip().lower() == reporte.lower()), None)
+        if not match:
+            return PlainTextResponse(f"No se encontró un reporte con displayName='{reporte}'", status_code=404)
         formulario = session.formulario_de_parametros(match["formName"], match["assemblyName"])
-    except Exception as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Error al pedir el formulario: {e}")
-    try:
-        import json as _json
-        return _json.loads(_json.dumps({"match": match, "formulario": formulario}, default=str))
-    except Exception as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo serializar la respuesta: {type(e).__name__}: {e}")
+        return PlainTextResponse(_json.dumps({"match": match, "formulario": formulario}, default=str, ensure_ascii=False))
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
 
 
 def _verificar_cron_secret(x_cron_secret: str | None = Header(default=None)):
