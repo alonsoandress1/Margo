@@ -105,10 +105,14 @@ def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
 
 @router.get("/{dte_id}", response_model=DteDetalleOut)
 def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
-    """Detalle de un DTE con sus lineas -- cada linea trae sugerido el
-    product_id de nuestro mapeo aprendido (facturas_producto_mapa) cuando
-    hay uno guardado para ese proveedor+codigo, sin escribir nada todavia
-    en Odoo (eso pasa solo cuando se confirma via /lineas/match)."""
+    """Detalle de un DTE con sus lineas. Cuando el codigo de una linea ya
+    tiene un mapeo aprendido (facturas_producto_mapa), se AUTOCONFIRMA
+    solo -- se escribe el product_id directo en Odoo, sin pedir el clic
+    manual de "Confirmar" (ya se sabe que es el producto correcto, se
+    aprendio la primera vez que alguien lo confirmo a mano). Si la
+    escritura falla por lo que sea, no se cae toda la pantalla -- la
+    linea vuelve a quedar como sugerencia pendiente del clic manual
+    (fallback, mismo comportamiento de antes)."""
     _require_admin(claims)
     cliente = _odoo()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
@@ -140,7 +144,11 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
         sugerido = False
         if not product_id and codigo_tipo and (codigo_tipo, codigo_valor) in mapa:
             m = mapa[(codigo_tipo, codigo_valor)]
-            product_id, product_name, sugerido = m["odoo_product_id"], m["odoo_product_name"], True
+            product_id, product_name = m["odoo_product_id"], m["odoo_product_name"]
+            try:
+                cliente._call('l10n_cl.supplier.xml.line', 'write', [[l['id']], {'product_id': product_id}])
+            except Exception:
+                sugerido = True  # no se pudo autoconfirmar -- que quede el clic manual como respaldo
         lineas.append(DteLineaOut(
             id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
             codigo_tipo=codigo_tipo, codigo_valor=codigo_valor,
