@@ -404,3 +404,50 @@ class UsuarioOut(BaseModel):
 
 
 LoginResponse.model_rebuild()
+
+
+class DteLineaOut(BaseModel):
+    id: int
+    item_name: str
+    qty: float
+    codigo_tipo: str | None = None
+    codigo_valor: str | None = None
+    product_id: int | None = None
+    product_name: str | None = None
+    sugerido: bool = False  # True si el product_id vino de nuestro mapeo aprendido, no de Odoo
+
+
+class DteOut(BaseModel):
+    id: int
+    proveedor_rut: str
+    proveedor_nombre: str
+    folio: str
+    fecha: str | None = None
+    tiene_factura: bool = False
+
+
+class DteDetalleOut(DteOut):
+    lineas: list[DteLineaOut]
+
+
+class DteMatchLineaIn(BaseModel):
+    dte_id: int
+    line_id: int
+    codigo_tipo: str | None = None
+    codigo_valor: str | None = None
+    odoo_product_id: int
+    odoo_product_name: str
+    proveedor_rut: str
+    proveedor_nombre: str
+
+
+class DteProductoOut(BaseModel):
+    id: int
+    name: str
+    default_code: str | None = None
+    uom: str | None = None
+
+
+class DteCrearFacturaOut(BaseModel):
+    invoice_id: int
+    invoice_name: str

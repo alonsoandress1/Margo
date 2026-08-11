@@ -12,6 +12,7 @@ const SECCIONES = [
   { id: 'locales',   label: 'Locales',                roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'usuarios',  label: 'Usuarios',               roles: ['administrador'], editRoles: ['administrador'] },
   { id: 'facturas',  label: 'Facturas',               roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'facturas-dte', label: 'Ingreso de Facturas',  roles: ['administrador'], editRoles: ['administrador'] },
 ];
 
 let state = {
@@ -381,6 +382,7 @@ async function renderView() {
     if (state.section === 'recetas') return renderRecetas(el, s);
     if (state.section === 'usuarios') return renderUsuarios(el, s);
     if (state.section === 'facturas') return renderFacturas(el, s);
+    if (state.section === 'facturas-dte') return renderFacturasDte(el, s);
     return renderPlaceholder(el, s);
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -1733,6 +1735,182 @@ async function renderFacturas(el, s) {
         }
       };
     });
+  }
+}
+
+async function renderFacturasDte(el, s) {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const hace7dias = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); })();
+  const desde = state.dteDesde || hace7dias;
+  const hasta = state.dteHasta || hoy;
+  state.dteDesde = desde;
+  state.dteHasta = hasta;
+
+  const dtes = state.dteLista || [];
+
+  el.innerHTML = `
+    <h2>Ingreso de Facturas</h2>
+    <p class="placeholder" style="margin-bottom:1.25rem">Documentos que Odoo ya recibió del SII pero todavía no tienen una factura borrador creada. Revisa los productos de cada línea y crea la factura -- nunca se crea un producto nuevo, solo se conecta con uno que ya existe.</p>
+    <div class="item-row" style="max-width:520px;margin-bottom:1rem">
+      <div style="flex:1">
+        <label class="field-label">Desde</label>
+        <input type="date" id="dte-desde" class="field" style="width:100%" value="${desde}">
+      </div>
+      <div style="flex:1">
+        <label class="field-label">Hasta</label>
+        <input type="date" id="dte-hasta" class="field" style="width:100%" value="${hasta}">
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button type="button" id="dte-buscar" class="btn btn-primary">Buscar</button>
+      </div>
+    </div>
+    <p id="dte-error" class="error-msg"></p>
+    ${state.dteLista === null ? '<div class="card"><p class="placeholder">Buscá para ver los documentos pendientes del rango de fechas.</p></div>' : ''}
+    ${state.dteLista && !dtes.length ? '<div class="card"><p class="placeholder">No hay documentos pendientes en ese rango -- todo al día.</p></div>' : ''}
+    ${dtes.length ? Object.entries(dtes.reduce((acc, d) => { (acc[d.proveedor_nombre] ||= []).push(d); return acc; }, {})).map(([proveedor, lista]) => `
+      <div class="card">
+        <h3>${proveedor}</h3>
+        <table>
+          <thead><tr><th>Folio</th><th>Fecha</th><th></th></tr></thead>
+          <tbody>
+            ${lista.map(d => `
+              <tr>
+                <td>${d.folio}</td>
+                <td>${d.fecha || '—'}</td>
+                <td><button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`).join('') : ''}`;
+
+  document.getElementById('dte-desde').addEventListener('change', (e) => { state.dteDesde = e.target.value; });
+  document.getElementById('dte-hasta').addEventListener('change', (e) => { state.dteHasta = e.target.value; });
+
+  document.getElementById('dte-buscar').addEventListener('click', async () => {
+    const errorEl = document.getElementById('dte-error');
+    errorEl.textContent = '';
+    try {
+      state.dteLista = await api(`/facturas-dte?desde=${state.dteDesde}&hasta=${state.dteHasta}`);
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  el.querySelectorAll('[data-revisar-dte]').forEach(btn => {
+    btn.addEventListener('click', () => showDteModal(parseInt(btn.dataset.revisarDte, 10)));
+  });
+}
+
+async function showDteModal(dteId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:720px"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  async function recargar() {
+    const dte = await api(`/facturas-dte/${dteId}`);
+    const todasMatcheadas = dte.lineas.every(l => l.product_id);
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
+      <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
+      <table>
+        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Producto en Odoo</th><th></th></tr></thead>
+        <tbody>
+          ${dte.lineas.map(l => `
+            <tr data-linea="${l.id}">
+              <td>${l.item_name}</td>
+              <td>${l.qty}</td>
+              <td>${l.product_id
+                ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente, todavía sin confirmar de nuevo">(sugerido)</span>' : ' ✓'}`
+                : '<span class="placeholder">Sin producto</span>'}</td>
+              <td>${l.product_id && !l.sugerido ? '' : `<button type="button" class="btn" data-buscar-linea="${l.id}">${l.product_id ? 'Confirmar / cambiar' : 'Buscar producto'}</button>`}</td>
+            </tr>
+            <tr data-buscador="${l.id}" style="display:none"><td colspan="4">
+              <div class="item-row">
+                <input type="text" class="field dte-buscar-input" data-linea-buscar="${l.id}" placeholder="Buscar por nombre o código..." style="flex:1">
+                <button type="button" class="btn" data-ejecutar-busqueda="${l.id}">Buscar</button>
+              </div>
+              <div data-resultados="${l.id}" style="margin-top:.5rem"></div>
+            </td></tr>`).join('')}
+        </tbody>
+      </table>
+      <p id="dte-modal-error" class="error-msg"></p>
+      <div style="margin-top:1.25rem;display:flex;gap:.5rem">
+        <button type="button" class="btn" id="dte-modal-cerrar">Cerrar</button>
+        <button type="button" class="btn btn-primary" id="dte-modal-crear" ${todasMatcheadas ? '' : 'disabled'}>Crear Factura en Odoo</button>
+      </div>`;
+
+    overlay.querySelector('#dte-modal-cerrar').onclick = () => overlay.remove();
+
+    overlay.querySelectorAll('[data-buscar-linea]').forEach(btn => {
+      btn.onclick = () => {
+        const fila = overlay.querySelector(`tr[data-buscador="${btn.dataset.buscarLinea}"]`);
+        fila.style.display = fila.style.display === 'none' ? 'table-row' : 'none';
+      };
+    });
+
+    overlay.querySelectorAll('[data-ejecutar-busqueda]').forEach(btn => {
+      btn.onclick = async () => {
+        const lineaId = btn.dataset.ejecutarBusqueda;
+        const q = overlay.querySelector(`.dte-buscar-input[data-linea-buscar="${lineaId}"]`).value.trim();
+        const resultadosEl = overlay.querySelector(`[data-resultados="${lineaId}"]`);
+        if (!q) return;
+        resultadosEl.innerHTML = '<span class="placeholder">Buscando…</span>';
+        try {
+          const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
+          resultadosEl.innerHTML = productos.length
+            ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-producto="${p.id}" data-nombre="${p.name.replace(/"/g, '&quot;')}">${p.name}${p.default_code ? ' (' + p.default_code + ')' : ''}</button>`).join('')
+            : '<span class="placeholder">Sin resultados.</span>';
+          resultadosEl.querySelectorAll('[data-elegir-producto]').forEach(pbtn => {
+            pbtn.onclick = async () => {
+              const fila = overlay.querySelector(`tr[data-linea="${lineaId}"]`);
+              const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+              const errorEl = overlay.querySelector('#dte-modal-error');
+              errorEl.textContent = '';
+              try {
+                await api('/facturas-dte/lineas/match', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    dte_id: dteId, line_id: parseInt(lineaId, 10),
+                    codigo_tipo: linea?.codigo_tipo || null, codigo_valor: linea?.codigo_valor || null,
+                    odoo_product_id: parseInt(pbtn.dataset.elegirProducto, 10), odoo_product_name: pbtn.dataset.nombre,
+                    proveedor_rut: dte.proveedor_rut, proveedor_nombre: dte.proveedor_nombre,
+                  }),
+                });
+                recargar();
+              } catch (err) {
+                errorEl.textContent = err.message;
+              }
+            };
+          });
+        } catch (err) {
+          resultadosEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
+        }
+      };
+    });
+
+    overlay.querySelector('#dte-modal-crear')?.addEventListener('click', async () => {
+      const errorEl = overlay.querySelector('#dte-modal-error');
+      if (!confirm('¿Crear la factura en Odoo como borrador? No se postea sola, queda para que contabilidad la revise.')) return;
+      errorEl.textContent = '';
+      try {
+        const res = await api(`/facturas-dte/${dteId}/crear-factura`, { method: 'POST' });
+        alert(`Factura creada en Odoo: ${res.invoice_name}`);
+        overlay.remove();
+        state.dteLista = (state.dteLista || []).filter(d => d.id !== dteId);
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  }
+
+  try {
+    await recargar();
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-modal-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#dte-modal-cerrar-error').onclick = () => overlay.remove();
   }
 }
 

@@ -222,6 +222,60 @@ class OdooClient:
             name = f'PO#{po_id}'
         return int(po_id), name
 
+    # ── Facturas de proveedor ────────────────────────────────────────────────
+
+    def buscar_facturas_proveedor(self, partner_id: int, excluir_ids: list[int],
+                                   dias_atras: int = 30) -> list[dict]:
+        """Igual que OdooWebSession.buscar_facturas_proveedor -- solo lectura,
+        no modifica nada. Incluye invoice_origin (nombre de la OC que la
+        origino en Odoo, si aplica) para poder matchear contra po_tracking."""
+        from datetime import date, timedelta
+        desde = (date.today() - timedelta(days=dias_atras)).isoformat()
+        domain = [['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'],
+                  ['state', '=', 'posted'], ['invoice_date', '>=', desde]]
+        if excluir_ids:
+            domain.append(['id', 'not in', [int(i) for i in excluir_ids]])
+        moves = self._call('account.move', 'search_read', [domain],
+            {'fields': ['id', 'name', 'invoice_date', 'amount_total', 'invoice_origin'],
+             'limit': 50, 'order': 'invoice_date desc'})
+        if not moves:
+            return []
+
+        move_ids = [m['id'] for m in moves]
+        lines = self._call('account.move.line', 'search_read',
+            [[['move_id', 'in', move_ids], ['product_id', '!=', False]]],
+            {'fields': ['move_id', 'product_id', 'quantity']})
+
+        lineas_por_move: dict[int, list] = {}
+        for l in lines:
+            lineas_por_move.setdefault(l['move_id'][0], []).append({
+                'product_id': l['product_id'][0] if l.get('product_id') else None,
+                'product_name': l['product_id'][1] if l.get('product_id') else '',
+                'cantidad': l['quantity'],
+            })
+
+        return [
+            {'id': m['id'], 'name': m['name'], 'fecha': m.get('invoice_date'), 'total': m.get('amount_total', 0),
+             'invoice_origin': m.get('invoice_origin') or None, 'lineas': lineas_por_move.get(m['id'], [])}
+            for m in moves
+        ]
+
+
+def descubrir_db(url: str, user: str, password: str) -> str:
+    """Login normal UNA VEZ con la contraseña real (nunca se guarda) para
+    descubrir el nombre de la base de datos via /web/session/get_session_info
+    -- necesario para poder usar despues OdooClient (XML-RPC) con una API Key
+    en vez de la contraseña, en un cron sin nadie presente."""
+    session = OdooWebSession(url)
+    ok, msg = session.connect(user, password)
+    if not ok:
+        raise RuntimeError(msg)
+    info = session._call_raw('/web/session/get_session_info', {})
+    db = (info or {}).get('db')
+    if not db:
+        raise RuntimeError(f"No se encontró 'db' en la respuesta de sesión: {info}")
+    return db
+
 
 class OdooWebSession:
     """
@@ -356,7 +410,8 @@ class OdooWebSession:
         if excluir_ids:
             domain.append(['id', 'not in', [int(i) for i in excluir_ids]])
         moves = self.call_kw('account.move', 'search_read', [domain],
-            {'fields': ['id', 'name', 'invoice_date', 'amount_total'], 'limit': 50, 'order': 'invoice_date desc'})
+            {'fields': ['id', 'name', 'invoice_date', 'amount_total', 'invoice_origin'],
+             'limit': 50, 'order': 'invoice_date desc'})
         if not moves:
             return []
 
@@ -375,7 +430,7 @@ class OdooWebSession:
 
         return [
             {'id': m['id'], 'name': m['name'], 'fecha': m.get('invoice_date'), 'total': m.get('amount_total', 0),
-             'lineas': lineas_por_move.get(m['id'], [])}
+             'invoice_origin': m.get('invoice_origin') or None, 'lineas': lineas_por_move.get(m['id'], [])}
             for m in moves
         ]
 

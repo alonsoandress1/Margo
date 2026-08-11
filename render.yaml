@@ -16,5 +16,11 @@ services:
         value: "480"
       - key: ODOO_URL
         value: "https://margo.odoo.com"
+      - key: ODOO_DB
+        sync: false
+      - key: ODOO_FACTURAS_USER
+        sync: false
+      - key: ODOO_FACTURAS_PASSWORD
+        sync: false
       - key: RESEND_API_KEY
         sync: false

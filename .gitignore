@@ -47,6 +47,7 @@ po_tracking.json
 tcpos_formulario.json
 tcpos_ejecutar_resultado.json
 tcpos_reporte.pdf
+_dte_productos_extraidos.json
 
 # Assets grandes que no son código
 dist/
