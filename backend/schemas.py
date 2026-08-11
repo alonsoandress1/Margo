@@ -93,27 +93,55 @@ class EntregaIn(BaseModel):
     cantidad: float
 
 
-class ProduccionIn(BaseModel):
-    local_id: str
-    fecha: str
-    materia_prima_nombre: str | None = None
-    materia_prima_cantidad: float | None = None
-    producto_key: str
-    producto_nombre: str
-    cantidad_producida: float
+class ProteinaProduccionOut(BaseModel):
+    receta_id: str
+    orden: int
+    materia_prima_nombre: str
+    materia_prima_unidad: str
+    producto_final_nombre: str | None = None
+    producto_final_unidad: str | None = None
+    cantidad_consumida: float | None = None
+    cantidad_producida: float | None = None
     mermas: float | None = None
 
 
-class ProduccionOut(BaseModel):
-    id: str
+class ProteinaProduccionIn(BaseModel):
     local_id: str
+    receta_id: str
     fecha: str
-    materia_prima_nombre: str | None = None
-    materia_prima_cantidad: float | None = None
+    cantidad_consumida: float | None = None
+    cantidad_producida: float | None = None
+    mermas: float | None = None
+
+
+class PasteleriaOut(BaseModel):
     producto_key: str
     producto_nombre: str
-    cantidad_producida: float
-    mermas: float | None = None
+    unidad: str
+    cantidad_producida: float | None = None
+
+
+class PasteleriaIn(BaseModel):
+    local_id: str
+    producto_key: str
+    fecha: str
+    cantidad_producida: float | None = None
+
+
+class ChocolateOut(BaseModel):
+    producto_key: str
+    producto_nombre: str
+    unidad: str
+    cantidad_entregada: float | None = None
+    cantidad_utilizada: float | None = None
+
+
+class ChocolateIn(BaseModel):
+    local_id: str
+    producto_key: str
+    fecha: str
+    cantidad_entregada: float | None = None
+    cantidad_utilizada: float | None = None
 
 
 class ProveedorOut(BaseModel):

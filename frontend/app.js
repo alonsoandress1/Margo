@@ -1032,7 +1032,9 @@ async function renderMermas(el, s) {
   const fecha = state.mermasFecha || ayerIso;
   state.mermasFecha = fecha;
   const items = await api(`/mermas?local_id=${localId}&fecha=${fecha}`);
-  const producciones = await api(`/mermas/produccion?local_id=${localId}&fecha=${fecha}`);
+  const proteinas = await api(`/mermas/proteinas?local_id=${localId}&fecha=${fecha}`);
+  const pasteleria = await api(`/mermas/pasteleria?local_id=${localId}&fecha=${fecha}`);
+  const chocolates = await api(`/mermas/chocolates?local_id=${localId}&fecha=${fecha}`);
 
   el.innerHTML = `
     <h2>Mermas — Stock de Cocina</h2>
@@ -1159,35 +1161,64 @@ async function renderMermas(el, s) {
       </form>
     </div>
     <div class="card">
-      <h3>Producción de Cocina</h3>
-      <p class="placeholder" style="margin-bottom:1rem">Traspaso de materia prima a producto elaborado (ej. Despunte de pulpo → Empanadas de pulpo) y producción de pastelería/chocolates (ej. cuántos Brownie Nutella se hicieron). Lo producido pasa a ser la Entrega del insumo final ese día.</p>
-      ${editable ? `
-      <div class="item-row" style="flex-wrap:wrap">
-        <input type="text" id="prod-materia-nombre" class="field" placeholder="Materia prima (opcional, ej. Despunte de pulpo)" style="flex:2;min-width:200px">
-        <input type="number" id="prod-materia-cantidad" class="field" placeholder="Cantidad" step="0.01" style="width:110px">
-        <select id="prod-producto-key" class="field" style="flex:2;min-width:200px">
-          <option value="">-- producto final --</option>
-          ${items.map(i => `<option value="${i.ingrediente_key}" data-nombre="${i.nombre}">${i.nombre}</option>`).join('')}
-        </select>
-        <input type="number" id="prod-cantidad-producida" class="field" placeholder="Cantidad producida" step="0.01" style="width:130px">
-        <input type="number" id="prod-mermas" class="field" placeholder="Mermas (opcional)" step="0.01" style="width:120px">
-        <button type="button" id="prod-agregar" class="btn">+ Agregar producción</button>
-      </div>
-      <p id="produccion-error" class="error-msg"></p>` : ''}
-      <table style="margin-top:1rem">
-        <thead><tr><th>Materia prima</th><th>Cantidad usada</th><th>Producto final</th><th>Cantidad producida</th><th>Mermas</th>${editable ? '<th></th>' : ''}</tr></thead>
-        <tbody>
-          ${producciones.length ? producciones.map(p => `
-            <tr>
-              <td>${p.materia_prima_nombre || '—'}</td>
-              <td>${p.materia_prima_cantidad ?? '—'}</td>
-              <td>${p.producto_nombre}</td>
-              <td>${p.cantidad_producida}</td>
-              <td>${p.mermas ?? '—'}</td>
-              ${editable ? `<td><button type="button" class="btn btn-reject" data-del-produccion="${p.id}">Eliminar</button></td>` : ''}
-            </tr>`).join('') : `<tr><td colspan="${editable ? 6 : 5}" class="placeholder">Sin producción registrada este día.</td></tr>`}
-        </tbody>
-      </table>
+      <h3>Entregas de proteínas para producciones de cocina</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Lista fija -- son siempre los mismos traspasos de materia prima a producto elaborado. Solo se cargan las cantidades del día.</p>
+      <form id="proteinas-form">
+        <table>
+          <thead><tr><th>Materia prima</th><th>Cantidad</th><th>Producto final</th><th>Cantidad producida</th><th>Mermas</th></tr></thead>
+          <tbody>
+            ${proteinas.map(p => `
+              <tr data-receta-id="${p.receta_id}">
+                <td>${p.materia_prima_nombre} <span class="placeholder">(${formatUnidad(p.materia_prima_unidad)})</span></td>
+                <td>${editable ? `<input class="field prot-consumida-input" type="number" step="0.01" style="width:90px" value="${p.cantidad_consumida ?? ''}">` : (p.cantidad_consumida ?? '—')}</td>
+                <td>${p.producto_final_nombre ? `${p.producto_final_nombre} <span class="placeholder">(${formatUnidad(p.producto_final_unidad || '')})</span>` : '—'}</td>
+                <td>${editable && p.producto_final_nombre ? `<input class="field prot-producida-input" type="number" step="0.01" style="width:90px" value="${p.cantidad_producida ?? ''}">` : (p.cantidad_producida ?? '—')}</td>
+                <td>${editable ? `<input class="field prot-mermas-input" type="number" step="0.01" style="width:90px" value="${p.mermas ?? ''}">` : (p.mermas ?? '—')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
+        <p id="proteinas-error" class="error-msg"></p>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Registro Producciones Pastelería</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Lista fija de productos de pastelería. Cuántas unidades se hicieron este día.</p>
+      <form id="pasteleria-form">
+        <table>
+          <thead><tr><th>Producto</th><th>Unidad</th><th>Cantidad producida</th></tr></thead>
+          <tbody>
+            ${pasteleria.map(p => `
+              <tr data-producto-key="${p.producto_key}">
+                <td>${p.producto_nombre}</td>
+                <td>${formatUnidad(p.unidad)}</td>
+                <td>${editable ? `<input class="field past-cantidad-input" type="number" step="0.01" style="width:90px" value="${p.cantidad_producida ?? ''}">` : (p.cantidad_producida ?? '—')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
+        <p id="pasteleria-error" class="error-msg"></p>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Registro de Chocolates</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Lista fija de chocolates/coberturas. Cantidad entregada por Bodega y cantidad utilizada ese día.</p>
+      <form id="chocolates-form">
+        <table>
+          <thead><tr><th>Producto</th><th>Unidad</th><th>Cantidad Entregada</th><th>Cant. Utilizada</th></tr></thead>
+          <tbody>
+            ${chocolates.map(c => `
+              <tr data-producto-key="${c.producto_key}">
+                <td>${c.producto_nombre}</td>
+                <td>${formatUnidad(c.unidad)}</td>
+                <td>${editable ? `<input class="field choc-entregada-input" type="number" step="0.01" style="width:90px" value="${c.cantidad_entregada ?? ''}">` : (c.cantidad_entregada ?? '—')}</td>
+                <td>${editable ? `<input class="field choc-utilizada-input" type="number" step="0.01" style="width:90px" value="${c.cantidad_utilizada ?? ''}">` : (c.cantidad_utilizada ?? '—')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
+        <p id="chocolates-error" class="error-msg"></p>
+      </form>
     </div>`;
 
   document.getElementById('mermas-local').addEventListener('change', (e) => {
@@ -1264,50 +1295,73 @@ async function renderMermas(el, s) {
       }
     });
 
-    document.getElementById('prod-agregar')?.addEventListener('click', async () => {
-      const errorEl = document.getElementById('produccion-error');
-      errorEl.textContent = '';
-      const select = document.getElementById('prod-producto-key');
-      const productoKey = select.value;
-      const productoNombre = select.selectedOptions[0]?.dataset.nombre || '';
-      const cantidadProducida = document.getElementById('prod-cantidad-producida').value;
-      if (!productoKey || cantidadProducida === '') {
-        errorEl.textContent = 'Elige el producto final y la cantidad producida.';
-        return;
-      }
-      const materiaNombre = document.getElementById('prod-materia-nombre').value.trim();
-      const materiaCantidad = document.getElementById('prod-materia-cantidad').value;
-      const mermas = document.getElementById('prod-mermas').value;
+    document.getElementById('proteinas-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('proteinas-error');
+      const filas = Array.from(document.querySelectorAll('tr[data-receta-id]'));
       try {
-        await api('/mermas/produccion', {
-          method: 'POST',
-          body: JSON.stringify({
-            local_id: localId,
-            fecha,
-            materia_prima_nombre: materiaNombre || null,
-            materia_prima_cantidad: materiaCantidad !== '' ? parseFloat(materiaCantidad) : null,
-            producto_key: productoKey,
-            producto_nombre: productoNombre,
-            cantidad_producida: parseFloat(cantidadProducida),
-            mermas: mermas !== '' ? parseFloat(mermas) : null,
-          }),
-        });
+        for (const fila of filas) {
+          const consumidaVal = fila.querySelector('.prot-consumida-input')?.value ?? '';
+          const producidaVal = fila.querySelector('.prot-producida-input')?.value ?? '';
+          const mermasVal = fila.querySelector('.prot-mermas-input')?.value ?? '';
+          if (consumidaVal === '' && producidaVal === '' && mermasVal === '') continue;
+          await api('/mermas/proteinas', {
+            method: 'POST',
+            body: JSON.stringify({
+              local_id: localId, receta_id: fila.dataset.recetaId, fecha,
+              cantidad_consumida: consumidaVal !== '' ? parseFloat(consumidaVal) : null,
+              cantidad_producida: producidaVal !== '' ? parseFloat(producidaVal) : null,
+              mermas: mermasVal !== '' ? parseFloat(mermasVal) : null,
+            }),
+          });
+        }
         renderView();
       } catch (err) {
         errorEl.textContent = err.message;
       }
     });
 
-    el.querySelectorAll('[data-del-produccion]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('¿Eliminar este registro de producción?')) return;
-        try {
-          await api(`/mermas/produccion/${btn.dataset.delProduccion}?local_id=${localId}`, { method: 'DELETE' });
-          renderView();
-        } catch (err) {
-          document.getElementById('produccion-error').textContent = err.message;
+    document.getElementById('pasteleria-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('pasteleria-error');
+      const filas = Array.from(document.querySelectorAll('tr[data-producto-key]')).filter(f => f.closest('#pasteleria-form'));
+      try {
+        for (const fila of filas) {
+          const val = fila.querySelector('.past-cantidad-input')?.value ?? '';
+          if (val === '') continue;
+          await api('/mermas/pasteleria', {
+            method: 'POST',
+            body: JSON.stringify({ local_id: localId, producto_key: fila.dataset.productoKey, fecha, cantidad_producida: parseFloat(val) }),
+          });
         }
-      });
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById('chocolates-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('chocolates-error');
+      const filas = Array.from(document.querySelectorAll('tr[data-producto-key]')).filter(f => f.closest('#chocolates-form'));
+      try {
+        for (const fila of filas) {
+          const entregadaVal = fila.querySelector('.choc-entregada-input')?.value ?? '';
+          const utilizadaVal = fila.querySelector('.choc-utilizada-input')?.value ?? '';
+          if (entregadaVal === '' && utilizadaVal === '') continue;
+          await api('/mermas/chocolates', {
+            method: 'POST',
+            body: JSON.stringify({
+              local_id: localId, producto_key: fila.dataset.productoKey, fecha,
+              cantidad_entregada: entregadaVal !== '' ? parseFloat(entregadaVal) : null,
+              cantidad_utilizada: utilizadaVal !== '' ? parseFloat(utilizadaVal) : null,
+            }),
+          });
+        }
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
     });
 
     document.getElementById('planilla-archivo').addEventListener('change', (e) => {

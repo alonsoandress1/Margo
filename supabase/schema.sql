@@ -109,27 +109,76 @@ create table stock_cocina (
     primary key (local_id, ingrediente_key, fecha)
 );
 
--- ── Producción interna de Cocina (traspaso de materia prima a producto
--- elaborado, y producción de pastelería/chocolates) -- ledger append-only
--- por día, igual que bodega_movimientos: cada línea es una tanda producida,
--- correcciones = eliminar la línea errada, no editarla.
--- Cubre dos bloques del Excel real:
---   "Entregas de proteínas para producciones de cocina" (materia_prima_* lleno)
---   "Registro Producciones Pastelería" / "Registro de Chocolates" (materia_prima_* vacío)
-create table produccion_cocina (
-    id                      uuid primary key default gen_random_uuid(),
-    local_id                uuid not null references locales(id) on delete cascade,
-    fecha                   date not null,
-    materia_prima_nombre    text,     -- ej. "Despunte de pulpo" -- null si no aplica (pastelería)
-    materia_prima_cantidad  numeric,
-    producto_key            text not null,  -- ingrediente_key del producto final (debe existir en mermas_seguimiento)
-    producto_nombre         text not null,
-    cantidad_producida      numeric not null,
-    mermas                  numeric,
-    created_by              uuid references usuarios(id),
-    created_at              timestamptz not null default now()
+-- ── Producción interna de Cocina -- copia identica de los 3 bloques del
+-- Excel ("Entregas de proteínas para producciones de cocina", "Registro
+-- Producciones Pastelería", "Registro de Chocolates"). En los tres, la
+-- IDENTIDAD del proceso (que materia prima -> que producto, o que producto
+-- de pastelería/chocolate) es un catalogo FIJO -- nadie la escribe a mano,
+-- solo se cargan las cantidades del dia. Mismo patron que mermas_seguimiento
+-- (catalogo) + stock_cocina (valores diarios).
+
+-- Bloque "Entregas de proteínas para producciones de cocina"
+create table produccion_proteinas_recetas (
+    id                     uuid primary key default gen_random_uuid(),
+    local_id               uuid not null references locales(id) on delete cascade,
+    orden                  integer not null,
+    materia_prima_nombre   text not null,
+    materia_prima_unidad   text not null,
+    producto_final_nombre  text,     -- null si esa materia prima no tiene producto final en el Excel (ej. Almejas Julianas)
+    producto_final_key     text,     -- ingrediente_key en mermas_seguimiento, si el producto final se rastrea ahi
+    producto_final_unidad  text
 );
-create index on produccion_cocina (local_id, fecha);
+create index on produccion_proteinas_recetas (local_id, orden);
+
+create table produccion_proteinas_diaria (
+    receta_id           uuid not null references produccion_proteinas_recetas(id) on delete cascade,
+    fecha                date not null,
+    cantidad_consumida  numeric,
+    cantidad_producida  numeric,
+    mermas              numeric,
+    created_by          uuid references usuarios(id),
+    updated_at          timestamptz not null default now(),
+    primary key (receta_id, fecha)
+);
+
+-- Bloque "Registro Producciones Pastelería"
+create table pasteleria_seguimiento (
+    local_id         uuid not null references locales(id) on delete cascade,
+    producto_key     text not null,  -- ingrediente_key en mermas_seguimiento
+    producto_nombre  text not null,
+    unidad           text not null,
+    primary key (local_id, producto_key)
+);
+
+create table pasteleria_diaria (
+    local_id            uuid not null references locales(id) on delete cascade,
+    producto_key        text not null,
+    fecha               date not null,
+    cantidad_producida  numeric,
+    created_by          uuid references usuarios(id),
+    updated_at          timestamptz not null default now(),
+    primary key (local_id, producto_key, fecha)
+);
+
+-- Bloque "Registro de Chocolates"
+create table chocolates_seguimiento (
+    local_id         uuid not null references locales(id) on delete cascade,
+    producto_key     text not null,  -- ingrediente_key en mermas_seguimiento
+    producto_nombre  text not null,
+    unidad           text not null,
+    primary key (local_id, producto_key)
+);
+
+create table chocolates_diaria (
+    local_id            uuid not null references locales(id) on delete cascade,
+    producto_key        text not null,
+    fecha               date not null,
+    cantidad_entregada  numeric,
+    cantidad_utilizada  numeric,
+    created_by          uuid references usuarios(id),
+    updated_at          timestamptz not null default now(),
+    primary key (local_id, producto_key, fecha)
+);
 
 -- ── Historial de ventas por plato (para el motor de pronostico) ────────
 -- Se llena importando la planilla semanal de mermas (hoja "VENTAS" de

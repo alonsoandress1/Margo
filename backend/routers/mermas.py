@@ -6,7 +6,8 @@ from ..bodega_service import registrar_entrega_cocina
 from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
-from ..schemas import EntregaIn, MermaItem, ProduccionIn, ProduccionOut, StockCocinaIn
+from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, MermaItem, PasteleriaIn, PasteleriaOut,
+                       ProteinaProduccionIn, ProteinaProduccionOut, StockCocinaIn)
 
 router = APIRouter(prefix="/mermas", tags=["mermas"])
 
@@ -39,17 +40,36 @@ def _entregas_por_insumo(db, local_id: str, fecha: str) -> dict[str, float]:
 
 
 def _produccion_por_insumo(db, local_id: str, fecha: str) -> dict[str, float]:
-    """Cantidad producida internamente en Cocina ese dia, por producto final
-    (traspaso de materia prima -> producto elaborado, o produccion de
-    pasteleria/chocolates -- tabla produccion_cocina). Cuando un insumo tiene
-    produccion ese dia, SU Entregas del dia viene de aca (igual que en el
-    Excel real, donde la formula de Entregas de un producto elaborado apunta
-    a la Cantidad Producida, no a una entrega de Bodega)."""
-    rows = db.table("produccion_cocina").select("producto_key,cantidad_producida") \
-        .eq("local_id", local_id).eq("fecha", fecha).execute().data or []
+    """Cantidad producida internamente en Cocina ese dia, por producto final,
+    sumando las 3 fuentes fijas del Excel: proteinas transformadas, pasteleria
+    y chocolates entregados. Cuando un insumo tiene produccion ese dia, SU
+    Entregas del dia (tabla resumen) viene de aca, no de Bodega -- igual que
+    la formula real de la planilla."""
     resultado: dict[str, float] = {}
-    for r in rows:
-        resultado[r["producto_key"]] = resultado.get(r["producto_key"], 0) + r["cantidad_producida"]
+
+    recetas = db.table("produccion_proteinas_recetas").select("id,producto_final_key") \
+        .eq("local_id", local_id).execute().data or []
+    receta_id_a_key = {r["id"]: r["producto_final_key"] for r in recetas if r["producto_final_key"]}
+    if receta_id_a_key:
+        diarias = db.table("produccion_proteinas_diaria").select("receta_id,cantidad_producida") \
+            .eq("fecha", fecha).in_("receta_id", list(receta_id_a_key.keys())).execute().data or []
+        for r in diarias:
+            key = receta_id_a_key.get(r["receta_id"])
+            if key and r["cantidad_producida"]:
+                resultado[key] = resultado.get(key, 0) + r["cantidad_producida"]
+
+    pasteleria = db.table("pasteleria_diaria").select("producto_key,cantidad_producida") \
+        .eq("local_id", local_id).eq("fecha", fecha).execute().data or []
+    for r in pasteleria:
+        if r["cantidad_producida"]:
+            resultado[r["producto_key"]] = resultado.get(r["producto_key"], 0) + r["cantidad_producida"]
+
+    chocolates = db.table("chocolates_diaria").select("producto_key,cantidad_entregada") \
+        .eq("local_id", local_id).eq("fecha", fecha).execute().data or []
+    for r in chocolates:
+        if r["cantidad_entregada"]:
+            resultado[r["producto_key"]] = resultado.get(r["producto_key"], 0) + r["cantidad_entregada"]
+
     return resultado
 
 
@@ -164,41 +184,119 @@ def registrar_entrega(body: EntregaIn, claims: dict = Depends(get_current_claims
     return {"ok": True}
 
 
-@router.get("/produccion", response_model=list[ProduccionOut])
-def listar_produccion(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
-    """Producciones internas de Cocina del dia -- traspaso de materia prima a
-    producto elaborado, y produccion de pasteleria/chocolates."""
+def _requiere_editor(claims: dict, accion: str):
+    if claims["rol"] == "observador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"El rol observador no puede {accion}")
+
+
+@router.get("/proteinas", response_model=list[ProteinaProduccionOut])
+def listar_proteinas(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
+    """Bloque fijo 'Entregas de proteínas para producciones de cocina' --
+    la lista de pares materia prima -> producto final es fija (catálogo
+    produccion_proteinas_recetas), solo se cargan cantidades del día."""
     verificar_acceso_local(claims, local_id)
     fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
     db = get_db()
-    rows = db.table("produccion_cocina").select("*") \
-        .eq("local_id", local_id).eq("fecha", fecha).order("created_at").execute().data or []
-    return rows
+    recetas = db.table("produccion_proteinas_recetas").select("*") \
+        .eq("local_id", local_id).order("orden").execute().data or []
+    if not recetas:
+        return []
+    diarias = db.table("produccion_proteinas_diaria").select("*") \
+        .eq("fecha", fecha).in_("receta_id", [r["id"] for r in recetas]).execute().data or []
+    por_receta = {d["receta_id"]: d for d in diarias}
+    return [
+        ProteinaProduccionOut(
+            receta_id=r["id"], orden=r["orden"],
+            materia_prima_nombre=r["materia_prima_nombre"], materia_prima_unidad=r["materia_prima_unidad"],
+            producto_final_nombre=r["producto_final_nombre"], producto_final_unidad=r["producto_final_unidad"],
+            cantidad_consumida=(por_receta.get(r["id"]) or {}).get("cantidad_consumida"),
+            cantidad_producida=(por_receta.get(r["id"]) or {}).get("cantidad_producida"),
+            mermas=(por_receta.get(r["id"]) or {}).get("mermas"),
+        )
+        for r in recetas
+    ]
 
 
-@router.post("/produccion", response_model=ProduccionOut, status_code=201)
-def registrar_produccion(body: ProduccionIn, claims: dict = Depends(get_current_claims)):
-    if claims["rol"] == "observador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede registrar producción")
+@router.post("/proteinas", status_code=201)
+def registrar_proteina(body: ProteinaProduccionIn, claims: dict = Depends(get_current_claims)):
+    _requiere_editor(claims, "registrar producción de proteínas")
     verificar_acceso_local(claims, body.local_id)
     db = get_db()
-    res = db.table("produccion_cocina").insert({
-        "local_id": body.local_id, "fecha": body.fecha,
-        "materia_prima_nombre": body.materia_prima_nombre, "materia_prima_cantidad": body.materia_prima_cantidad,
-        "producto_key": body.producto_key, "producto_nombre": body.producto_nombre,
-        "cantidad_producida": body.cantidad_producida, "mermas": body.mermas,
-        "created_by": claims["sub"],
-    }).execute()
-    return res.data[0]
+    db.table("produccion_proteinas_diaria").upsert({
+        "receta_id": body.receta_id, "fecha": body.fecha,
+        "cantidad_consumida": body.cantidad_consumida, "cantidad_producida": body.cantidad_producida,
+        "mermas": body.mermas, "created_by": claims["sub"],
+    }, on_conflict="receta_id,fecha").execute()
+    return {"ok": True}
 
 
-@router.delete("/produccion/{produccion_id}", status_code=204)
-def eliminar_produccion(produccion_id: str, local_id: str, claims: dict = Depends(get_current_claims)):
-    if claims["rol"] == "observador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "El rol observador no puede eliminar producción")
+@router.get("/pasteleria", response_model=list[PasteleriaOut])
+def listar_pasteleria(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
+    """Bloque fijo 'Registro Producciones Pastelería' -- lista fija de
+    productos (catálogo pasteleria_seguimiento), solo se carga la cantidad
+    producida del día."""
     verificar_acceso_local(claims, local_id)
+    fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
     db = get_db()
-    existente = db.table("produccion_cocina").select("id").eq("id", produccion_id).eq("local_id", local_id).execute()
-    if not existente.data:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Registro de producción no encontrado")
-    db.table("produccion_cocina").delete().eq("id", produccion_id).execute()
+    seguimiento = db.table("pasteleria_seguimiento").select("*").eq("local_id", local_id).execute().data or []
+    if not seguimiento:
+        return []
+    diarias = db.table("pasteleria_diaria").select("*") \
+        .eq("local_id", local_id).eq("fecha", fecha).execute().data or []
+    por_producto = {d["producto_key"]: d for d in diarias}
+    return [
+        PasteleriaOut(
+            producto_key=s["producto_key"], producto_nombre=s["producto_nombre"], unidad=s["unidad"],
+            cantidad_producida=(por_producto.get(s["producto_key"]) or {}).get("cantidad_producida"),
+        )
+        for s in seguimiento
+    ]
+
+
+@router.post("/pasteleria", status_code=201)
+def registrar_pasteleria(body: PasteleriaIn, claims: dict = Depends(get_current_claims)):
+    _requiere_editor(claims, "registrar producción de pastelería")
+    verificar_acceso_local(claims, body.local_id)
+    db = get_db()
+    db.table("pasteleria_diaria").upsert({
+        "local_id": body.local_id, "producto_key": body.producto_key, "fecha": body.fecha,
+        "cantidad_producida": body.cantidad_producida, "created_by": claims["sub"],
+    }, on_conflict="local_id,producto_key,fecha").execute()
+    return {"ok": True}
+
+
+@router.get("/chocolates", response_model=list[ChocolateOut])
+def listar_chocolates(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
+    """Bloque fijo 'Registro de Chocolates' -- lista fija de productos
+    (catálogo chocolates_seguimiento), solo se cargan Cantidad Entregada y
+    Cantidad Utilizada del día."""
+    verificar_acceso_local(claims, local_id)
+    fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
+    db = get_db()
+    seguimiento = db.table("chocolates_seguimiento").select("*").eq("local_id", local_id).execute().data or []
+    if not seguimiento:
+        return []
+    diarias = db.table("chocolates_diaria").select("*") \
+        .eq("local_id", local_id).eq("fecha", fecha).execute().data or []
+    por_producto = {d["producto_key"]: d for d in diarias}
+    return [
+        ChocolateOut(
+            producto_key=s["producto_key"], producto_nombre=s["producto_nombre"], unidad=s["unidad"],
+            cantidad_entregada=(por_producto.get(s["producto_key"]) or {}).get("cantidad_entregada"),
+            cantidad_utilizada=(por_producto.get(s["producto_key"]) or {}).get("cantidad_utilizada"),
+        )
+        for s in seguimiento
+    ]
+
+
+@router.post("/chocolates", status_code=201)
+def registrar_chocolate(body: ChocolateIn, claims: dict = Depends(get_current_claims)):
+    _requiere_editor(claims, "registrar chocolates")
+    verificar_acceso_local(claims, body.local_id)
+    db = get_db()
+    db.table("chocolates_diaria").upsert({
+        "local_id": body.local_id, "producto_key": body.producto_key, "fecha": body.fecha,
+        "cantidad_entregada": body.cantidad_entregada, "cantidad_utilizada": body.cantidad_utilizada,
+        "created_by": claims["sub"],
+    }, on_conflict="local_id,producto_key,fecha").execute()
+    return {"ok": True}
