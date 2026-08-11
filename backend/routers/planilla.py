@@ -172,6 +172,7 @@ def importar_ventas_tcpos(_: None = Depends(_verificar_cron_secret)):
 
     ayer = date.today() - timedelta(days=1)
     ayer_iso = ayer.strftime("%Y-%m-%dT00:00:00")
+    fecha = ayer.isoformat()
 
     try:
         session = TcposWebReportSession(
@@ -196,16 +197,27 @@ def importar_ventas_tcpos(_: None = Depends(_verificar_cron_secret)):
     except Exception as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Error al traer el reporte de TCPOS: {e}")
 
+    # Respaldo del PDF original en Supabase Storage, nombrado por fecha --
+    # si falla no debe tirar abajo el guardado de las ventas (lo importante
+    # ya se descargo y se va a parsear igual).
+    pdf_guardado = True
+    try:
+        db.storage.from_("reportes-ventas").upload(
+            f"{local_id}/{fecha}-ArticleAnalysis.pdf", pdf_bytes,
+            file_options={"content-type": "application/pdf", "upsert": "true"},
+        )
+    except Exception:
+        pdf_guardado = False
+
     filas = parsear_article_analysis(pdf_bytes)
 
     platos = db.table("platos").select("id,sku").eq("local_id", local_id).execute().data or []
     plato_id_por_sku = {p["sku"]: p["id"] for p in platos}
 
-    fecha = ayer.isoformat()
     for f in filas:
         db.table("ventas_historial").upsert({
             "local_id": local_id, "fecha": fecha, "plato_id": plato_id_por_sku.get(f["codigo"]),
             "plato_sku": f["codigo"], "plato_nombre": f["nombre"], "cantidad": f["cantidad"],
         }, on_conflict="local_id,fecha,plato_sku").execute()
 
-    return {"fecha": fecha, "ventas_guardadas": len(filas)}
+    return {"fecha": fecha, "ventas_guardadas": len(filas), "pdf_guardado": pdf_guardado}
