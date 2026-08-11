@@ -2056,9 +2056,13 @@ async function renderPlanillaCompras(el, s) {
             <input type="number" id="pc-venta-periodo" class="field" style="width:100%" value="${resumen.venta_periodo ?? ''}" placeholder="Ingresa la venta del mes">
           </div>
           <div style="display:flex;align-items:flex-end">
-            <button type="button" id="pc-guardar-venta" class="btn">Guardar</button>
+            <button type="button" id="pc-traer-tcpos" class="btn">Traer de TCPOS</button>
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button type="button" id="pc-guardar-venta" class="btn btn-primary">Guardar</button>
           </div>
         </div>
+        <p id="pc-tcpos-info" class="placeholder" style="margin-bottom:.5rem"></p>
         <p>
           Costo Venta (Alimentos + Barra): <strong>$${Math.round(resumen.costo_venta || 0).toLocaleString('es-CL')}</strong>
           &nbsp;·&nbsp; Venta Neta: <strong>${resumen.venta_neta != null ? '$' + Math.round(resumen.venta_neta).toLocaleString('es-CL') : '—'}</strong>
@@ -2114,6 +2118,22 @@ async function renderPlanillaCompras(el, s) {
   });
 
   document.getElementById('pc-catalogo').addEventListener('click', showCatalogoProveedoresTipo);
+
+  document.getElementById('pc-traer-tcpos')?.addEventListener('click', async () => {
+    const errorEl = document.getElementById('pc-error');
+    const infoEl = document.getElementById('pc-tcpos-info');
+    errorEl.textContent = '';
+    infoEl.textContent = 'Consultando TCPOS…';
+    const [anio, mes] = state.planillaMes.split('-').map(Number);
+    try {
+      const res = await api(`/planilla-compras/venta-periodo/tcpos?anio=${anio}&mes=${mes}`);
+      document.getElementById('pc-venta-periodo').value = res.venta_periodo;
+      infoEl.textContent = `TCPOS (Cash to deposit): $${Math.round(res.venta_periodo).toLocaleString('es-CL')} -- del ${res.desde} al ${res.hasta}. Revisa y hace clic en Guardar.`;
+    } catch (err) {
+      infoEl.textContent = '';
+      errorEl.textContent = err.message;
+    }
+  });
 
   document.getElementById('pc-guardar-venta')?.addEventListener('click', async () => {
     const errorEl = document.getElementById('pc-error');

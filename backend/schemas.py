@@ -496,6 +496,14 @@ class VentaPeriodoIn(BaseModel):
     venta_periodo: float
 
 
+class VentaPeriodoTcposOut(BaseModel):
+    anio: int
+    mes: int
+    venta_periodo: float
+    desde: str
+    hasta: str
+
+
 class ProveedorTipoOut(BaseModel):
     odoo_partner_id: int
     proveedor_nombre: str

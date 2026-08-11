@@ -43,3 +43,35 @@ def parsear_article_analysis(pdf_bytes: bytes) -> list[dict]:
                         continue
                     filas.append({"codigo": codigo, "nombre": nombre, "cantidad": cantidad})
     return filas
+
+
+def _monto_cl_a_float(texto: str) -> float:
+    """'90.742.367,00' (miles con punto, decimales con coma) -> 90742367.0"""
+    return float(texto.replace(".", "").replace(",", ".").replace("\n", ""))
+
+
+def parsear_financial_overview_cash_to_deposit(pdf_bytes: bytes) -> float:
+    """Reporte "Financial overview" de TCPOS -- extrae "Cash to deposit" de
+    la fila Total de la tabla "Tills" (columnas: Shop/Till, Gross, Tip &
+    Service, Discount, Net, Credit card, Voucher, Digital, Card, Debitor,
+    Cheque, Cash, Other prepaym., Cash prepaym., Cash to deposit).
+
+    No se indexa por posicion de columna -- el PDF desalinea la fila Total
+    respecto al header (una celda de menos al principio). "Cash to
+    deposit" es siempre el ULTIMO valor no vacio de la fila Total, eso es
+    estable independiente del desalineo -- validado contra un reporte
+    real (fila Total con 16 columnas, el ultimo valor no vacio coincidia
+    con el "Cash to deposit" de la unica fila de datos)."""
+    with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+        for pagina in pdf.pages:
+            for tabla in pagina.extract_tables():
+                if not tabla or not tabla[0] or tabla[0][0] != "Tills":
+                    continue
+                fila_total = next((f for f in tabla if f and f[0] == "Total"), None)
+                if not fila_total:
+                    continue
+                valores = [c for c in fila_total if c not in (None, "")]
+                if len(valores) < 2:
+                    continue
+                return _monto_cl_a_float(valores[-1])
+    raise ValueError('No se encontró la fila "Total" de la tabla "Tills" en el reporte Financial overview')

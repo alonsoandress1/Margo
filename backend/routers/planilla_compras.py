@@ -11,6 +11,7 @@ mas adelante agregando el company_id correspondiente."""
 import os
 import sys
 from calendar import monthrange
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,15 +23,24 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
+from tcpos_connector import TcposWebReportSession, construir_parametros  # noqa: E402
 
 from ..schemas import (PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen, ProveedorTipoIn,
-                       ProveedorTipoOut, VentaPeriodoIn)
+                       ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoTcposOut)
+from ..tcpos_report_parser import parsear_financial_overview_cash_to_deposit
 
 router = APIRouter(prefix="/planilla-compras", tags=["planilla-compras"])
 
 COMPANY_ID_DONA_DELFINA = 2
 TIPOS_VALIDOS = {"AL", "BA", "GF", "OT", "AS"}
 TIPOS_COSTO_VENTA = {"AL", "BA"}  # igual que el Excel real: Costo Venta = N6+O6 (solo Alimentos + Barra)
+
+# Reporte "Financial overview" de TCPOS -- confirmados via el endpoint de
+# descubrimiento (ya borrado). Mismo outlet que el import diario de ventas
+# (planilla.py) -- "1001 Margo Isidora" == Doña Delfina en este sistema.
+_TCPOS_REPORT_FORM_NAME = "FinancialOverview1Form"
+_TCPOS_REPORT_ASSEMBLY_NAME = "Report.FinancialOverview1"
+_TCPOS_OUTLET_ID_MARGO_ISIDORA = 13
 
 
 def _require_admin(claims: dict):
@@ -108,14 +118,60 @@ def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
 
 @router.put("/venta-periodo", status_code=status.HTTP_204_NO_CONTENT)
 def fijar_venta_periodo(body: VentaPeriodoIn, claims: dict = Depends(get_current_claims)):
-    """Venta del periodo ($) del mes -- se ingresa a mano, igual que en el
-    Excel real (no sale de TCPOS ni de ningun otro sistema todavia)."""
+    """Venta del periodo ($) del mes -- editable a mano (igual que en el
+    Excel real), y tambien se puede precargar desde TCPOS con
+    GET /venta-periodo/tcpos antes de guardar."""
     _require_admin(claims)
     db = get_db()
     db.table("planilla_compras_venta_periodo").upsert({
         "anio": body.anio, "mes": body.mes, "venta_periodo": body.venta_periodo,
         "actualizado_por": claims["sub"],
     }, on_conflict="anio,mes").execute()
+
+
+@router.get("/venta-periodo/tcpos", response_model=VentaPeriodoTcposOut)
+def obtener_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """Trae la Venta del Periodo real desde TCPOS -- reporte "Financial
+    overview", "Cash to deposit" de la fila Total (asi lo definio el
+    usuario: es el monto vendido). Rango: dia 1 del mes hasta AYER como
+    maximo -- nunca hasta hoy, el dia en curso todavia no cierra (mismo
+    criterio que el import diario de ventas en planilla.py). Solo trae el
+    valor, no lo guarda -- el admin confirma con PUT /venta-periodo."""
+    _require_admin(claims)
+    ultimo_dia_mes = monthrange(anio, mes)[1]
+    hasta = date(anio, mes, ultimo_dia_mes)
+    ayer = date.today() - timedelta(days=1)
+    if hasta > ayer:
+        hasta = ayer
+    desde = date(anio, mes, 1)
+    if desde > hasta:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Todavía no hay ventas cerradas para ese mes")
+
+    try:
+        session = TcposWebReportSession(
+            os.environ["TCPOS_URL"], os.environ["TCPOS_OPERATOR_CODE"], os.environ["TCPOS_PASSWORD"],
+        )
+    except KeyError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
+
+    try:
+        formulario = session.formulario_de_parametros(_TCPOS_REPORT_FORM_NAME, _TCPOS_REPORT_ASSEMBLY_NAME)
+        overrides = {
+            "edDateFrom": f"{desde.isoformat()}T00:00:00", "edDateTo": f"{hasta.isoformat()}T00:00:00",
+            "rbSolarDate": True, "clbShops": [_TCPOS_OUTLET_ID_MARGO_ISIDORA], "ckWithdrawalDeposit": True,
+        }
+        parametros = construir_parametros(formulario, overrides)
+        resultado = session.ejecutar_reporte(_TCPOS_REPORT_FORM_NAME, _TCPOS_REPORT_ASSEMBLY_NAME, parametros)
+        pdf_url = resultado.get("pdfUrl") if isinstance(resultado, dict) else None
+        if not pdf_url:
+            raise RuntimeError(f"TCPOS no devolvió un pdfUrl válido: {resultado}")
+        pdf_bytes = session.descargar_archivo(pdf_url)
+        venta_periodo = parsear_financial_overview_cash_to_deposit(pdf_bytes)
+    except Exception as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Error al traer la venta desde TCPOS: {e}")
+
+    return VentaPeriodoTcposOut(anio=anio, mes=mes, venta_periodo=venta_periodo,
+                                 desde=desde.isoformat(), hasta=hasta.isoformat())
 
 
 @router.get("/proveedores", response_model=list[ProveedorTipoOut])

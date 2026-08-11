@@ -4,10 +4,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from fastapi.responses import PlainTextResponse
 
 from ..db import get_db
-from ..deps import get_current_claims
 from ..tcpos_report_parser import parsear_article_analysis
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -22,59 +20,6 @@ router = APIRouter(prefix="/planilla", tags=["planilla"])
 _TCPOS_REPORT_FORM_NAME = "ArticleAnalysisForm"
 _TCPOS_REPORT_ASSEMBLY_NAME = "Report.ArticleAnalysis"
 _TCPOS_OUTLET_ID_MARGO_ISIDORA = 13  # "1001 Margo Isidora" == local "Doña Delfina" en este sistema
-
-
-@router.get("/tcpos-descubrir")
-def tcpos_descubrir(reporte: str | None = None, ejecutar: bool = False, desde: str | None = None,
-                     hasta: str | None = None, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- solo para descubrir el nombre/parametros exactos de un
-    reporte de TCPOS (ej. 'Financial Overview') usando las credenciales de
-    servicio que ya viven en Render, sin que nadie las escriba/vea en el
-    chat. Admin-only, solo lectura contra TCPOS. Borrar una vez que se
-    confirme el reporte de venta del periodo."""
-    if claims["rol"] != "administrador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
-    import json as _json
-    import traceback
-    try:
-        session = TcposWebReportSession(
-            os.environ["TCPOS_URL"], os.environ["TCPOS_OPERATOR_CODE"], os.environ["TCPOS_PASSWORD"],
-        )
-        reportes_resp = session.listar_reportes()
-        lista_reportes = reportes_resp.get("reports", []) if isinstance(reportes_resp, dict) else reportes_resp
-        if not reporte:
-            return PlainTextResponse(_json.dumps({"reportes": lista_reportes}, default=str, ensure_ascii=False))
-        match = next((r for r in lista_reportes if r.get("displayName", "").strip().lower() == reporte.lower()), None)
-        if not match:
-            return PlainTextResponse(f"No se encontró un reporte con displayName='{reporte}'", status_code=404)
-        formulario = session.formulario_de_parametros(match["formName"], match["assemblyName"])
-        if not ejecutar:
-            return PlainTextResponse(_json.dumps({"match": match, "formulario": formulario}, default=str, ensure_ascii=False))
-
-        overrides = {
-            "edDateFrom": f"{desde}T00:00:00", "edDateTo": f"{hasta}T00:00:00",
-            "rbSolarDate": True, "clbShops": [_TCPOS_OUTLET_ID_MARGO_ISIDORA],
-            "ckWithdrawalDeposit": True,
-        }
-        parametros = construir_parametros(formulario, overrides)
-        resultado = session.ejecutar_reporte(match["formName"], match["assemblyName"], parametros)
-        pdf_url = resultado.get("pdfUrl") if isinstance(resultado, dict) else None
-        if not pdf_url:
-            return PlainTextResponse(_json.dumps({"resultado": resultado}, default=str, ensure_ascii=False))
-        pdf_bytes = session.descargar_archivo(pdf_url)
-
-        import pdfplumber
-        from io import BytesIO
-        salida = []
-        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-            for i, pagina in enumerate(pdf.pages):
-                for j, tabla in enumerate(pagina.extract_tables()):
-                    salida.append(f"--- pagina {i} tabla {j} ---")
-                    for fila in tabla:
-                        salida.append(str(fila))
-        return PlainTextResponse("\n".join(salida))
-    except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
 
 
 def _verificar_cron_secret(x_cron_secret: str | None = Header(default=None)):
