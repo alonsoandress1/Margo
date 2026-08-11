@@ -109,6 +109,28 @@ create table stock_cocina (
     primary key (local_id, ingrediente_key, fecha)
 );
 
+-- ── Producción interna de Cocina (traspaso de materia prima a producto
+-- elaborado, y producción de pastelería/chocolates) -- ledger append-only
+-- por día, igual que bodega_movimientos: cada línea es una tanda producida,
+-- correcciones = eliminar la línea errada, no editarla.
+-- Cubre dos bloques del Excel real:
+--   "Entregas de proteínas para producciones de cocina" (materia_prima_* lleno)
+--   "Registro Producciones Pastelería" / "Registro de Chocolates" (materia_prima_* vacío)
+create table produccion_cocina (
+    id                      uuid primary key default gen_random_uuid(),
+    local_id                uuid not null references locales(id) on delete cascade,
+    fecha                   date not null,
+    materia_prima_nombre    text,     -- ej. "Despunte de pulpo" -- null si no aplica (pastelería)
+    materia_prima_cantidad  numeric,
+    producto_key            text not null,  -- ingrediente_key del producto final (debe existir en mermas_seguimiento)
+    producto_nombre         text not null,
+    cantidad_producida      numeric not null,
+    mermas                  numeric,
+    created_by              uuid references usuarios(id),
+    created_at              timestamptz not null default now()
+);
+create index on produccion_cocina (local_id, fecha);
+
 -- ── Historial de ventas por plato (para el motor de pronostico) ────────
 -- Se llena importando la planilla semanal de mermas (hoja "VENTAS" de
 -- cada dia) -- es la base de datos que Fase B (pronostico a 3 dias)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 
+from ..bodega_service import registrar_entrega_cocina
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..planilla_parser import hojas_disponibles, parsear_dia
@@ -121,24 +122,10 @@ def confirmar(body: PlanillaConfirmarIn, claims: dict = Depends(get_current_clai
             }, on_conflict="local_id,ingrediente_key,fecha").execute()
             insumos_guardados += 1
         if i.entrega_cantidad and i.entrega_cantidad > 0:
-            # bodega_movimientos es un libro append-only -- si el mismo dia se
-            # reimporta (ej. corrigiendo un dato), no se debe duplicar el
-            # egreso, se reemplaza el que ya existia para ese dia/insumo.
-            ya = db.table("bodega_movimientos").select("id") \
-                .eq("local_id", body.local_id).eq("ingrediente_key", i.ingrediente_key) \
-                .eq("origen", "entrega_cocina") \
-                .gte("fecha", f"{body.fecha}T00:00:00+00:00").lt("fecha", f"{body.fecha}T23:59:59.999999+00:00") \
-                .execute()
-            nota = f"Entrega a Cocina -- importado de planilla ({body.fecha})"
-            if ya.data:
-                db.table("bodega_movimientos").update({"cantidad": i.entrega_cantidad, "nota": nota}) \
-                    .eq("id", ya.data[0]["id"]).execute()
-            else:
-                db.table("bodega_movimientos").insert({
-                    "local_id": body.local_id, "ingrediente_key": i.ingrediente_key, "tipo": "egreso",
-                    "cantidad": i.entrega_cantidad, "origen": "entrega_cocina", "nota": nota,
-                    "fecha": f"{body.fecha}T00:00:00+00:00", "created_by": claims["sub"],
-                }).execute()
+            registrar_entrega_cocina(
+                db, body.local_id, i.ingrediente_key, body.fecha, i.entrega_cantidad,
+                created_by=claims["sub"], nota=f"Entrega a Cocina -- importado de planilla ({body.fecha})",
+            )
             entregas_registradas += 1
 
     return PlanillaConfirmarOut(

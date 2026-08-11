@@ -69,6 +69,7 @@ class StockCocinaIn(BaseModel):
     fecha: str | None = None  # default: ayer
     cantidad_informada: float
     mermas_total: float | None = None
+    entrega: float | None = None  # solo si el insumo se entrega directo de Bodega (no producido en Cocina)
 
 
 class MermaItem(BaseModel):
@@ -81,8 +82,32 @@ class MermaItem(BaseModel):
     fecha: str | None = None
     stock_inicial: float = 0
     entregas: float = 0
+    entregas_editable: bool = True  # false si las Entregas del dia vienen de Produccion de Cocina
     ventas: float = 0
     precio: float = 0
+
+
+class ProduccionIn(BaseModel):
+    local_id: str
+    fecha: str
+    materia_prima_nombre: str | None = None
+    materia_prima_cantidad: float | None = None
+    producto_key: str
+    producto_nombre: str
+    cantidad_producida: float
+    mermas: float | None = None
+
+
+class ProduccionOut(BaseModel):
+    id: str
+    local_id: str
+    fecha: str
+    materia_prima_nombre: str | None = None
+    materia_prima_cantidad: float | None = None
+    producto_key: str
+    producto_nombre: str
+    cantidad_producida: float
+    mermas: float | None = None
 
 
 class ProveedorOut(BaseModel):

@@ -1032,6 +1032,7 @@ async function renderMermas(el, s) {
   const fecha = state.mermasFecha || ayerIso;
   state.mermasFecha = fecha;
   const items = await api(`/mermas?local_id=${localId}&fecha=${fecha}`);
+  const producciones = await api(`/mermas/produccion?local_id=${localId}&fecha=${fecha}`);
 
   el.innerHTML = `
     <h2>Mermas — Stock de Cocina</h2>
@@ -1112,7 +1113,11 @@ async function renderMermas(el, s) {
                 <td>${i.nombre}</td>
                 <td>${formatUnidad(i.unidad)}</td>
                 <td>${i.stock_inicial}</td>
-                <td>${i.entregas}</td>
+                <td>
+                  ${editable && i.entregas_editable
+                    ? `<input class="field merma-entregas-input" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.entregas ?? ''}">`
+                    : `${i.entregas}${!i.entregas_editable ? ' <span class="placeholder" title="Viene de Producción de Cocina">📦</span>' : ''}`}
+                </td>
                 <td>${i.ventas}</td>
                 <td>
                   ${editable
@@ -1133,6 +1138,37 @@ async function renderMermas(el, s) {
         ${editable ? `<br><button type="submit" class="btn btn-primary">Guardar (${fecha})</button>` : ''}
         <p id="mermas-error" class="error-msg"></p>
       </form>
+    </div>
+    <div class="card">
+      <h3>Producción de Cocina</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Traspaso de materia prima a producto elaborado (ej. Despunte de pulpo → Empanadas de pulpo) y producción de pastelería/chocolates (ej. cuántos Brownie Nutella se hicieron). Lo producido pasa a ser la Entrega del insumo final ese día.</p>
+      ${editable ? `
+      <div class="item-row" style="flex-wrap:wrap">
+        <input type="text" id="prod-materia-nombre" class="field" placeholder="Materia prima (opcional, ej. Despunte de pulpo)" style="flex:2;min-width:200px">
+        <input type="number" id="prod-materia-cantidad" class="field" placeholder="Cantidad" step="0.01" style="width:110px">
+        <select id="prod-producto-key" class="field" style="flex:2;min-width:200px">
+          <option value="">-- producto final --</option>
+          ${items.map(i => `<option value="${i.ingrediente_key}" data-nombre="${i.nombre}">${i.nombre}</option>`).join('')}
+        </select>
+        <input type="number" id="prod-cantidad-producida" class="field" placeholder="Cantidad producida" step="0.01" style="width:130px">
+        <input type="number" id="prod-mermas" class="field" placeholder="Mermas (opcional)" step="0.01" style="width:120px">
+        <button type="button" id="prod-agregar" class="btn">+ Agregar producción</button>
+      </div>
+      <p id="produccion-error" class="error-msg"></p>` : ''}
+      <table style="margin-top:1rem">
+        <thead><tr><th>Materia prima</th><th>Cantidad usada</th><th>Producto final</th><th>Cantidad producida</th><th>Mermas</th>${editable ? '<th></th>' : ''}</tr></thead>
+        <tbody>
+          ${producciones.length ? producciones.map(p => `
+            <tr>
+              <td>${p.materia_prima_nombre || '—'}</td>
+              <td>${p.materia_prima_cantidad ?? '—'}</td>
+              <td>${p.producto_nombre}</td>
+              <td>${p.cantidad_producida}</td>
+              <td>${p.mermas ?? '—'}</td>
+              ${editable ? `<td><button type="button" class="btn btn-reject" data-del-produccion="${p.id}">Eliminar</button></td>` : ''}
+            </tr>`).join('') : `<tr><td colspan="${editable ? 6 : 5}" class="placeholder">Sin producción registrada este día.</td></tr>`}
+        </tbody>
+      </table>
     </div>`;
 
   document.getElementById('mermas-local').addEventListener('change', (e) => {
@@ -1146,11 +1182,12 @@ async function renderMermas(el, s) {
   });
 
   if (editable) {
-    el.querySelectorAll('.merma-mermas-input, .merma-informado-input').forEach(inp => {
+    el.querySelectorAll('.merma-mermas-input, .merma-informado-input, .merma-entregas-input').forEach(inp => {
       inp.addEventListener('input', () => {
         const fila = inp.closest('tr[data-row-key]');
         const inicial = parseFloat(fila.dataset.inicial) || 0;
-        const entregas = parseFloat(fila.dataset.entregas) || 0;
+        const entregasInput = fila.querySelector('.merma-entregas-input');
+        const entregas = entregasInput ? (parseFloat(entregasInput.value) || 0) : (parseFloat(fila.dataset.entregas) || 0);
         const ventas = parseFloat(fila.dataset.ventas) || 0;
         const mermas = parseFloat(fila.querySelector('.merma-mermas-input').value) || 0;
         const informadoStr = fila.querySelector('.merma-informado-input').value;
@@ -1170,7 +1207,9 @@ async function renderMermas(el, s) {
           const key = fila.dataset.rowKey;
           const informadoVal = fila.querySelector('.merma-informado-input').value;
           const mermasVal = fila.querySelector('.merma-mermas-input').value;
-          if (informadoVal === '' && mermasVal === '') continue;
+          const entregasInput = fila.querySelector('.merma-entregas-input');
+          const entregasVal = entregasInput ? entregasInput.value : '';
+          if (informadoVal === '' && mermasVal === '' && entregasVal === '') continue;
           const original = items.find(i => i.ingrediente_key === key);
           await api('/mermas', {
             method: 'POST',
@@ -1180,6 +1219,7 @@ async function renderMermas(el, s) {
               fecha,
               cantidad_informada: informadoVal !== '' ? parseFloat(informadoVal) : (original?.cantidad_informada ?? 0),
               mermas_total: mermasVal !== '' ? parseFloat(mermasVal) : (original?.mermas_total ?? null),
+              entrega: entregasInput ? (entregasVal !== '' ? parseFloat(entregasVal) : (original?.entregas ?? 0)) : null,
             }),
           });
         }
@@ -1187,6 +1227,52 @@ async function renderMermas(el, s) {
       } catch (err) {
         errorEl.textContent = err.message;
       }
+    });
+
+    document.getElementById('prod-agregar')?.addEventListener('click', async () => {
+      const errorEl = document.getElementById('produccion-error');
+      errorEl.textContent = '';
+      const select = document.getElementById('prod-producto-key');
+      const productoKey = select.value;
+      const productoNombre = select.selectedOptions[0]?.dataset.nombre || '';
+      const cantidadProducida = document.getElementById('prod-cantidad-producida').value;
+      if (!productoKey || cantidadProducida === '') {
+        errorEl.textContent = 'Elige el producto final y la cantidad producida.';
+        return;
+      }
+      const materiaNombre = document.getElementById('prod-materia-nombre').value.trim();
+      const materiaCantidad = document.getElementById('prod-materia-cantidad').value;
+      const mermas = document.getElementById('prod-mermas').value;
+      try {
+        await api('/mermas/produccion', {
+          method: 'POST',
+          body: JSON.stringify({
+            local_id: localId,
+            fecha,
+            materia_prima_nombre: materiaNombre || null,
+            materia_prima_cantidad: materiaCantidad !== '' ? parseFloat(materiaCantidad) : null,
+            producto_key: productoKey,
+            producto_nombre: productoNombre,
+            cantidad_producida: parseFloat(cantidadProducida),
+            mermas: mermas !== '' ? parseFloat(mermas) : null,
+          }),
+        });
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    el.querySelectorAll('[data-del-produccion]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este registro de producción?')) return;
+        try {
+          await api(`/mermas/produccion/${btn.dataset.delProduccion}?local_id=${localId}`, { method: 'DELETE' });
+          renderView();
+        } catch (err) {
+          document.getElementById('produccion-error').textContent = err.message;
+        }
+      });
     });
 
     document.getElementById('planilla-archivo').addEventListener('change', (e) => {
