@@ -1,0 +1,28 @@
+name: Importar ventas diarias (TCPOS)
+
+# Corre todos los dias a las 2am hora de Chile. GitHub Actions solo agenda
+# en UTC -- Chile continental esta en UTC-4 (horario de invierno) la mayor
+# parte del año; si aplica horario de verano (UTC-3) en algun periodo, esto
+# corre 1 hora mas tarde (3am) durante esas semanas. Ajustar el cron de
+# abajo si hace falta mas precision.
+"on":
+  schedule:
+    - cron: "0 6 * * *"  # 2am Chile (UTC-4) = 06:00 UTC
+  workflow_dispatch: {}  # permite dispararlo a mano desde la pestaña Actions de GitHub
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar al endpoint de importacion de ventas
+        run: |
+          status=$(curl -s -o /tmp/respuesta.json -w "%{http_code}" -X POST \
+            "https://margo-compras-api.onrender.com/planilla/importar-ventas-tcpos" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}")
+          echo "Respuesta del servidor:"
+          cat /tmp/respuesta.json
+          echo ""
+          if [ "$status" -ge 300 ]; then
+            echo "Fallo con status $status"
+            exit 1
+          fi
