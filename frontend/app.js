@@ -26,6 +26,7 @@ let state = {
   planillaResumen: null,
   dteCola: [],
   dteColaTimer: null,
+  dteFiltroFolio: '',
 };
 
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
@@ -1752,8 +1753,6 @@ async function renderFacturasDte(el, s) {
   state.dteDesde = desde;
   state.dteHasta = hasta;
 
-  const dtes = state.dteLista || [];
-
   el.innerHTML = `
     <h2>Ingreso de Facturas</h2>
     <p class="placeholder" style="margin-bottom:1.25rem">Documentos que Odoo ya recibió del SII pero todavía no tienen una factura borrador creada. Revisa los productos de cada línea y crea la factura -- nunca se crea un producto nuevo, solo se conecta con uno que ya existe.</p>
@@ -1770,11 +1769,48 @@ async function renderFacturasDte(el, s) {
         <button type="button" id="dte-buscar" class="btn btn-primary">Buscar</button>
       </div>
     </div>
+    ${state.dteLista !== null ? `
+      <div style="max-width:320px;margin-bottom:1rem">
+        <label class="field-label">Buscar por N° de factura</label>
+        <input type="text" id="dte-filtro-folio" class="field" style="width:100%" placeholder="Ej. 95817" value="${state.dteFiltroFolio || ''}">
+      </div>` : ''}
     <p id="dte-error" class="error-msg"></p>
     <div id="dte-cola-panel"></div>
-    ${state.dteLista === null ? '<div class="card"><p class="placeholder">Buscá para ver los documentos pendientes del rango de fechas.</p></div>' : ''}
-    ${state.dteLista && !dtes.length ? '<div class="card"><p class="placeholder">No hay documentos pendientes en ese rango -- todo al día.</p></div>' : ''}
-    ${dtes.length ? Object.entries(dtes.reduce((acc, d) => { (acc[d.proveedor_nombre] ||= []).push(d); return acc; }, {})).map(([proveedor, lista]) => `
+    <div id="dte-resultados">${renderDteResultados(state.dteLista, state.dteFiltroFolio)}</div>`;
+
+  document.getElementById('dte-filtro-folio')?.addEventListener('input', (e) => {
+    state.dteFiltroFolio = e.target.value;
+    document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
+    bindDteResultadosBotones();
+  });
+
+  document.getElementById('dte-desde').addEventListener('change', (e) => { state.dteDesde = e.target.value; });
+  document.getElementById('dte-hasta').addEventListener('change', (e) => { state.dteHasta = e.target.value; });
+
+  document.getElementById('dte-buscar').addEventListener('click', async () => {
+    const errorEl = document.getElementById('dte-error');
+    errorEl.textContent = '';
+    try {
+      state.dteLista = await api(`/facturas-dte?desde=${state.dteDesde}&hasta=${state.dteHasta}`);
+      state.dteFiltroFolio = '';
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  bindDteResultadosBotones();
+
+  await actualizarColaPanel();
+  iniciarPollingCola();
+}
+
+function renderDteResultados(dtes, filtroFolio) {
+  if (dtes === null || dtes === undefined) return '<div class="card"><p class="placeholder">Buscá para ver los documentos pendientes del rango de fechas.</p></div>';
+  if (!dtes.length) return '<div class="card"><p class="placeholder">No hay documentos pendientes en ese rango -- todo al día.</p></div>';
+  const filtrados = filtroFolio ? dtes.filter(d => d.folio.toLowerCase().includes(filtroFolio.trim().toLowerCase())) : dtes;
+  if (!filtrados.length) return '<div class="card"><p class="placeholder">Ningún folio coincide con la búsqueda.</p></div>';
+  return Object.entries(filtrados.reduce((acc, d) => { (acc[d.proveedor_nombre] ||= []).push(d); return acc; }, {})).map(([proveedor, lista]) => `
       <div class="card">
         <h3>${proveedor}</h3>
         <table>
@@ -1788,28 +1824,13 @@ async function renderFacturasDte(el, s) {
               </tr>`).join('')}
           </tbody>
         </table>
-      </div>`).join('') : ''}`;
+      </div>`).join('');
+}
 
-  document.getElementById('dte-desde').addEventListener('change', (e) => { state.dteDesde = e.target.value; });
-  document.getElementById('dte-hasta').addEventListener('change', (e) => { state.dteHasta = e.target.value; });
-
-  document.getElementById('dte-buscar').addEventListener('click', async () => {
-    const errorEl = document.getElementById('dte-error');
-    errorEl.textContent = '';
-    try {
-      state.dteLista = await api(`/facturas-dte?desde=${state.dteDesde}&hasta=${state.dteHasta}`);
-      renderView();
-    } catch (err) {
-      errorEl.textContent = err.message;
-    }
-  });
-
-  el.querySelectorAll('[data-revisar-dte]').forEach(btn => {
+function bindDteResultadosBotones() {
+  document.querySelectorAll('[data-revisar-dte]').forEach(btn => {
     btn.addEventListener('click', () => showDteModal(parseInt(btn.dataset.revisarDte, 10)));
   });
-
-  await actualizarColaPanel();
-  iniciarPollingCola();
 }
 
 const ETIQUETA_ESTADO_COLA = { pendiente: 'En cola…', procesando: 'Creando…', completado: '✓ Creada', error: '✗ Error' };
