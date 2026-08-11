@@ -175,8 +175,10 @@ if __name__ == "__main__":
         print(f"✗ Error al pedir el formulario: {e}")
         raise SystemExit(1)
 
-    print("\n✓ Formulario de parámetros (formato crudo, para diseñar el llenado automático):\n")
-    print(_json.dumps(formulario, indent=2, ensure_ascii=False))
+    salida = "tcpos_formulario.json"
+    with open(salida, "w", encoding="utf-8") as f:
+        _json.dump(formulario, f, indent=2, ensure_ascii=False)
 
-    print("\n\nCopia y pega TODO lo de arriba (el JSON del formulario) de vuelta en el chat -- no contiene tu contraseña.")
+    print(f"\n✓ Formulario guardado en {salida} (en esta misma carpeta) -- es muy grande para pegarlo en el chat.")
+    print("No hace falta que lo copies -- avisa que ya está listo y lo reviso directo desde el archivo.")
     input("\nPresiona Enter para cerrar...")

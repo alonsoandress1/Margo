@@ -44,6 +44,7 @@ locales.json
 odoo_mapping.json
 par_stock.json
 po_tracking.json
+tcpos_formulario.json
 
 # Assets grandes que no son código
 dist/
