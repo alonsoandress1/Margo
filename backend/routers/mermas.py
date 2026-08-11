@@ -487,3 +487,23 @@ def resumen_semana(local_id: str, fecha: str | None = None, claims: dict = Depen
             diferencia_total=diferencia_total, precio=precio, total_dscto=round(total_dscto, 2),
         ))
     return resultado
+
+
+@router.get("/reporte-ventas-pdf")
+def reporte_ventas_pdf(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
+    """Descarga el PDF original 'Article Analysis' que TCPOS entregó esa
+    noche -- respaldo guardado por el cron automático en Supabase Storage,
+    bucket 'reportes-ventas'."""
+    verificar_acceso_local(claims, local_id)
+    fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
+    db = get_db()
+    ruta = f"{local_id}/{fecha}-ArticleAnalysis.pdf"
+    try:
+        contenido = db.storage.from_("reportes-ventas").download(ruta)
+    except Exception:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No hay reporte de ventas respaldado para el {fecha}")
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="Reporte Ventas {fecha}.pdf"'},
+    )

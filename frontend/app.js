@@ -1106,8 +1106,9 @@ async function renderMermas(el, s) {
         <label class="field-label">Ir a fecha</label>
         <input type="date" id="mermas-fecha" class="field" style="width:100%" value="${fecha}">
       </div>
-      <div style="display:flex;align-items:flex-end">
+      <div style="display:flex;align-items:flex-end;gap:.5rem">
         <button type="button" id="mermas-exportar" class="btn">Exportar Excel</button>
+        <button type="button" id="mermas-reporte-pdf" class="btn">Reporte de Ventas (PDF)</button>
       </div>
     </div>
     <h3 style="margin:1rem 0 .5rem">${etiquetaSemana(fecha)}</h3>
@@ -1308,6 +1309,16 @@ async function renderMermas(el, s) {
     errorEl.textContent = '';
     try {
       await apiDownload(`/mermas/exportar?local_id=${localId}&fecha=${fecha}`, `Inventario Cocina ${fecha}.xlsx`);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  document.getElementById('mermas-reporte-pdf').addEventListener('click', async () => {
+    const errorEl = document.getElementById('export-error');
+    errorEl.textContent = '';
+    try {
+      await apiDownload(`/mermas/reporte-ventas-pdf?local_id=${localId}&fecha=${fecha}`, `Reporte Ventas ${fecha}.pdf`);
     } catch (err) {
       errorEl.textContent = err.message;
     }
