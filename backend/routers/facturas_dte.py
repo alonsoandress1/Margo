@@ -40,6 +40,8 @@ from ..schemas import (ColaFacturaOut, DteDetalleOut, DteLineaOut, DteMatchLinea
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
+TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
+
 
 def _require_admin(claims: dict):
     if claims["rol"] != "administrador":
@@ -69,6 +71,22 @@ def _mejor_codigo(codigos: list[dict]) -> tuple[str | None, str | None]:
     return None, None
 
 
+@router.get("/{po_id}/_debug-po")
+def _debug_po(po_id: int, campos: str = 'amount_untaxed,amount_tax,amount_total',
+              claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- confirmar los nombres de campo de monto en purchase.order
+    antes de mover la validacion de montos a esa etapa. Borrar despues."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
+    _require_admin(claims)
+    cliente = _odoo()
+    try:
+        docs = cliente._call('purchase.order', 'read', [[po_id]], {'fields': campos.split(',')})
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
+    return docs[0] if docs else {}
+
+
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
@@ -84,28 +102,6 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
                folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'), tiene_factura=False)
         for d in docs
     ]
-
-
-@router.get("/{dte_id}/_debug-campos")
-def _debug_campos(dte_id: int, modelo: str = 'l10n_cl.supplier.xml', campos: str = '',
-                   claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- solo para descubrir los nombres reales de los campos de
-    monto (neto/IVA/total) antes de construir la validacion de montos.
-    Borrar despues de usar. `modelo` permite apuntar tambien a account.move
-    (pasando el invoice_id como dte_id) para confirmar sus campos. `campos`
-    (coma-separado) evita pedir todos los campos -- necesario en
-    account.move porque algun campo relacionado toca pos.payment, que la
-    cuenta de servicio no tiene permiso de leer."""
-    import traceback
-    from fastapi.responses import PlainTextResponse
-    _require_admin(claims)
-    cliente = _odoo()
-    kwargs = {'fields': [c.strip() for c in campos.split(',')]} if campos else {}
-    try:
-        docs = cliente._call(modelo, 'read', [[dte_id]], kwargs)
-    except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
-    return docs[0] if docs else {}
 
 
 @router.get("/productos/buscar", response_model=list[DteProductoOut])
@@ -204,6 +200,34 @@ def confirmar_match(body: DteMatchLineaIn, claims: dict = Depends(get_current_cl
         }, on_conflict="proveedor_rut,codigo_tipo,codigo_valor").execute()
 
 
+def _monto(valor) -> float:
+    """Los montos del DTE vienen como texto ("293363") y los de account.move
+    como numero -- normaliza ambos a float para poder compararlos."""
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _verificar_montos(doc: dict, move_datos: dict) -> list[str]:
+    """Compara Neto/IVA/Total del DTE contra la factura recien creada en
+    Odoo -- deben coincidir o tener maximo TOLERANCIA_MONTOS pesos de
+    diferencia (redondeos). Devuelve la lista de desajustes encontrados
+    (vacia si todo calza)."""
+    comparaciones = (
+        ("Neto", doc.get('amount_untaxed'), move_datos.get('amount_untaxed')),
+        ("IVA", doc.get('iva'), move_datos.get('amount_tax')),
+        ("Total", doc.get('amount_total'), move_datos.get('amount_total')),
+    )
+    desajustes = []
+    for campo, valor_dte, valor_odoo in comparaciones:
+        valor_dte, valor_odoo = _monto(valor_dte), _monto(valor_odoo)
+        diferencia = abs(valor_dte - valor_odoo)
+        if diferencia > TOLERANCIA_MONTOS:
+            desajustes.append(f"{campo}: DTE ${valor_dte:,.0f} vs Odoo ${valor_odoo:,.0f} (diferencia ${diferencia:,.0f})")
+    return desajustes
+
+
 def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list[dict]) -> tuple[int, str]:
     """El trabajo pesado de verdad -- 6 llamadas seguidas a Odoo, por eso se
     corre en segundo plano (ver crear_factura) en vez de bloquear al usuario.
@@ -282,10 +306,27 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         'invoice_date': doc['date'],
         'l10n_latam_document_number': str(doc['l10n_latam_document_number']).zfill(6),
     }])
+
+    # Ojo: pedir TODOS los campos de account.move falla con un error de
+    # permisos (un campo relacionado toca pos.payment, sin acceso para la
+    # cuenta de servicio) -- por eso siempre hay que pedir campos explicitos.
+    move_datos = cliente._call('account.move', 'read', [[move_id]],
+        {'fields': ['name', 'amount_untaxed', 'amount_tax', 'amount_total']})[0]
+
+    # La factura y la OC ya quedaron creadas en Odoo en este punto -- se
+    # vincula el DTE pase lo que pase con la verificacion de montos, para
+    # que no vuelva a aparecer en "pendientes" y alguien intente crearla
+    # de nuevo (generaria una OC/factura duplicada real).
     cliente._call('l10n_cl.supplier.xml', 'write', [[dte_id], {'invoice_id': move_id}])
 
-    move = cliente._call('account.move', 'read', [[move_id]], {'fields': ['name']})[0]
-    return move_id, move['name']
+    desajustes = _verificar_montos(doc, move_datos)
+    if desajustes:
+        raise RuntimeError(
+            f"No coinciden los valores -- ingresar de manera manual. "
+            f"Factura {move_datos['name']} ya quedó creada en Odoo, revisar ahí: " + "; ".join(desajustes)
+        )
+
+    return move_id, move_datos['name']
 
 
 def _procesar_item_cola(cola_id: str, dte_id: int):
@@ -296,7 +337,8 @@ def _procesar_item_cola(cola_id: str, dte_id: int):
     try:
         cliente = _odoo_sin_http()
         docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
-            {'fields': ['id', 'issuer_rut', 'date', 'invoice_id', 'company_id', 'l10n_latam_document_number']})
+            {'fields': ['id', 'issuer_rut', 'date', 'invoice_id', 'company_id', 'l10n_latam_document_number',
+                        'amount_untaxed', 'iva', 'amount_total']})
         if not docs:
             raise RuntimeError("El DTE ya no existe")
         doc = docs[0]
