@@ -55,6 +55,17 @@ RUT_DONA_SOFIA = "77500046-5"
 VENTANA_DIAS_OC_SOFIA = 5  # la OC real puede tener hasta esta cantidad de dias de anticipacion sobre el DTE
 UMBRAL_MATCH_CANTIDAD_SOFIA = 0.9  # al menos 90% de la cantidad del DTE debe calzar con la OC candidata
 
+# Unicos dos productos de Doña Sofía con peso variable real (confirmado por
+# el usuario) -- para estos SI se actualiza la cantidad de la OC a la
+# declarada en el DTE (ademas del precio), porque lo pedido y lo despachado
+# legitimamente no calzan exacto (se pesa al despachar). Para cualquier otro
+# producto, la cantidad de la OC nunca se toca -- si no calza, es un
+# desajuste real que debe revisarse a mano, no adivinarse.
+PRODUCTOS_PESO_VARIABLE_SOFIA = {
+    12041,  # Carpaccio de Res Kg (CAR0400)
+    16826,  # Filete para Churrascos (REC529)
+}
+
 
 def _require_admin(claims: dict):
     if claims["rol"] != "administrador":
@@ -606,7 +617,6 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
 
     es_sofia = doc['issuer_rut'] == RUT_DONA_SOFIA
     oc_reusada = False
-    precios_originales: dict[int, float] = {}  # solo se llena si es_sofia -- para revertir si no calza
 
     if es_sofia:
         qty_dte_por_producto: dict[int, float] = {}
@@ -631,18 +641,25 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             )
 
         lineas_oc_actuales = cliente._call('purchase.order.line', 'search_read',
-            [[['order_id', '=', oc_id]]], {'fields': ['product_id', 'price_unit']})
+            [[['order_id', '=', oc_id]]], {'fields': ['product_id', 'price_unit', 'product_qty']})
         linea_id_por_producto = {l['product_id'][0]: l['id'] for l in lineas_oc_actuales if l.get('product_id')}
-        precios_originales = {l['id']: l['price_unit'] for l in lineas_oc_actuales}
+        valores_originales = {l['id']: {'price_unit': l['price_unit'], 'product_qty': l['product_qty']} for l in lineas_oc_actuales}
 
-        # Solo se actualiza el PRECIO -- pedido explícito del usuario ("los
-        # precios que mandan son los de la factura, no los de la OC"). La
-        # cantidad de la OC no se toca (ya calzó al menos 90% para llegar
-        # hasta aca, y no fue lo que se pidió cambiar).
+        # Se actualiza el PRECIO de toda linea -- pedido explícito del
+        # usuario ("los precios que mandan son los de la factura, no los de
+        # la OC"). La CANTIDAD de la OC solo se toca para los dos productos
+        # con peso variable real (PRODUCTOS_PESO_VARIABLE_SOFIA) -- para
+        # cualquier otro producto, si la cantidad no calza es un desajuste
+        # real que debe revisarse a mano, no ajustarse solo.
         for _, _, linea_oc in order_lines:
-            linea_id = linea_id_por_producto.get(linea_oc['product_id'])
-            if linea_id:
-                cliente._call('purchase.order.line', 'write', [[linea_id], {'price_unit': linea_oc['price_unit']}])
+            pid = linea_oc['product_id']
+            linea_id = linea_id_por_producto.get(pid)
+            if not linea_id:
+                continue
+            valores = {'price_unit': linea_oc['price_unit']}
+            if pid in PRODUCTOS_PESO_VARIABLE_SOFIA:
+                valores['product_qty'] = linea_oc['product_qty']
+            cliente._call('purchase.order.line', 'write', [[linea_id], valores])
 
         po_id = oc_id
         oc_reusada = True
@@ -665,16 +682,17 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         if oc_reusada:
             # No se puede cancelar/borrar una OC de Doña Sofía -- ya estaba
             # confirmada de antes (no la creamos nosotros). Se revierten los
-            # precios que se acaban de escribir, dejando la OC exactamente
-            # como se encontró -- "no tocar nada si no calza".
-            for linea_id, precio in precios_originales.items():
+            # precios (y cantidades, si se llegaron a tocar) que se acaban
+            # de escribir, dejando la OC exactamente como se encontró --
+            # "no tocar nada si no calza".
+            for linea_id, valores in valores_originales.items():
                 try:
-                    cliente._call('purchase.order.line', 'write', [[linea_id], {'price_unit': precio}])
+                    cliente._call('purchase.order.line', 'write', [[linea_id], valores])
                 except Exception:
                     pass
             raise RuntimeError(
-                f"No coinciden los valores con la Orden de Compra {oc_name} de Doña Sofía -- se revirtieron "
-                f"los precios, no se tocó nada más: " + "; ".join(desajustes)
+                f"No coinciden los valores con la Orden de Compra {oc_name} de Doña Sofía -- se revirtió "
+                f"todo lo que se acababa de escribir, no se tocó nada más: " + "; ".join(desajustes)
             )
         # Un borrador no se puede eliminar directo en esta instancia -- Odoo
         # exige cancelarlo primero (button_cancel) y recien ahi el unlink
