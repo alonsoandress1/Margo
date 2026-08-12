@@ -145,6 +145,31 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
     )
 
 
+@router.get("/_debug-verificar-export")
+def _debug_verificar_export(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- confirma que la celda G (SUB TOTAL) quede con un valor fijo
+    (no una formula que dependa de que el visor recalcule al abrir)."""
+    _require_admin(claims)
+    import openpyxl
+    from io import BytesIO
+    datos = _obtener_items_y_resumen(anio, mes)
+    contenido = exportar_mes(anio, mes, [it.model_dump() for it in datos.items], datos.resumen.venta_periodo)
+    wb = openpyxl.load_workbook(BytesIO(contenido))
+    ws = wb[_MESES_ES[mes - 1]]
+    filas = []
+    for r in range(9, 9 + min(len(datos.items), 5)):
+        filas.append({
+            "fila": r,
+            "tipo": ws.cell(row=r, column=4).value,
+            "proveedor": ws.cell(row=r, column=5).value,
+            "num_factura": ws.cell(row=r, column=6).value,
+            "subtotal_G": ws.cell(row=r, column=7).value,
+            "iva_H": ws.cell(row=r, column=8).value,
+            "total_I": ws.cell(row=r, column=9).value,
+        })
+    return {"total_items": len(datos.items), "filas_muestra": filas}
+
+
 @router.put("/venta-periodo", status_code=status.HTTP_204_NO_CONTENT)
 def fijar_venta_periodo(body: VentaPeriodoIn, claims: dict = Depends(get_current_claims)):
     """Venta del periodo ($) del mes -- editable a mano (igual que en el
