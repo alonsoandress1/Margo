@@ -37,7 +37,7 @@ from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DteDetalleOut, DteLineaOut,
                        DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn, FactorConversionOut,
-                       ImpuestoOut, ProductoImpuestosIn)
+                       ImpuestoOut, ProductoImpuestosIn, ProveedorOcultarIn, ProveedorOcultoOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
@@ -83,8 +83,11 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
-    una factura borrador creada en Odoo (invoice_id vacio)."""
+    una factura borrador creada en Odoo (invoice_id vacio). No incluye
+    proveedores marcados como ocultos (facturas_proveedor_oculto)."""
     _require_admin(claims)
+    db = get_db()
+    ocultos = {f["proveedor_rut"] for f in (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
     cliente = _odoo()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
         [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
@@ -94,7 +97,38 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
         DteOut(id=d['id'], proveedor_rut=d.get('issuer_rut') or '', proveedor_nombre=d.get('issuer_name') or '',
                folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'), tiene_factura=False)
         for d in docs
+        if (d.get('issuer_rut') or '') not in ocultos
     ]
+
+
+@router.get("/proveedores/ocultos", response_model=list[ProveedorOcultoOut])
+def listar_proveedores_ocultos(claims: dict = Depends(get_current_claims)):
+    """Proveedores actualmente ocultos de la lista de pendientes."""
+    _require_admin(claims)
+    db = get_db()
+    filas = db.table("facturas_proveedor_oculto").select("proveedor_rut, proveedor_nombre") \
+        .order("proveedor_nombre").execute().data or []
+    return [ProveedorOcultoOut(proveedor_rut=f["proveedor_rut"], proveedor_nombre=f["proveedor_nombre"]) for f in filas]
+
+
+@router.post("/proveedores/ocultar", status_code=status.HTTP_204_NO_CONTENT)
+def ocultar_proveedor(body: ProveedorOcultarIn, claims: dict = Depends(get_current_claims)):
+    """Oculta todas las facturas pendientes de este proveedor -- no toca
+    nada en Odoo, solo deja de listarlas. Reversible."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_proveedor_oculto").upsert({
+        "proveedor_rut": body.proveedor_rut, "proveedor_nombre": body.proveedor_nombre,
+        "ocultado_por": claims["sub"],
+    }).execute()
+
+
+@router.delete("/proveedores/ocultos/{proveedor_rut}", status_code=status.HTTP_204_NO_CONTENT)
+def mostrar_proveedor(proveedor_rut: str, claims: dict = Depends(get_current_claims)):
+    """Vuelve a mostrar un proveedor previamente ocultado."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_proveedor_oculto").delete().eq("proveedor_rut", proveedor_rut).execute()
 
 
 @router.get("/productos/buscar", response_model=list[DteProductoOut])

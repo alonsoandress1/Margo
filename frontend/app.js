@@ -1856,6 +1856,9 @@ async function renderFacturasDte(el, s) {
         <label class="field-label">Buscar por N° de factura</label>
         <input type="text" id="dte-filtro-folio" class="field" style="width:100%" placeholder="Ej. 95817" value="${state.dteFiltroFolio || ''}">
       </div>` : ''}
+    <div style="margin-bottom:1rem">
+      <button type="button" class="btn" id="dte-proveedores-ocultos">Proveedores ocultos</button>
+    </div>
     <p id="dte-error" class="error-msg"></p>
     <div id="dte-cola-panel"></div>
     <div id="dte-resultados">${renderDteResultados(state.dteLista, state.dteFiltroFolio)}</div>`;
@@ -1868,6 +1871,8 @@ async function renderFacturasDte(el, s) {
 
   document.getElementById('dte-desde').addEventListener('change', (e) => { state.dteDesde = e.target.value; });
   document.getElementById('dte-hasta').addEventListener('change', (e) => { state.dteHasta = e.target.value; });
+
+  document.getElementById('dte-proveedores-ocultos').addEventListener('click', () => showProveedoresOcultosModal());
 
   document.getElementById('dte-buscar').addEventListener('click', async () => {
     const errorEl = document.getElementById('dte-error');
@@ -1894,7 +1899,10 @@ function renderDteResultados(dtes, filtroFolio) {
   if (!filtrados.length) return '<div class="card"><p class="placeholder">Ningún folio coincide con la búsqueda.</p></div>';
   return Object.entries(filtrados.reduce((acc, d) => { (acc[d.proveedor_nombre] ||= []).push(d); return acc; }, {})).map(([proveedor, lista]) => `
       <div class="card">
-        <h3>${proveedor}</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3>${proveedor}</h3>
+          <button type="button" class="btn" data-ocultar-proveedor="${encodeURIComponent(lista[0].proveedor_rut)}" data-ocultar-proveedor-nombre="${encodeURIComponent(proveedor)}">Ocultar proveedor</button>
+        </div>
         <table>
           <thead><tr><th>Folio</th><th>Fecha</th><th></th></tr></thead>
           <tbody>
@@ -1913,6 +1921,73 @@ function bindDteResultadosBotones() {
   document.querySelectorAll('[data-revisar-dte]').forEach(btn => {
     btn.addEventListener('click', () => showDteModal(parseInt(btn.dataset.revisarDte, 10)));
   });
+  document.querySelectorAll('[data-ocultar-proveedor]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const proveedorRut = decodeURIComponent(btn.dataset.ocultarProveedor);
+      const proveedorNombre = decodeURIComponent(btn.dataset.ocultarProveedorNombre);
+      if (!confirm(`¿Ocultar todas las facturas pendientes de "${proveedorNombre}"? Podés volver a mostrarlas desde "Proveedores ocultos".`)) return;
+      const errorEl = document.getElementById('dte-error');
+      errorEl.textContent = '';
+      try {
+        await api('/facturas-dte/proveedores/ocultar', {
+          method: 'POST',
+          body: JSON.stringify({ proveedor_rut: proveedorRut, proveedor_nombre: proveedorNombre }),
+        });
+        state.dteLista = state.dteLista.filter(d => d.proveedor_rut !== proveedorRut);
+        document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
+        bindDteResultadosBotones();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  });
+}
+
+async function showProveedoresOcultosModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:560px"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const ocultos = await api('/facturas-dte/proveedores/ocultos');
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Proveedores ocultos</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Sus facturas pendientes no aparecen en la lista de Ingreso de Facturas. No se toca nada en Odoo -- podés volver a mostrarlos cuando quieras.</p>
+      ${ocultos.length ? `
+        <table>
+          <thead><tr><th>Proveedor</th><th></th></tr></thead>
+          <tbody>
+            ${ocultos.map(p => `
+              <tr>
+                <td>${p.proveedor_nombre}</td>
+                <td><button type="button" class="btn" data-mostrar-proveedor="${encodeURIComponent(p.proveedor_rut)}">Mostrar</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="placeholder">No hay proveedores ocultos.</p>'}
+      <div style="margin-top:1.25rem">
+        <button type="button" class="btn" id="dte-ocultos-cerrar">Cerrar</button>
+      </div>`;
+    overlay.querySelector('#dte-ocultos-cerrar').onclick = () => overlay.remove();
+    overlay.querySelectorAll('[data-mostrar-proveedor]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const proveedorRut = decodeURIComponent(btn.dataset.mostrarProveedor);
+        try {
+          await api(`/facturas-dte/proveedores/ocultos/${encodeURIComponent(proveedorRut)}`, { method: 'DELETE' });
+          overlay.remove();
+          if (state.dteLista !== null) {
+            state.dteLista = await api(`/facturas-dte?desde=${state.dteDesde}&hasta=${state.dteHasta}`);
+            renderView();
+          }
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-ocultos-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#dte-ocultos-cerrar-error').onclick = () => overlay.remove();
+  }
 }
 
 const ETIQUETA_ESTADO_COLA = { pendiente: 'En cola…', procesando: 'Creando…', completado: '✓ Creada', error: '✗ Error' };

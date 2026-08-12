@@ -483,6 +483,16 @@ class CompararOut(BaseModel):
     lineas: list[CompararLineaOut]
 
 
+class ProveedorOcultoOut(BaseModel):
+    proveedor_rut: str
+    proveedor_nombre: str
+
+
+class ProveedorOcultarIn(BaseModel):
+    proveedor_rut: str
+    proveedor_nombre: str
+
+
 class DteCrearFacturaOut(BaseModel):
     invoice_id: int
     invoice_name: str
