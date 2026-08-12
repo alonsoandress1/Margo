@@ -174,6 +174,58 @@ def _fix_vincular_dte_80924(claims: dict = Depends(get_current_claims)):
     return {"ok": True, "dte_id": 80924, "invoice_id": 1322131}
 
 
+@router.post("/_fix/eliminar-oc-huerfana-p19867")
+def _fix_eliminar_oc_huerfana_p19867(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL, UN SOLO USO -- autorizado explicitamente por el usuario
+    ("elimina todo su interior"). Limpia la OC duplicada P19867 (id 132813)
+    que quedo huerfana (sin factura) despues de que se borrara a mano la
+    factura duplicada -- su recepcion de mercaderia ya estaba validada
+    (done), asi que primero hay que devolver el stock (stock.return.picking,
+    16 Choclo Minuto Verde + 16 Arandanos, Delfi/Stock -> Vendors) antes de
+    poder cancelar y eliminar la OC."""
+    import traceback
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        po_id = 132813
+        picking_id = 879953
+
+        wizard_id = cliente._call('stock.return.picking', 'create', [{'picking_id': picking_id}])
+        wizard = cliente._call('stock.return.picking', 'read', [[wizard_id]], {'fields': ['product_return_moves']})[0]
+        if not wizard['product_return_moves']:
+            return {'error': 'el wizard de devolucion no genero lineas -- revisar a mano'}
+        resultado = cliente._call('stock.return.picking', 'create_returns', [[wizard_id]])
+        return_picking_id = resultado.get('res_id') if isinstance(resultado, dict) else None
+        if return_picking_id:
+            cliente._call('stock.picking', 'action_confirm', [[return_picking_id]])
+            devolucion = cliente._call('stock.picking', 'read', [[return_picking_id]], {'fields': ['move_line_ids', 'state']})[0]
+            if devolucion['move_line_ids']:
+                move_lines = cliente._call('stock.move.line', 'read', [devolucion['move_line_ids']], {'fields': ['reserved_uom_qty', 'quantity']})
+                for ml in move_lines:
+                    cliente._call('stock.move.line', 'write', [[ml['id']], {'qty_done': ml.get('reserved_uom_qty') or ml.get('quantity') or 0}])
+            cliente._call('stock.picking', 'button_validate', [[return_picking_id]])
+
+        try:
+            cliente._call('purchase.order', 'button_cancel', [[po_id]])
+        except Exception:
+            pass
+        limpio = True
+        try:
+            cliente._call('purchase.order', 'unlink', [[po_id]])
+        except Exception as e:
+            limpio = False
+            error_unlink = str(e)
+
+        return {
+            'devolucion_picking_id': return_picking_id,
+            'oc_eliminada': limpio,
+            'error_unlink': None if limpio else error_unlink,
+        }
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
 # de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
 # creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
