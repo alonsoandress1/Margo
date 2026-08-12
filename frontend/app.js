@@ -2008,7 +2008,7 @@ async function showDteModal(dteId) {
                 ? `<button type="button" class="btn" data-buscar-linea="${l.id}">Buscar producto</button>`
                 : l.sugerido
                   ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
-                  : ''}</td>
+                  : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}</td>
             </tr>
             <tr data-buscador="${l.id}" style="display:none"><td colspan="4">
               <div class="item-row">
