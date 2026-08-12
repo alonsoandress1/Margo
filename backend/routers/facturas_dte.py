@@ -79,50 +79,6 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
     return ("TEXTO", texto) if texto else (None, None)
 
 
-@router.get("/_debug-buscar-oc")
-def _debug_buscar_oc(partner_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- encontrar la OC huerfana que quedo de una prueba fallida
-    (unlink fallo antes del fix de cancelar primero). Borrar despues."""
-    import traceback
-    from fastapi.responses import PlainTextResponse
-    _require_admin(claims)
-    cliente = _odoo()
-    try:
-        ocs = cliente._call('purchase.order', 'search_read', [[['partner_id', '=', partner_id]]],
-            {'fields': ['name', 'state', 'create_date', 'amount_total'], 'order': 'id desc', 'limit': 5})
-    except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
-    return ocs
-
-
-@router.post("/_debug-limpiar-oc/{po_id}")
-def _debug_limpiar_oc(po_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- cancelar y eliminar una OC huerfana especifica. Borrar despues."""
-    cliente = _odoo()
-    try:
-        cliente._call('purchase.order', 'button_cancel', [[po_id]])
-    except Exception:
-        pass  # button_cancel falla al serializar la respuesta (None) aunque si se aplica
-    cliente._call('purchase.order', 'unlink', [[po_id]])
-    return {'ok': True}
-
-
-@router.get("/{dte_id}/_debug-lineas")
-def _debug_lineas(dte_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- ver todos los campos de las lineas de un DTE (buscando
-    campos de descuento) antes de ajustar la formula de price_unit para
-    proveedores con descuento en la linea. Borrar despues."""
-    import traceback
-    from fastapi.responses import PlainTextResponse
-    _require_admin(claims)
-    cliente = _odoo()
-    try:
-        lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]], {})
-    except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
-    return lineas
-
-
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
@@ -317,6 +273,17 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id', 'display_name']})
     info_por_producto = {p['id']: p for p in productos}
 
+    # Algunos proveedores (ej. Comercializadora Global Products) aplican un
+    # descuento que solo se ve en el Neto declarado en la cabecera del DTE
+    # -- el item_price de cada linea sigue siendo el precio SIN descuento,
+    # asi que sumar item_price*qty da un Neto mas alto que el real y la
+    # factura nunca calza. Se corrige escalando todas las lineas por un
+    # mismo factor para que la suma de line coincida con el Neto declarado
+    # -- si no hay descuento el factor es 1 y no cambia nada.
+    neto_dte = _monto(doc.get('amount_untaxed'))
+    neto_sin_descuento = sum((l.get('qty') or 0) * float(l.get('item_price') or 0) for l in lineas)
+    factor_descuento = (neto_dte / neto_sin_descuento) if neto_dte and neto_sin_descuento else 1.0
+
     fecha_dte = f"{doc['date']} 12:00:00"
     order_lines = []
     for l in lineas:
@@ -326,7 +293,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             'product_id': pid,
             'name': prod['display_name'],
             'product_qty': l.get('qty') or 0,
-            'price_unit': float(l.get('item_price') or 0),
+            'price_unit': round(float(l.get('item_price') or 0) * factor_descuento, 2),
             'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
         }))
 
