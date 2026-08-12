@@ -145,6 +145,20 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
     )
 
 
+@router.get("/_debug-verificar-resumen")
+def _debug_verificar_resumen(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- confirma que el bloque resumen (D5/D6/F3/G3/G6/H6/I6) quede
+    con valores fijos, no formulas."""
+    _require_admin(claims)
+    import openpyxl
+    from io import BytesIO
+    datos = _obtener_items_y_resumen(anio, mes)
+    contenido = exportar_mes(anio, mes, [it.model_dump() for it in datos.items], datos.resumen.model_dump())
+    wb = openpyxl.load_workbook(BytesIO(contenido))
+    ws = wb[_MESES_ES[mes - 1]]
+    return {c: ws[c].value for c in ("E3", "D4", "F3", "D5", "G3", "D6", "G6", "H6", "I6")}
+
+
 @router.put("/venta-periodo", status_code=status.HTTP_204_NO_CONTENT)
 def fijar_venta_periodo(body: VentaPeriodoIn, claims: dict = Depends(get_current_claims)):
     """Venta del periodo ($) del mes -- editable a mano (igual que en el
