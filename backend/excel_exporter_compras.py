@@ -42,14 +42,19 @@ def _fila_total(ws) -> int:
     raise ValueError(f"No se encontró la fila 'Total' en la hoja {ws.title}")
 
 
-def exportar_mes(anio: int, mes: int, items: list[dict], venta_periodo: float | None) -> bytes:
+def exportar_mes(anio: int, mes: int, items: list[dict], resumen: dict) -> bytes:
     """Genera el Excel real, ya lleno, para un mes.
 
     items: [{proveedor_nombre, num_factura, subtotal, iva, total, tipo}], en el orden en
     que se quieren escribir (ya vienen ordenados por fecha desde Odoo).
-    venta_periodo: mismo valor que "Venta del período" de la pantalla web --
-    se escribe tanto en VENTA PERIODO (E3) como en VENTA ACTUAL (D4), son el
-    mismo dato en este Excel.
+    resumen: {venta_periodo, venta_neta, costo_venta, pct_costo_venta} -- los
+    mismos 4 numeros que ya se calculan para la pantalla web (Planilla de
+    Compras -- % Costo Venta). Se escriben directo en las celdas del resumen
+    (E3/D4/F3/D5/G3/D6) y en el bloque "TOTAL ITEM" (G6/H6/I6, sumando todos
+    los items) -- NINGUNA de estas celdas se deja como formula: dependen de
+    que Excel recalcule al abrir (row9:row_total, N6/O6, etc.) y varios
+    visores no lo hacen automaticamente pese a fullCalcOnLoad, dejando el
+    resumen entero en blanco (bug real reportado por el usuario).
     """
     hoja = _MESES[mes - 1]
     wb = openpyxl.load_workbook(_TEMPLATES_DIR / f"{hoja.lower()}.xlsx")
@@ -67,17 +72,31 @@ def exportar_mes(anio: int, mes: int, items: list[dict], venta_periodo: float | 
         ws.cell(row=fila, column=_COL_TIPO).value = it.get("tipo")
         ws.cell(row=fila, column=_COL_PROVEEDOR).value = it.get("proveedor_nombre")
         ws.cell(row=fila, column=_COL_FACTURA).value = it.get("num_factura")
-        # SUB TOTAL (G) se escribe como valor fijo, no se deja la formula
-        # =TOTAL-IVA de la plantilla -- algunos visores de Excel no
-        # recalculan las formulas al abrir (no respetan fullCalcOnLoad) y la
-        # celda queda en blanco hasta forzar un recalculo manual.
         ws.cell(row=fila, column=_COL_SUBTOTAL).value = it.get("subtotal")
         ws.cell(row=fila, column=_COL_IVA).value = it.get("iva")
         ws.cell(row=fila, column=_COL_TOTAL).value = it.get("total")
 
+    venta_periodo = resumen.get("venta_periodo")
     if venta_periodo is not None:
-        ws.cell(row=3, column=_COL_VENTA_PERIODO).value = venta_periodo
-        ws.cell(row=4, column=_COL_VENTA_ACTUAL).value = venta_periodo
+        ws.cell(row=3, column=_COL_VENTA_PERIODO).value = venta_periodo  # E3 -- VENTA PERIODO
+        ws.cell(row=4, column=_COL_VENTA_ACTUAL).value = venta_periodo   # D4 -- VENTA ACTUAL
+
+    venta_neta = resumen.get("venta_neta")
+    costo_venta = resumen.get("costo_venta")
+    pct_costo_venta = resumen.get("pct_costo_venta")
+    if venta_neta is not None:
+        ws.cell(row=3, column=6).value = venta_neta      # F3 -- NETO (=E3/1.19)
+    if costo_venta is not None:
+        ws.cell(row=5, column=4).value = costo_venta     # D5 -- COSTO VENTA (=N6+O6)
+    if pct_costo_venta is not None:
+        ws.cell(row=3, column=7).value = pct_costo_venta  # G3 -- % COSTO VENTA
+        ws.cell(row=6, column=4).value = pct_costo_venta  # D6 -- % COSTO VENTA
+
+    # TOTAL ITEM (G6/H6/I6) -- suma de TODAS las facturas del mes (no solo
+    # AL+BA como Costo Venta), misma cifra que la fila "Total" de la tabla.
+    ws.cell(row=6, column=7).value = sum(it.get("subtotal") or 0 for it in items)  # G6
+    ws.cell(row=6, column=8).value = sum(it.get("iva") or 0 for it in items)       # H6
+    ws.cell(row=6, column=9).value = sum(it.get("total") or 0 for it in items)     # I6
 
     buffer = BytesIO()
     wb.save(buffer)

@@ -136,7 +136,7 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
     if not (1 <= mes <= 12):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mes inválido")
     datos = _obtener_items_y_resumen(anio, mes)
-    contenido = exportar_mes(anio, mes, [it.model_dump() for it in datos.items], datos.resumen.venta_periodo)
+    contenido = exportar_mes(anio, mes, [it.model_dump() for it in datos.items], datos.resumen.model_dump())
     nombre_mes = _MESES_ES[mes - 1].capitalize()
     return Response(
         content=contenido,
