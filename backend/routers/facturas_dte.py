@@ -93,7 +93,6 @@ def _debug_auditoria(claims: dict = Depends(get_current_claims)):
         # Chequeo por ID exacto -- las facturas que sabemos con certeza que
         # se crearon esta sesion, leidas directo por su id de Odoo (no por
         # nombre, que puede haber cambiado o no ser unico).
-        ids_conocidos = [1330803, 1330878, 1330876, 1330983, 78369]
         moves_por_id = []
         for mid in [1330803, 1330878, 1330876, 1330983]:
             try:
@@ -103,7 +102,29 @@ def _debug_auditoria(claims: dict = Depends(get_current_claims)):
             except Exception as e:
                 moves_por_id.append({'id': mid, 'error': str(e)})
 
-        return {'por_dte': resultado, 'busqueda_directa_por_nombre': moves_directos, 'por_id_exacto': moves_por_id}
+        # Reconstruir la linea de tiempo: la factura vieja (1322131, PO
+        # P19741) -- cuando se creo -- y si la OC P19867 (la que cree yo,
+        # cuya factura 1330983 ya no existe) sigue dando vueltas huerfana.
+        try:
+            m_vieja = cliente._call('account.move', 'read', [[1322131]],
+                {'fields': ['name', 'invoice_origin', 'create_date', 'amount_total', 'state']})[0]
+        except Exception as e:
+            m_vieja = {'error': str(e)}
+        try:
+            po_p19741 = cliente._call('purchase.order', 'search_read', [[['name', '=', 'P19741']]],
+                {'fields': ['id', 'name', 'create_date', 'amount_total', 'state', 'invoice_status']})
+        except Exception as e:
+            po_p19741 = {'error': str(e)}
+        try:
+            po_p19867 = cliente._call('purchase.order', 'search_read', [[['name', '=', 'P19867']]],
+                {'fields': ['id', 'name', 'create_date', 'amount_total', 'state', 'invoice_status']})
+        except Exception as e:
+            po_p19867 = {'error': str(e)}
+
+        return {
+            'por_dte': resultado, 'busqueda_directa_por_nombre': moves_directos, 'por_id_exacto': moves_por_id,
+            'factura_vieja_1322131': m_vieja, 'po_p19741': po_p19741, 'po_p19867_huerfana': po_p19867,
+        }
     except Exception:
         return {'error': traceback.format_exc()}
 
