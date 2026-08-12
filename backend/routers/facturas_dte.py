@@ -98,15 +98,12 @@ def _debug_buscar_oc(partner_id: int, claims: dict = Depends(get_current_claims)
 @router.post("/_debug-limpiar-oc/{po_id}")
 def _debug_limpiar_oc(po_id: int, claims: dict = Depends(get_current_claims)):
     """TEMPORAL -- cancelar y eliminar una OC huerfana especifica. Borrar despues."""
-    import traceback
-    from fastapi.responses import PlainTextResponse
-    _require_admin(claims)
     cliente = _odoo()
     try:
         cliente._call('purchase.order', 'button_cancel', [[po_id]])
-        cliente._call('purchase.order', 'unlink', [[po_id]])
     except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
+        pass  # button_cancel falla al serializar la respuesta (None) aunque si se aplica
+    cliente._call('purchase.order', 'unlink', [[po_id]])
     return {'ok': True}
 
 
@@ -350,12 +347,16 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     if desajustes:
         # Un borrador no se puede eliminar directo en esta instancia -- Odoo
         # exige cancelarlo primero (button_cancel) y recien ahi el unlink
-        # funciona. Si algo de esto falla igual, no se sigue con la
-        # factura -- solo se avisa que la OC quedo cancelada para revisarla
-        # a mano en vez de afirmar (falso) que no quedo nada.
-        limpio = True
+        # funciona. button_cancel ademas devuelve None, que este XML-RPC no
+        # puede serializar en la respuesta -- tira excepcion IGUAL cuando la
+        # cancelacion si se aplico (confirmado leyendo el estado real de la
+        # OC despues) -- por eso va en su propio try, separado del unlink.
         try:
             cliente._call('purchase.order', 'button_cancel', [[po_id]])
+        except Exception:
+            pass
+        limpio = True
+        try:
             cliente._call('purchase.order', 'unlink', [[po_id]])
         except Exception:
             limpio = False
