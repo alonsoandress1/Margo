@@ -45,6 +45,34 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug/duplicados")
+def _debug_duplicados(dias: int = 14, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- busca facturas de proveedor (company_id=2) con el mismo
+    folio + proveedor repetido en los ultimos N dias, para investigar un
+    reporte de facturas duplicadas."""
+    import traceback
+    from collections import defaultdict
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        desde = (date.today() - timedelta(days=dias)).isoformat()
+        moves = cliente._call('account.move', 'search_read',
+            [[['move_type', '=', 'in_invoice'], ['company_id', '=', 2],
+              ['invoice_date', '>=', desde], ['state', '!=', 'cancel']]],
+            {'fields': ['id', 'name', 'partner_id', 'l10n_latam_document_number', 'invoice_date',
+                        'invoice_origin', 'amount_total', 'create_date']})
+        grupos = defaultdict(list)
+        for m in moves:
+            partner = m['partner_id'][0] if m.get('partner_id') else None
+            clave = (partner, m.get('l10n_latam_document_number'))
+            grupos[clave].append(m)
+        duplicados = {f"{k[0]}|{k[1]}": v for k, v in grupos.items() if len(v) > 1 and k[1]}
+        return {'total_facturas': len(moves), 'grupos_duplicados': len(duplicados), 'detalle': duplicados}
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
 # de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
 # creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
