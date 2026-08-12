@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..bodega_service import stock_bodega_por_insumo
 from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
@@ -72,13 +73,7 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
     if not par_rows:
         return []
     keys = [r["ingrediente_key"] for r in par_rows]
-
-    mov_rows = db.table("bodega_movimientos").select("ingrediente_key,tipo,cantidad") \
-        .eq("local_id", local_id).in_("ingrediente_key", keys).execute().data or []
-    stock_bodega: dict[str, float] = {}
-    for m in mov_rows:
-        signo = -1 if m["tipo"] == "egreso" else 1
-        stock_bodega[m["ingrediente_key"]] = stock_bodega.get(m["ingrediente_key"], 0) + signo * m["cantidad"]
+    stock_bodega = stock_bodega_por_insumo(db, local_id, keys)
 
     cocina_rows = db.table("stock_cocina").select("ingrediente_key,fecha,cantidad_informada") \
         .eq("local_id", local_id).in_("ingrediente_key", keys) \

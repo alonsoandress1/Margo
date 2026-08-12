@@ -239,9 +239,14 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         picking = cliente._call('stock.picking', 'read', [[picking_id]], {'fields': ['move_line_ids', 'state']})[0]
         if picking['state'] == 'done':
             continue
-        for ml_id in picking['move_line_ids']:
-            ml = cliente._call('stock.move.line', 'read', [[ml_id]], {'fields': ['quantity']})[0]
-            cliente._call('stock.move.line', 'write', [[ml_id], {'qty_done': ml['quantity']}])
+        move_line_ids = picking['move_line_ids']
+        if move_line_ids:
+            # un solo read para todas las lineas de este picking (antes era
+            # un read por linea) -- el write si tiene que ir uno por uno
+            # porque cada linea recibe su propia cantidad recibida.
+            move_lines = cliente._call('stock.move.line', 'read', [move_line_ids], {'fields': ['quantity']})
+            for ml in move_lines:
+                cliente._call('stock.move.line', 'write', [[ml['id']], {'qty_done': ml['quantity']}])
         cliente._call('stock.picking', 'button_validate', [[picking_id]])
         cliente._call('stock.picking', 'write', [[picking_id], {'date_done': fecha_dte}])
 

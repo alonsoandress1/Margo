@@ -131,33 +131,6 @@ def _ventas_por_insumo(db, local_id: str, fecha: str) -> dict[str, float]:
     return resultado
 
 
-def _diferencias_del_dia(db, local_id: str, fecha: str, keys: list[str]) -> dict[str, float]:
-    """Diferencia = Stock Informado - Stock Real de un dia, por insumo --
-    misma cuenta que la columna Diferencias del bloque resumen, pero sin
-    armar el MermaItem completo (usado para el rollup semanal)."""
-    cocina_rows = db.table("stock_cocina").select("ingrediente_key,cantidad_informada,mermas_total") \
-        .eq("local_id", local_id).eq("fecha", fecha).in_("ingrediente_key", keys).execute().data or []
-    informado = {c["ingrediente_key"]: c for c in cocina_rows}
-    if not informado:
-        return {}
-
-    stock_inicial = _stock_inicial_por_insumo(db, local_id, fecha)
-    entregas_bodega = _entregas_por_insumo(db, local_id, fecha)
-    produccion = _produccion_por_insumo(db, local_id, fecha)
-    mermas_produccion = _mermas_produccion_por_insumo(db, local_id, fecha)
-    ventas = _ventas_por_insumo(db, local_id, fecha)
-
-    resultado: dict[str, float] = {}
-    for key, fila in informado.items():
-        if fila.get("cantidad_informada") is None:
-            continue
-        entregas = entregas_bodega.get(key, 0) + produccion.get(key, 0)
-        mermas_total = (fila.get("mermas_total") or 0) + mermas_produccion.get(key, 0)
-        stock_real = stock_inicial.get(key, 0) + entregas - ventas.get(key, 0) - mermas_total
-        resultado[key] = fila["cantidad_informada"] - stock_real
-    return resultado
-
-
 @router.get("", response_model=list[MermaItem])
 def listar_mermas(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
     """Vista tipo planilla del dia: Stock Inicial (arrastrado de ayer),
@@ -449,6 +422,118 @@ def exportar(local_id: str, fecha: str | None = None, claims: dict = Depends(get
     )
 
 
+def _diferencias_semana(db, local_id: str, dias: list[str], keys: list[str]) -> dict[str, dict[str, float]]:
+    """Version 'toda la semana de una vez' de _diferencias_del_dia -- misma
+    formula exacta dia por dia, pero trayendo cada tabla una sola vez para
+    los 5 dias en vez de repetir las mismas consultas dia por dia (el resumen
+    semanal hacia ~10 round-trips x dia = 50+ por semana; esto lo deja en
+    un puñado de consultas, sin importar cuantos dias se pidan)."""
+    if not dias:
+        return {}
+    dia_min, dia_max = min(dias), max(dias)
+    dia_ant_min = _dia_anterior(dia_min)
+
+    # Stock Cocina: se trae tambien el dia anterior al primero de la semana,
+    # porque el Stock Inicial de un dia es el Stock Informado del dia previo.
+    cocina_rows = db.table("stock_cocina").select("ingrediente_key,fecha,cantidad_informada,mermas_total") \
+        .eq("local_id", local_id).gte("fecha", dia_ant_min).lte("fecha", dia_max).in_("ingrediente_key", keys).execute().data or []
+    cocina_por_dia: dict[str, dict[str, dict]] = {}
+    for r in cocina_rows:
+        cocina_por_dia.setdefault(r["fecha"], {})[r["ingrediente_key"]] = r
+
+    # Entregas de Bodega a Cocina: un solo rango que cubre toda la semana,
+    # agrupado despues por dia (mismo formato de fecha que registrar_entrega_cocina).
+    entregas_rows = db.table("bodega_movimientos").select("ingrediente_key,cantidad,fecha") \
+        .eq("local_id", local_id).eq("origen", "entrega_cocina") \
+        .gte("fecha", f"{dia_min}T00:00:00+00:00").lt("fecha", f"{dia_max}T23:59:59.999999+00:00") \
+        .execute().data or []
+    entregas_por_dia: dict[str, dict[str, float]] = {}
+    for r in entregas_rows:
+        d = entregas_por_dia.setdefault(r["fecha"][:10], {})
+        d[r["ingrediente_key"]] = d.get(r["ingrediente_key"], 0) + r["cantidad"]
+
+    # Catalogo de recetas de proteinas -- no depende del dia, se trae una sola vez.
+    recetas = db.table("produccion_proteinas_recetas").select("id,producto_final_key") \
+        .eq("local_id", local_id).execute().data or []
+    receta_id_a_key = {r["id"]: r["producto_final_key"] for r in recetas if r["producto_final_key"]}
+
+    produccion_por_dia: dict[str, dict[str, float]] = {}
+    mermas_produccion_por_dia: dict[str, dict[str, float]] = {}
+    if receta_id_a_key:
+        diarias = db.table("produccion_proteinas_diaria").select("receta_id,fecha,cantidad_producida,mermas") \
+            .in_("fecha", dias).in_("receta_id", list(receta_id_a_key.keys())).execute().data or []
+        for r in diarias:
+            key = receta_id_a_key.get(r["receta_id"])
+            if not key:
+                continue
+            if r.get("cantidad_producida"):
+                d = produccion_por_dia.setdefault(r["fecha"], {})
+                d[key] = d.get(key, 0) + r["cantidad_producida"]
+            if r.get("mermas"):
+                d = mermas_produccion_por_dia.setdefault(r["fecha"], {})
+                d[key] = d.get(key, 0) + r["mermas"]
+
+    pasteleria_rows = db.table("pasteleria_diaria").select("producto_key,fecha,cantidad_producida") \
+        .eq("local_id", local_id).in_("fecha", dias).execute().data or []
+    for r in pasteleria_rows:
+        if r.get("cantidad_producida"):
+            d = produccion_por_dia.setdefault(r["fecha"], {})
+            d[r["producto_key"]] = d.get(r["producto_key"], 0) + r["cantidad_producida"]
+
+    chocolates_rows = db.table("chocolates_diaria").select("producto_key,fecha,cantidad_entregada") \
+        .eq("local_id", local_id).in_("fecha", dias).execute().data or []
+    for r in chocolates_rows:
+        if r.get("cantidad_entregada"):
+            d = produccion_por_dia.setdefault(r["fecha"], {})
+            d[r["producto_key"]] = d.get(r["producto_key"], 0) + r["cantidad_entregada"]
+
+    # Ventas del dia (consumo de insumo = cantidad vendida x receta embebida del bloque VENTAS).
+    ventas_rows = db.table("ventas_historial").select("plato_sku,fecha,cantidad") \
+        .eq("local_id", local_id).in_("fecha", dias).execute().data or []
+    cantidad_por_dia_sku: dict[str, dict[str, float]] = {}
+    for v in ventas_rows:
+        d = cantidad_por_dia_sku.setdefault(v["fecha"], {})
+        d[v["plato_sku"]] = d.get(v["plato_sku"], 0) + v["cantidad"]
+
+    todos_skus = list({sku for por_sku in cantidad_por_dia_sku.values() for sku in por_sku})
+    ventas_recetas_rows = (
+        db.table("ventas_recetas").select("plato_sku,ingrediente_key,cantidad")
+        .eq("local_id", local_id).in_("plato_sku", todos_skus).execute().data or []
+    ) if todos_skus else []
+
+    ventas_por_dia: dict[str, dict[str, float]] = {}
+    for dia, cantidad_por_sku in cantidad_por_dia_sku.items():
+        d = ventas_por_dia.setdefault(dia, {})
+        for r in ventas_recetas_rows:
+            key = r.get("ingrediente_key")
+            vendido = cantidad_por_sku.get(r["plato_sku"], 0) if key else 0
+            if key and vendido:
+                d[key] = d.get(key, 0) + vendido * r["cantidad"]
+
+    # Misma formula que _diferencias_del_dia, dia por dia, con todo ya en memoria.
+    resultado: dict[str, dict[str, float]] = {}
+    for dia in dias:
+        informado = cocina_por_dia.get(dia, {})
+        if not informado:
+            continue
+        stock_inicial = {k: v["cantidad_informada"] for k, v in cocina_por_dia.get(_dia_anterior(dia), {}).items()}
+        entregas_bodega = entregas_por_dia.get(dia, {})
+        produccion = produccion_por_dia.get(dia, {})
+        mermas_produccion = mermas_produccion_por_dia.get(dia, {})
+        ventas = ventas_por_dia.get(dia, {})
+
+        dia_resultado: dict[str, float] = {}
+        for key, fila in informado.items():
+            if fila.get("cantidad_informada") is None:
+                continue
+            entregas = entregas_bodega.get(key, 0) + produccion.get(key, 0)
+            mermas_total = (fila.get("mermas_total") or 0) + mermas_produccion.get(key, 0)
+            stock_real = stock_inicial.get(key, 0) + entregas - ventas.get(key, 0) - mermas_total
+            dia_resultado[key] = fila["cantidad_informada"] - stock_real
+        resultado[dia] = dia_resultado
+    return resultado
+
+
 @router.get("/resumen-semana", response_model=list[ResumenDiferenciaItem])
 def resumen_semana(local_id: str, fecha: str | None = None, claims: dict = Depends(get_current_claims)):
     """Resumen tipo hoja 'MERMAS Sx' del Excel real: por insumo, la
@@ -468,10 +553,11 @@ def resumen_semana(local_id: str, fecha: str | None = None, claims: dict = Depen
     lunes = _lunes_de_la_semana(fecha)
     dias_semana = [(lunes + timedelta(days=i)).isoformat() for i in range(5)]  # Lunes..Viernes
 
+    diferencias_por_dia = _diferencias_semana(db, local_id, dias_semana, keys)
+
     totales: dict[str, float] = {}
     for dia in dias_semana:
-        diferencias = _diferencias_del_dia(db, local_id, dia, keys)
-        for key, dif in diferencias.items():
+        for key, dif in diferencias_por_dia.get(dia, {}).items():
             totales[key] = totales.get(key, 0) + dif
 
     resultado = []

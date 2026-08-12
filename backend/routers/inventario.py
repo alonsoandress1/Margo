@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..bodega_service import stock_bodega_por_insumo
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..schemas import InventarioItem, MovimientoIn, MovimientoOut
@@ -22,13 +23,7 @@ def listar_inventario(local_id: str, claims: dict = Depends(get_current_claims))
     if not par_rows:
         return []
     keys = [r["ingrediente_key"] for r in par_rows]
-
-    mov_rows = db.table("bodega_movimientos").select("ingrediente_key,tipo,cantidad") \
-        .eq("local_id", local_id).in_("ingrediente_key", keys).execute().data or []
-    stock: dict[str, float] = {}
-    for m in mov_rows:
-        signo = -1 if m["tipo"] == "egreso" else 1
-        stock[m["ingrediente_key"]] = stock.get(m["ingrediente_key"], 0) + signo * m["cantidad"]
+    stock = stock_bodega_por_insumo(db, local_id, keys)
 
     return [
         InventarioItem(

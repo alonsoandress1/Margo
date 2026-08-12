@@ -11,6 +11,15 @@ def get_current_claims(creds: HTTPAuthorizationCredentials = Depends(_bearer)) -
     claims = decode_access_token(creds.credentials)
     if claims is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalido o expirado")
+
+    # El JWT por si solo no sabe si el usuario fue desactivado o le cambiaron
+    # el rol despues de emitirlo -- sin esto, un token seguia siendo valido
+    # con los permisos viejos hasta por 8 horas (JWT_EXPIRE_MINUTES).
+    db = get_db()
+    usuario = db.table("usuarios").select("rol,activo").eq("id", claims["sub"]).execute().data
+    if not usuario or not usuario[0]["activo"]:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Tu cuenta fue desactivada")
+    claims["rol"] = usuario[0]["rol"]
     return claims
 
 

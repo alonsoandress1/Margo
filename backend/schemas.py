@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 UnidadCatalogo = Literal["un", "kg", "porcion"]
 
@@ -13,7 +13,7 @@ class LocalOut(BaseModel):
 
 class PedidoIn(BaseModel):
     local_id: str
-    items: list[dict[str, Any]]
+    items: list[dict[str, Any]] = Field(min_length=1)
 
 
 class PedidoEstadoIn(BaseModel):

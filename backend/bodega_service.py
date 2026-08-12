@@ -1,3 +1,19 @@
+def stock_bodega_por_insumo(db, local_id: str, keys: list[str]) -> dict[str, float]:
+    """Stock actual de Bodega por insumo -- suma del ledger completo de
+    bodega_movimientos (ingreso +, egreso -). Logica centralizada aca porque
+    tanto Inventario como la sugerencia de compra de Pedidos la necesitan
+    igual; antes estaba duplicada en los dos routers."""
+    if not keys:
+        return {}
+    rows = db.table("bodega_movimientos").select("ingrediente_key,tipo,cantidad") \
+        .eq("local_id", local_id).in_("ingrediente_key", keys).execute().data or []
+    stock: dict[str, float] = {}
+    for m in rows:
+        signo = -1 if m["tipo"] == "egreso" else 1
+        stock[m["ingrediente_key"]] = stock.get(m["ingrediente_key"], 0) + signo * m["cantidad"]
+    return stock
+
+
 def registrar_entrega_cocina(db, local_id: str, ingrediente_key: str, fecha: str, cantidad: float,
                               created_by: str | None = None, nota: str | None = None) -> None:
     """Registra (o reemplaza) el egreso de Bodega -> Cocina de un insumo para

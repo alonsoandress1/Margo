@@ -41,6 +41,8 @@ def crear(body: UsuarioCreateIn, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     if body.rol not in ROLES_VALIDOS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Rol inválido, debe ser uno de: {ROLES_VALIDOS}")
+    if len(body.password) < 6:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La contraseña debe tener al menos 6 caracteres")
     db = get_db()
 
     existente = db.table("usuarios").select("id").eq("email", body.email).execute()
@@ -81,6 +83,8 @@ def actualizar(usuario_id: str, body: UsuarioUpdateIn, claims: dict = Depends(ge
     if body.activo is not None:
         update["activo"] = body.activo
     if body.password:
+        if len(body.password) < 6:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "La contraseña debe tener al menos 6 caracteres")
         update["password_hash"] = hash_password(body.password)
 
     if update:
