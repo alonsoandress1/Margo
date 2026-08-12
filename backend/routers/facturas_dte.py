@@ -71,22 +71,6 @@ def _mejor_codigo(codigos: list[dict]) -> tuple[str | None, str | None]:
     return None, None
 
 
-@router.get("/{po_id}/_debug-po")
-def _debug_po(po_id: int, campos: str = 'amount_untaxed,amount_tax,amount_total',
-              claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- confirmar los nombres de campo de monto en purchase.order
-    antes de mover la validacion de montos a esa etapa. Borrar despues."""
-    import traceback
-    from fastapi.responses import PlainTextResponse
-    _require_admin(claims)
-    cliente = _odoo()
-    try:
-        docs = cliente._call('purchase.order', 'read', [[po_id]], {'fields': campos.split(',')})
-    except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
-    return docs[0] if docs else {}
-
-
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
@@ -201,23 +185,24 @@ def confirmar_match(body: DteMatchLineaIn, claims: dict = Depends(get_current_cl
 
 
 def _monto(valor) -> float:
-    """Los montos del DTE vienen como texto ("293363") y los de account.move
-    como numero -- normaliza ambos a float para poder compararlos."""
+    """Los montos del DTE vienen como texto ("293363") y los de Odoo
+    (purchase.order/account.move, mismos nombres de campo en ambos) como
+    numero -- normaliza ambos a float para poder compararlos."""
     try:
         return float(valor)
     except (TypeError, ValueError):
         return 0.0
 
 
-def _verificar_montos(doc: dict, move_datos: dict) -> list[str]:
-    """Compara Neto/IVA/Total del DTE contra la factura recien creada en
-    Odoo -- deben coincidir o tener maximo TOLERANCIA_MONTOS pesos de
-    diferencia (redondeos). Devuelve la lista de desajustes encontrados
-    (vacia si todo calza)."""
+def _verificar_montos(doc: dict, odoo_datos: dict) -> list[str]:
+    """Compara Neto/IVA/Total del DTE contra los mismos montos ya calculados
+    en Odoo (la OC en borrador, antes de confirmar nada) -- deben coincidir
+    o tener maximo TOLERANCIA_MONTOS pesos de diferencia (redondeos).
+    Devuelve la lista de desajustes encontrados (vacia si todo calza)."""
     comparaciones = (
-        ("Neto", doc.get('amount_untaxed'), move_datos.get('amount_untaxed')),
-        ("IVA", doc.get('iva'), move_datos.get('amount_tax')),
-        ("Total", doc.get('amount_total'), move_datos.get('amount_total')),
+        ("Neto", doc.get('amount_untaxed'), odoo_datos.get('amount_untaxed')),
+        ("IVA", doc.get('iva'), odoo_datos.get('amount_tax')),
+        ("Total", doc.get('amount_total'), odoo_datos.get('amount_total')),
     )
     desajustes = []
     for campo, valor_dte, valor_odoo in comparaciones:
@@ -242,6 +227,10 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     el historico completo en Odoo: ~1000 facturas, todas con una OC detras):
     1) crear la Orden de Compra (mismo mecanismo que la automatizacion de
        compras -- OC en Draft con product_id/cantidad/precio del DTE),
+    1.5) verificar que Neto/IVA/Total de la OC en borrador calcen con lo
+       declarado en el DTE (maximo TOLERANCIA_MONTOS pesos de diferencia) --
+       si no calzan, se borra la OC (todavia en borrador, se puede limpio) y
+       no se sigue: no se crea ninguna factura con montos que no coinciden,
     2) confirmarla (button_confirm -- genera la recepcion de mercaderia),
     3) marcar la mercaderia como recibida (button_validate, con la fecha del
        DTE), 4) generar la factura DESDE la OC (action_create_invoice --
@@ -278,6 +267,21 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         'date_order': fecha_dte,
         'order_line': order_lines,
     }])
+
+    # Verificacion de montos ANTES de confirmar/recibir/facturar -- en
+    # borrador, la OC ya calcula Neto/IVA/Total con el mismo motor de
+    # impuestos que usara la factura final, y todavia se puede borrar
+    # limpio (unlink) si no calza, sin dejar nada a medio crear en Odoo.
+    po_montos = cliente._call('purchase.order', 'read', [[po_id]],
+        {'fields': ['amount_untaxed', 'amount_tax', 'amount_total']})[0]
+    desajustes = _verificar_montos(doc, po_montos)
+    if desajustes:
+        cliente._call('purchase.order', 'unlink', [[po_id]])
+        raise RuntimeError(
+            f"No coinciden los valores -- ingresar de manera manual. "
+            f"No se creó ninguna Orden de Compra ni factura en Odoo: " + "; ".join(desajustes)
+        )
+
     cliente._call('purchase.order', 'button_confirm', [[po_id]])
 
     po = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['picking_ids']})[0]
@@ -306,27 +310,13 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         'invoice_date': doc['date'],
         'l10n_latam_document_number': str(doc['l10n_latam_document_number']).zfill(6),
     }])
+    cliente._call('l10n_cl.supplier.xml', 'write', [[dte_id], {'invoice_id': move_id}])
 
     # Ojo: pedir TODOS los campos de account.move falla con un error de
     # permisos (un campo relacionado toca pos.payment, sin acceso para la
     # cuenta de servicio) -- por eso siempre hay que pedir campos explicitos.
-    move_datos = cliente._call('account.move', 'read', [[move_id]],
-        {'fields': ['name', 'amount_untaxed', 'amount_tax', 'amount_total']})[0]
-
-    # La factura y la OC ya quedaron creadas en Odoo en este punto -- se
-    # vincula el DTE pase lo que pase con la verificacion de montos, para
-    # que no vuelva a aparecer en "pendientes" y alguien intente crearla
-    # de nuevo (generaria una OC/factura duplicada real).
-    cliente._call('l10n_cl.supplier.xml', 'write', [[dte_id], {'invoice_id': move_id}])
-
-    desajustes = _verificar_montos(doc, move_datos)
-    if desajustes:
-        raise RuntimeError(
-            f"No coinciden los valores -- ingresar de manera manual. "
-            f"Factura {move_datos['name']} ya quedó creada en Odoo, revisar ahí: " + "; ".join(desajustes)
-        )
-
-    return move_id, move_datos['name']
+    move = cliente._call('account.move', 'read', [[move_id]], {'fields': ['name']})[0]
+    return move_id, move['name']
 
 
 def _procesar_item_cola(cola_id: str, dte_id: int):
