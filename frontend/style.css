@@ -94,17 +94,24 @@ body{
 .sidebar-logo .tag{font-family:var(--font-mono);font-size:8px;color:var(--t3);letter-spacing:.08em;text-transform:uppercase}
 
 .sidebar nav{padding:12px 10px}
-.nav-group-label{
-  font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--t3);padding:14px 12px 6px;
+.nav-group-toggle{
+  display:flex;align-items:center;justify-content:space-between;width:100%;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--t3);background:transparent;border:none;cursor:pointer;
+  padding:11px 12px;margin-top:6px;border-radius:3px;
+  transition:all .18s var(--ease);
 }
-.nav-group-label:first-child{padding-top:4px}
+.nav-group-toggle:first-child{margin-top:0}
+.nav-group-toggle:hover{background:rgba(201,169,122,.07);color:var(--t2)}
+.nav-group-toggle.open{color:var(--gold)}
+.nav-group-caret{font-size:9px;opacity:.65;transition:transform .18s var(--ease)}
 .sidebar nav a{
   display:flex;align-items:center;gap:8px;
   font-family:var(--font-sans);font-size:11px;letter-spacing:.03em;color:var(--t3);
   padding:9px 12px;margin-bottom:1px;border-radius:3px;cursor:pointer;
   transition:all .18s var(--ease);position:relative;
 }
+.sidebar nav a.nav-item{padding-left:22px}
 .sidebar nav a:hover{background:rgba(201,169,122,.07);color:var(--t2);transform:translateX(4px)}
 .sidebar nav a.active{background:linear-gradient(90deg,var(--g12),var(--g06) 60%,transparent);color:var(--t1);font-weight:400}
 .sidebar nav a.active::before{

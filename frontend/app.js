@@ -30,6 +30,7 @@ let state = {
   dteColaTimer: null,
   dteFiltroFolio: '',
   mermasDirty: false,
+  navGrupoAbierto: 'Operación diaria',
 };
 
 window.addEventListener('beforeunload', (e) => {
@@ -334,20 +335,31 @@ function renderNav() {
   GRUPOS_NAV.forEach((grupo) => {
     const items = SECCIONES.filter(s => s.grupo === grupo && puedeVer(s));
     if (!items.length) return;
-    const h = document.createElement('div');
-    h.className = 'nav-group-label';
-    h.textContent = grupo;
+    const abierto = state.navGrupoAbierto === grupo;
+
+    const h = document.createElement('button');
+    h.type = 'button';
+    h.className = 'nav-group-toggle' + (abierto ? ' open' : '');
+    h.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+    h.innerHTML = `<span>${grupo}</span><span class="nav-group-caret">${abierto ? '▾' : '▸'}</span>`;
+    h.onclick = () => {
+      state.navGrupoAbierto = abierto ? null : grupo;
+      renderNav();
+    };
     nav.appendChild(h);
-    items.forEach((s) => {
-      const a = document.createElement('a');
-      a.textContent = s.label;
-      a.className = s.id === state.section ? 'active' : '';
-      a.onclick = () => {
-        if (state.section === 'mermas' && s.id !== 'mermas' && !confirmarSalirMermas()) return;
-        state.section = s.id; renderNav(); renderView();
-      };
-      nav.appendChild(a);
-    });
+
+    if (abierto) {
+      items.forEach((s) => {
+        const a = document.createElement('a');
+        a.textContent = s.label;
+        a.className = 'nav-item' + (s.id === state.section ? ' active' : '');
+        a.onclick = () => {
+          if (state.section === 'mermas' && s.id !== 'mermas' && !confirmarSalirMermas()) return;
+          state.section = s.id; renderNav(); renderView();
+        };
+        nav.appendChild(a);
+      });
+    }
   });
 }
 
