@@ -80,7 +80,17 @@ def _debug_auditoria(claims: dict = Depends(get_current_claims)):
             else:
                 item['factura'] = None
             resultado.append(item)
-        return resultado
+
+        # Chequeo directo, independiente del campo invoice_id del DTE (que
+        # para 80924 aparecio en False despues de haberse creado la factura
+        # con exito) -- buscar las facturas conocidas por NOMBRE, para saber
+        # si siguen existiendo de verdad en Odoo aunque el DTE ya no apunte.
+        nombres_conocidos = ['FAC 010036', 'FAC 010210', 'FAC 010271', 'FAC 010274', 'FAC 9666624']
+        moves_directos = cliente._call('account.move', 'search_read',
+            [[['name', 'in', nombres_conocidos], ['move_type', '=', 'in_invoice']]],
+            {'fields': ['id', 'name', 'invoice_origin', 'amount_total', 'state', 'invoice_date', 'partner_id']})
+
+        return {'por_dte': resultado, 'busqueda_directa_por_nombre': moves_directos}
     except Exception:
         return {'error': traceback.format_exc()}
 
