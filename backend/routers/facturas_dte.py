@@ -46,10 +46,11 @@ TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la f
 
 
 @router.get("/_debug/duplicados")
-def _debug_duplicados(dias: int = 14, claims: dict = Depends(get_current_claims)):
+def _debug_duplicados(dias: int = 14, partner_id: int | None = None, claims: dict = Depends(get_current_claims)):
     """TEMPORAL -- busca facturas de proveedor (company_id=2) con el mismo
     folio + proveedor repetido en los ultimos N dias, para investigar un
-    reporte de facturas duplicadas."""
+    reporte de facturas duplicadas. Si se pasa partner_id, tambien devuelve
+    el listado completo de ese proveedor (para revisar montos parecidos)."""
     import traceback
     from collections import defaultdict
     try:
@@ -68,7 +69,12 @@ def _debug_duplicados(dias: int = 14, claims: dict = Depends(get_current_claims)
             clave = (partner, m.get('l10n_latam_document_number'))
             grupos[clave].append(m)
         duplicados = {f"{k[0]}|{k[1]}": v for k, v in grupos.items() if len(v) > 1 and k[1]}
-        return {'total_facturas': len(moves), 'grupos_duplicados': len(duplicados), 'detalle': duplicados}
+        resp = {'total_facturas': len(moves), 'grupos_duplicados': len(duplicados), 'detalle': duplicados}
+        if partner_id is not None:
+            resp['listado_proveedor'] = sorted(
+                [m for m in moves if m.get('partner_id') and m['partner_id'][0] == partner_id],
+                key=lambda m: m.get('invoice_date') or '')
+        return resp
     except Exception:
         return {'error': traceback.format_exc()}
 
