@@ -1939,7 +1939,7 @@ async function actualizarColaPanel() {
               <td>${c.proveedor_nombre}</td>
               <td>${c.folio}</td>
               <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${c.invoice_name}` : ''}${c.estado === 'error' ? ` — ${c.error_mensaje}` : ''}</td>
-              <td><button type="button" class="btn" data-eliminar-cola="${c.id}" title="Quitar de esta lista">Eliminar</button></td>
+              <td><button type="button" class="btn" data-eliminar-cola="${c.id}" title="Solo quita esta fila de la lista -- no afecta la factura en Odoo">Limpiar</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
