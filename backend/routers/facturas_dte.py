@@ -90,7 +90,20 @@ def _debug_auditoria(claims: dict = Depends(get_current_claims)):
             [[['name', 'in', nombres_conocidos], ['move_type', '=', 'in_invoice']]],
             {'fields': ['id', 'name', 'invoice_origin', 'amount_total', 'state', 'invoice_date', 'partner_id']})
 
-        return {'por_dte': resultado, 'busqueda_directa_por_nombre': moves_directos}
+        # Chequeo por ID exacto -- las facturas que sabemos con certeza que
+        # se crearon esta sesion, leidas directo por su id de Odoo (no por
+        # nombre, que puede haber cambiado o no ser unico).
+        ids_conocidos = [1330803, 1330878, 1330876, 1330983, 78369]
+        moves_por_id = []
+        for mid in [1330803, 1330878, 1330876, 1330983]:
+            try:
+                m = cliente._call('account.move', 'read', [[mid]],
+                    {'fields': ['name', 'invoice_origin', 'amount_total', 'state', 'invoice_date', 'partner_id', 'move_type']})
+                moves_por_id.append(m[0] if m else {'id': mid, 'existe': False})
+            except Exception as e:
+                moves_por_id.append({'id': mid, 'error': str(e)})
+
+        return {'por_dte': resultado, 'busqueda_directa_por_nombre': moves_directos, 'por_id_exacto': moves_por_id}
     except Exception:
         return {'error': traceback.format_exc()}
 
