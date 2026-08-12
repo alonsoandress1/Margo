@@ -141,6 +141,22 @@ def _debug_auditoria(claims: dict = Depends(get_current_claims)):
         return {'error': traceback.format_exc()}
 
 
+@router.get("/_debug/movimientos-p19867")
+def _debug_movimientos_p19867(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL, solo lectura -- detalle de los movimientos de stock de la
+    OC huerfana P19867, para saber que hay que revertir."""
+    import traceback
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        moves = cliente._call('stock.move', 'read', [[5355878, 5355879]],
+            {'fields': ['product_id', 'product_uom_qty', 'quantity', 'state', 'location_id', 'location_dest_id']})
+        return {'moves': moves}
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 @router.post("/_fix/vincular-dte-80924")
 def _fix_vincular_dte_80924(claims: dict = Depends(get_current_claims)):
     """TEMPORAL, UN SOLO USO -- autorizado explicitamente por el usuario.
