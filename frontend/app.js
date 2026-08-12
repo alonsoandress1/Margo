@@ -1930,7 +1930,10 @@ async function actualizarColaPanel() {
   const activos = state.dteCola.filter(c => c.estado === 'pendiente' || c.estado === 'procesando').length;
   panel.innerHTML = `
     <div class="card" style="margin-bottom:1rem">
-      <h3>Cola de creación${activos ? ` — ${activos} en curso` : ''}</h3>
+      <div class="item-row" style="justify-content:space-between;align-items:center;margin-bottom:.5rem">
+        <h3 style="margin:0">Cola de creación${activos ? ` — ${activos} en curso` : ''}</h3>
+        <button type="button" class="btn" id="dte-cola-limpiar-todas" title="Solo vacía esta lista -- no afecta las facturas en Odoo">Limpiar todas</button>
+      </div>
       <table>
         <thead><tr><th>Proveedor</th><th>Folio</th><th>Estado</th><th></th></tr></thead>
         <tbody>
@@ -1954,6 +1957,16 @@ async function actualizarColaPanel() {
         alert(err.message);
       }
     });
+  });
+
+  document.getElementById('dte-cola-limpiar-todas').addEventListener('click', async () => {
+    if (activos && !confirm(`Todavía hay ${activos} factura(s) en curso -- limpiar la lista no las cancela, solo deja de mostrarlas acá. ¿Limpiar de todas formas?`)) return;
+    try {
+      await api('/facturas-dte/cola', { method: 'DELETE' });
+      actualizarColaPanel();
+    } catch (err) {
+      alert(err.message);
+    }
   });
 }
 

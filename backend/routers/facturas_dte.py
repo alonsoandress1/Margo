@@ -371,3 +371,13 @@ def eliminar_de_cola(cola_id: str, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     db = get_db()
     db.table("facturas_dte_cola").delete().eq("id", cola_id).execute()
+
+
+@router.delete("/cola", status_code=status.HTTP_204_NO_CONTENT)
+def limpiar_cola(claims: dict = Depends(get_current_claims)):
+    """Igual que eliminar_de_cola pero para todo el panel de una vez --
+    mismo alcance (solo nuestro registro, nunca toca Odoo ni cancela
+    trabajos en curso)."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_cola").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
