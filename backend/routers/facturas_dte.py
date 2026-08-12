@@ -97,6 +97,22 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     ]
 
 
+@router.get("/{move_id}/_debug-move-lineas")
+def _debug_move_lineas(move_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- confirmar campos reales de account.move.line antes de
+    construir el comparador DTE vs factura creada. Borrar despues."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
+    _require_admin(claims)
+    cliente = _odoo()
+    try:
+        lineas = cliente._call('account.move.line', 'search_read', [[['move_id', '=', move_id]]],
+            {'fields': ['product_id', 'quantity', 'price_unit', 'tax_ids', 'display_type', 'name']})
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
+    return lineas
+
+
 @router.get("/productos/buscar", response_model=list[DteProductoOut])
 def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
     """Busca productos YA EXISTENTES en Odoo por nombre o codigo interno --
