@@ -45,6 +45,46 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug/auditoria")
+def _debug_auditoria(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- auditoria exhaustiva de los DTE creados hoy en esta
+    sesion: para cada uno, el estado real del DTE, de la factura (account.move)
+    y de la OC que uso -- y si esa OC tiene mas de una factura asociada."""
+    import traceback
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        dte_ids = [81421, 78369, 80875, 81396, 80924, 77293]
+        docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', 'in', dte_ids]]],
+            {'fields': ['id', 'l10n_latam_document_number', 'date', 'invoice_id', 'issuer_name', 'amount_total']})
+        resultado = []
+        for d in docs:
+            item = {'dte_id': d['id'], 'folio': d['l10n_latam_document_number'], 'fecha': d['date'],
+                     'proveedor': d['issuer_name'], 'monto_dte': d['amount_total']}
+            if d.get('invoice_id'):
+                move_id = d['invoice_id'][0]
+                move = cliente._call('account.move', 'read', [[move_id]],
+                    {'fields': ['name', 'invoice_origin', 'amount_total', 'state', 'invoice_date']})[0]
+                item['factura'] = move
+                if move.get('invoice_origin'):
+                    otras_facturas_misma_oc = cliente._call('account.move', 'search_read',
+                        [[['invoice_origin', '=', move['invoice_origin']], ['move_type', '=', 'in_invoice'],
+                          ['state', '!=', 'cancel']]],
+                        {'fields': ['id', 'name', 'amount_total', 'invoice_date']})
+                    item['otras_facturas_misma_oc'] = otras_facturas_misma_oc
+                    po = cliente._call('purchase.order', 'search_read',
+                        [[['name', '=', move['invoice_origin']]]],
+                        {'fields': ['id', 'name', 'amount_total', 'invoice_status', 'state']})
+                    item['oc'] = po[0] if po else None
+            else:
+                item['factura'] = None
+            resultado.append(item)
+        return resultado
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
 # de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
 # creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
