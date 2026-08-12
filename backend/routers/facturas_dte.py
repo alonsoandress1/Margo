@@ -131,24 +131,6 @@ def mostrar_proveedor(proveedor_rut: str, claims: dict = Depends(get_current_cla
     db.table("facturas_proveedor_oculto").delete().eq("proveedor_rut", proveedor_rut).execute()
 
 
-@router.get("/_debug-tax-producto/{producto_id}")
-def _debug_tax_producto(producto_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- confirmar el campo real de impuesto de compra por defecto de un producto."""
-    _require_admin(claims)
-    import traceback
-    try:
-        cliente = _odoo()
-        prod = cliente._call('product.product', 'read', [[producto_id]],
-            {'fields': ['name', 'supplier_taxes_id', 'taxes_id']})
-        out = {'producto': prod}
-        if prod and prod[0].get('supplier_taxes_id'):
-            taxes = cliente._call('account.tax', 'read', [prod[0]['supplier_taxes_id']], {'fields': ['name', 'amount', 'type_tax_use']})
-            out['supplier_taxes'] = taxes
-        return out
-    except Exception:
-        return {'error': traceback.format_exc()}
-
-
 @router.get("/productos/buscar", response_model=list[DteProductoOut])
 def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
     """Busca productos YA EXISTENTES en Odoo por nombre o codigo interno --
@@ -185,13 +167,23 @@ def buscar_impuesto(q: str = '', claims: dict = Depends(get_current_claims)):
 
 @router.get("/productos/{producto_id}/impuestos", response_model=list[str])
 def listar_impuestos_producto(producto_id: int, claims: dict = Depends(get_current_claims)):
-    """Impuestos guardados para este producto (hasta 3) -- vacio si el
-    producto no tiene nada especial configurado (usa el impuesto por
-    defecto del producto en Odoo, el caso normal)."""
+    """Impuestos que aplican hoy a este producto (hasta 3): si hay un override
+    guardado, ese; si no, el impuesto de compra que el producto YA TIENE por
+    defecto en Odoo (supplier_taxes_id) -- para que el selector salga
+    alineado con lo que se factura hoy y no se pierda (ej. el IVA 19%) al
+    marcar solo un impuesto especial nuevo."""
     _require_admin(claims)
     db = get_db()
     filas = db.table("facturas_producto_impuesto").select("impuesto_nombre").eq("odoo_product_id", producto_id).execute().data or []
-    return [f["impuesto_nombre"] for f in filas]
+    if filas:
+        return [f["impuesto_nombre"] for f in filas]
+    cliente = _odoo()
+    prod = cliente._call('product.product', 'read', [[producto_id]], {'fields': ['supplier_taxes_id']})
+    tax_ids = prod[0]['supplier_taxes_id'] if prod else []
+    if not tax_ids:
+        return []
+    taxes = cliente._call('account.tax', 'read', [tax_ids], {'fields': ['name']})
+    return [t['name'] for t in taxes]
 
 
 @router.put("/productos/{producto_id}/impuestos", status_code=status.HTTP_204_NO_CONTENT)
