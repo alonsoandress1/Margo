@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 """Exporta la Planilla de Compras de la web al Excel real "PLANILLA DE COMPRAS
-OFICIAL" -- usa la plantilla real (backend/templates/plantilla_planilla_compras.xlsx,
-limpia de datos pero con TODAS las formulas originales intactas, incluido el
-desglose por Tipo y por columna-de-proveedor arrastrado hasta el final de cada
-hoja) y solo escribe en las celdas de entrada (Tipo/Proveedor/N Factura/IVA/Total
-por fila, mas Venta Periodo/Venta Actual del resumen). El resto lo calcula el
-propio Excel al abrirlo.
+OFICIAL" -- usa la plantilla real (backend/templates/planilla_compras_meses/,
+un archivo POR MES, limpio de datos pero con TODAS las formulas originales
+intactas, incluido el desglose por Tipo y por columna-de-proveedor arrastrado
+hasta el final de la hoja) y solo escribe en las celdas de entrada
+(Tipo/Proveedor/N Factura/IVA/Total por fila, mas Venta Periodo/Venta Actual
+del resumen). El resto lo calcula el propio Excel al abrirlo.
+
+Un archivo por mes (no un unico workbook de 12 hojas) a propósito -- el
+archivo real completo tiene ~650 filas x 106 columnas x 12 hojas con formula
+en casi todas las celdas, y openpyxl tarda ~25s solo en CARGARLO (confirmado
+midiendo en local) -- eso hacia expirar el request en Render (502 a los
+~45s). Cargar solo la hoja del mes pedido baja eso a ~2-3s.
 
 Las columnas y la fila de Total fueron confirmadas leyendo el archivo real mes
 por mes (no son un formato inventado) -- Tipo/Proveedor/N Factura/IVA/Total
@@ -17,7 +23,7 @@ from pathlib import Path
 
 import openpyxl
 
-_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "plantilla_planilla_compras.xlsx"
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "planilla_compras_meses"
 
 _MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO",
           "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
@@ -45,8 +51,8 @@ def exportar_mes(anio: int, mes: int, items: list[dict], venta_periodo: float | 
     se escribe tanto en VENTA PERIODO (E3) como en VENTA ACTUAL (D4), son el
     mismo dato en este Excel.
     """
-    wb = openpyxl.load_workbook(_TEMPLATE_PATH)
     hoja = _MESES[mes - 1]
+    wb = openpyxl.load_workbook(_TEMPLATES_DIR / f"{hoja.lower()}.xlsx")
     ws = wb[hoja]
 
     fila_total = _fila_total(ws)
