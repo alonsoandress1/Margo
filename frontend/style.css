@@ -94,6 +94,11 @@ body{
 .sidebar-logo .tag{font-family:var(--font-mono);font-size:8px;color:var(--t3);letter-spacing:.08em;text-transform:uppercase}
 
 .sidebar nav{padding:12px 10px}
+.nav-group-label{
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--t3);padding:14px 12px 6px;
+}
+.nav-group-label:first-child{padding-top:4px}
 .sidebar nav a{
   display:flex;align-items:center;gap:8px;
   font-family:var(--font-sans);font-size:11px;letter-spacing:.03em;color:var(--t3);

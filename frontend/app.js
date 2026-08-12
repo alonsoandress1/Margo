@@ -1,19 +1,21 @@
 // Margo · Compras — frontend (vanilla JS, sin build step)
 // El backend sirve estos archivos estáticos, así que la API está en el mismo origen.
 
+const GRUPOS_NAV = ['Operación diaria', 'Compras', 'Configuración'];
+
 const SECCIONES = [
-  { id: 'pedidos',   label: 'Pedidos',              roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
-  { id: 'inventario', label: 'Inventario',          roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
-  { id: 'mermas',    label: 'Mermas',                roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
-  { id: 'oc',        label: 'Órdenes de Compra',     roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
-  { id: 'proveedores', label: 'Proveedores',         roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'parstock',  label: 'Par Stock',             roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'recetas',   label: 'Recetas',               roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'locales',   label: 'Locales',                roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'usuarios',  label: 'Usuarios',               roles: ['administrador'], editRoles: ['administrador'] },
-  { id: 'facturas',  label: 'Facturas',               roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'facturas-dte', label: 'Ingreso de Facturas',  roles: ['administrador'], editRoles: ['administrador'] },
-  { id: 'planilla-compras', label: 'Planilla de Compras', roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'pedidos',   label: 'Pedidos',              grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
+  { id: 'inventario', label: 'Inventario',          grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
+  { id: 'mermas',    label: 'Mermas',                grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
+  { id: 'parstock',  label: 'Par Stock',             grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'recetas',   label: 'Recetas',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'oc',        label: 'Órdenes de Compra',     grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
+  { id: 'proveedores', label: 'Proveedores',         grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'facturas',  label: 'Facturas',               grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'facturas-dte', label: 'Ingreso de Facturas',  grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'locales',   label: 'Locales',                grupo: 'Configuración', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'usuarios',  label: 'Usuarios',               grupo: 'Configuración', roles: ['administrador'], editRoles: ['administrador'] },
 ];
 
 let state = {
@@ -27,7 +29,22 @@ let state = {
   dteCola: [],
   dteColaTimer: null,
   dteFiltroFolio: '',
+  mermasDirty: false,
 };
+
+window.addEventListener('beforeunload', (e) => {
+  if (state.mermasDirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+function confirmarSalirMermas() {
+  if (!state.mermasDirty) return true;
+  const ok = confirm('Tienes cambios sin guardar en Mermas. ¿Salir de todas formas y perderlos?');
+  if (ok) state.mermasDirty = false;
+  return ok;
+}
 
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
 function puedeVer(s) { return state.usuario && s.roles.includes(state.usuario.rol); }
@@ -362,13 +379,23 @@ document.getElementById('factura-form').addEventListener('submit', async (e) => 
 function renderNav() {
   const nav = document.getElementById('nav-list');
   nav.innerHTML = '';
-  SECCIONES.forEach((s) => {
-    if (!puedeVer(s)) return;
-    const a = document.createElement('a');
-    a.textContent = s.label;
-    a.className = s.id === state.section ? 'active' : '';
-    a.onclick = () => { state.section = s.id; renderNav(); renderView(); };
-    nav.appendChild(a);
+  GRUPOS_NAV.forEach((grupo) => {
+    const items = SECCIONES.filter(s => s.grupo === grupo && puedeVer(s));
+    if (!items.length) return;
+    const h = document.createElement('div');
+    h.className = 'nav-group-label';
+    h.textContent = grupo;
+    nav.appendChild(h);
+    items.forEach((s) => {
+      const a = document.createElement('a');
+      a.textContent = s.label;
+      a.className = s.id === state.section ? 'active' : '';
+      a.onclick = () => {
+        if (state.section === 'mermas' && s.id !== 'mermas' && !confirmarSalirMermas()) return;
+        state.section = s.id; renderNav(); renderView();
+      };
+      nav.appendChild(a);
+    });
   });
 }
 
@@ -1315,18 +1342,30 @@ async function renderMermas(el, s) {
       <p id="guardar-error" class="error-msg"></p>
     </div>` : ''}`;
 
+  state.mermasDirty = false;
+  if (editable) {
+    el.oninput = (e) => {
+      if (e.target.matches('#stock-form input, #entregas-form input, #proteinas-form input, #pasteleria-form input, #chocolates-form input')) {
+        state.mermasDirty = true;
+      }
+    };
+  }
+
   document.getElementById('mermas-local').addEventListener('change', (e) => {
+    if (!confirmarSalirMermas()) { e.target.value = localId; return; }
     state.mermasLocal = e.target.value;
     renderView();
   });
 
   document.getElementById('mermas-fecha').addEventListener('change', (e) => {
+    if (!confirmarSalirMermas()) { e.target.value = fecha; return; }
     state.mermasFecha = e.target.value;
     renderView();
   });
 
   el.querySelectorAll('[data-dia-semana]').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (!confirmarSalirMermas()) return;
       state.mermasFecha = btn.dataset.diaSemana;
       renderView();
     });
@@ -1462,6 +1501,7 @@ async function renderMermas(el, s) {
         await guardarProteinas();
         await guardarPasteleria();
         await guardarChocolates();
+        state.mermasDirty = false;
         renderView();
       } catch (err) {
         errorEl.textContent = err.message;
