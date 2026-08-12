@@ -159,6 +159,24 @@ body{
 }
 .card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(201,169,122,.16),transparent)}
 
+/* ---------- Resumen ---------- */
+.resumen-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}
+.resumen-card{
+  background:linear-gradient(135deg,var(--s3) 0%,var(--s2) 100%);
+  border:1px solid var(--b1);padding:20px;cursor:pointer;
+  transition:border-color .2s var(--ease),box-shadow .2s var(--ease),transform .2s var(--ease);
+}
+.resumen-card:hover,.resumen-card:focus-visible{border-color:var(--gold);box-shadow:var(--glow-xs);transform:translateY(-1px);outline:none}
+.resumen-card-label{
+  font-family:var(--font-sans);font-size:8px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--t3);margin-bottom:.6rem;
+}
+.resumen-card-valor{font-family:var(--font-serif);font-size:2.1rem;color:var(--t1);line-height:1}
+.resumen-card-sub{font-size:.82rem;color:var(--t2);padding:.15rem 0}
+.resumen-valor-good{color:var(--good)}
+.resumen-valor-gold{color:var(--gold)}
+.resumen-valor-danger{color:var(--danger)}
+
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:.65rem .6rem;border-bottom:1px solid var(--b1);font-size:.83rem;color:var(--t2)}
 th{

@@ -4,6 +4,7 @@
 const GRUPOS_NAV = ['Operación diaria', 'Compras', 'Configuración'];
 
 const SECCIONES = [
+  { id: 'resumen',   label: 'Resumen',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: [] },
   { id: 'pedidos',   label: 'Pedidos',              grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'inventario', label: 'Inventario',          grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'mermas',    label: 'Mermas',                grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
@@ -11,8 +12,8 @@ const SECCIONES = [
   { id: 'recetas',   label: 'Recetas',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'oc',        label: 'Órdenes de Compra',     grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'proveedores', label: 'Proveedores',         grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'facturas',  label: 'Facturas',               grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'facturas-dte', label: 'Ingreso de Facturas',  grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'facturas',  label: 'Recepción en Bodega',    grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'facturas-dte', label: 'Facturas SII',         grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
   { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
   { id: 'locales',   label: 'Locales',                grupo: 'Configuración', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'usuarios',  label: 'Usuarios',               grupo: 'Configuración', roles: ['administrador'], editRoles: ['administrador'] },
@@ -21,7 +22,7 @@ const SECCIONES = [
 let state = {
   token: localStorage.getItem('token') || null,
   usuario: JSON.parse(localStorage.getItem('usuario') || 'null'),
-  section: 'pedidos',
+  section: 'resumen',
   locales: [],
   facturasPendientes: null,
   planillaItems: null,
@@ -370,6 +371,7 @@ async function renderView() {
   el.innerHTML = '<p class="placeholder">Cargando…</p>';
   const s = seccion(state.section);
   try {
+    if (state.section === 'resumen') return renderResumen(el, s);
     if (state.section === 'pedidos') return renderPedidos(el, s);
     if (state.section === 'locales') return renderLocales(el, s);
     if (state.section === 'inventario') return renderInventario(el, s);
@@ -385,6 +387,82 @@ async function renderView() {
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
   }
+}
+
+async function renderResumen(el, s) {
+  const esAdmin = state.usuario.rol === 'administrador';
+  const locales = await api('/locales');
+
+  const [pedidos, mermasPorLocal] = await Promise.all([
+    api('/pedidos'),
+    Promise.all(locales.map(l =>
+      api(`/mermas?local_id=${l.id}`).then(items => ({ local: l.nombre, items })).catch(() => ({ local: l.nombre, items: [] }))
+    )),
+  ]);
+
+  const pedidosPendientes = pedidos.filter(p => p.estado === 'pendiente').length;
+  const mermasResumen = mermasPorLocal
+    .map(({ local, items }) => items.length
+      ? { local, total: items.length, faltan: items.filter(i => i.cantidad_informada === null || i.cantidad_informada === undefined).length }
+      : null)
+    .filter(Boolean);
+
+  let facturasPendientesCount = null;
+  let planillaResumen = null;
+  if (esAdmin) {
+    const hoy = new Date();
+    const hace30 = new Date(); hace30.setDate(hoy.getDate() - 30);
+    const desde = hace30.toISOString().slice(0, 10);
+    const hasta = hoy.toISOString().slice(0, 10);
+    const [dte, planilla] = await Promise.all([
+      api(`/facturas-dte?desde=${desde}&hasta=${hasta}`).catch(() => null),
+      api(`/planilla-compras?anio=${hoy.getFullYear()}&mes=${hoy.getMonth() + 1}`).catch(() => null),
+    ]);
+    facturasPendientesCount = dte ? dte.length : null;
+    planillaResumen = planilla ? planilla.resumen : null;
+  }
+
+  const claseCantidad = (n) => n > 0 ? 'resumen-valor-gold' : 'resumen-valor-good';
+
+  el.innerHTML = `
+    <h2>Resumen</h2>
+    <p class="placeholder" style="margin-bottom:1.25rem">Lo que conviene revisar hoy, de un vistazo.</p>
+    <div class="resumen-grid">
+      <div class="resumen-card" data-ir="pedidos" tabindex="0" role="button">
+        <div class="resumen-card-label">Pedidos por aprobar</div>
+        <div class="resumen-card-valor ${claseCantidad(pedidosPendientes)}">${pedidosPendientes}</div>
+      </div>
+      <div class="resumen-card" data-ir="mermas" tabindex="0" role="button">
+        <div class="resumen-card-label">Mermas de ayer</div>
+        ${mermasResumen.length
+          ? mermasResumen.map(m => `
+              <div class="resumen-card-sub">${m.local}: ${m.faltan
+                ? `<span class="resumen-valor-gold">${m.faltan} de ${m.total} sin cargar</span>`
+                : `<span class="resumen-valor-good">completo</span>`}</div>`).join('')
+          : '<div class="resumen-card-sub placeholder">Sin insumos de seguimiento configurados</div>'}
+      </div>
+      ${esAdmin ? `
+      <div class="resumen-card" data-ir="facturas-dte" tabindex="0" role="button">
+        <div class="resumen-card-label">Facturas SII pendientes (30 días)</div>
+        <div class="resumen-card-valor ${facturasPendientesCount === null ? '' : claseCantidad(facturasPendientesCount)}">
+          ${facturasPendientesCount === null ? '—' : facturasPendientesCount}
+        </div>
+      </div>
+      <div class="resumen-card" data-ir="planilla-compras" tabindex="0" role="button">
+        <div class="resumen-card-label">% Costo Venta (este mes)</div>
+        <div class="resumen-card-valor ${planillaResumen && planillaResumen.pct_costo_venta != null
+          ? (planillaResumen.pct_costo_venta <= planillaResumen.meta_pct ? 'resumen-valor-good' : 'resumen-valor-danger')
+          : ''}">
+          ${planillaResumen && planillaResumen.pct_costo_venta != null ? (planillaResumen.pct_costo_venta * 100).toFixed(1) + '%' : '—'}
+        </div>
+        ${!planillaResumen || planillaResumen.pct_costo_venta == null ? '<div class="resumen-card-sub placeholder">Falta cargar la Venta del Período</div>' : ''}
+      </div>` : ''}
+    </div>`;
+
+  el.querySelectorAll('[data-ir]').forEach(card => {
+    card.onclick = () => { state.section = card.dataset.ir; renderNav(); renderView(); };
+    card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); } };
+  });
 }
 
 function renderPlaceholder(el, s) {
