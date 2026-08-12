@@ -80,12 +80,19 @@ def _debug_sofia(claims: dict = Depends(get_current_claims)):
                 [[['move_id', '=', moves[0]['id']], ['display_type', '=', 'product']]],
                 {'fields': ['product_id', 'quantity', 'price_unit']})
 
+        lineas_oc = []
+        if pos_odoo:
+            lineas_oc = cliente._call('purchase.order.line', 'search_read',
+                [[['order_id', '=', pos_odoo[0]['id']]]],
+                {'fields': ['product_id', 'product_qty', 'price_unit', 'qty_received', 'qty_invoiced']})
+
         return {
             "po_tracking_sofia": po_tracking,
             "purchase_orders_odoo": pos_odoo,
             "dtes_sofia": dtes,
             "facturas_ya_creadas": moves,
             "lineas_ultima_factura": lineas_ultima,
+            "lineas_oc_mas_reciente": lineas_oc,
         }
     except Exception:
         return {"error": traceback.format_exc()}
