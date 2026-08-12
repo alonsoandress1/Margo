@@ -69,10 +69,6 @@ def _debug_sofia(claims: dict = Depends(get_current_claims)):
             {'fields': ['id', 'l10n_latam_document_number', 'date', 'invoice_id', 'amount_total', 'company_id'],
              'order': 'date desc', 'limit': 15})
 
-        dtes_sin_filtro_empresa_pendientes = cliente._call('l10n_cl.supplier.xml', 'search_read',
-            [[['issuer_rut', '=', '77500046-5'], ['invoice_id', '=', False]]],
-            {'fields': ['id', 'company_id'], 'context': {'allowed_company_ids': [1,2,3,5,6,7,8,9,10,12]}})
-
         moves = cliente._call('account.move', 'search_read',
             [[['partner_id', '=', 304], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
             {'fields': ['id', 'name', 'invoice_date', 'invoice_origin', 'amount_untaxed', 'amount_total', 'company_id'],
@@ -88,7 +84,6 @@ def _debug_sofia(claims: dict = Depends(get_current_claims)):
             "po_tracking_sofia": po_tracking,
             "purchase_orders_odoo": pos_odoo,
             "dtes_sofia": dtes,
-            "dtes_pendientes_multi_empresa": dtes_sin_filtro_empresa_pendientes,
             "facturas_ya_creadas": moves,
             "lineas_ultima_factura": lineas_ultima,
         }
