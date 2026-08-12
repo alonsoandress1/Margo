@@ -87,17 +87,22 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
 
 
 @router.get("/{dte_id}/_debug-campos")
-def _debug_campos(dte_id: int, modelo: str = 'l10n_cl.supplier.xml', claims: dict = Depends(get_current_claims)):
+def _debug_campos(dte_id: int, modelo: str = 'l10n_cl.supplier.xml', campos: str = '',
+                   claims: dict = Depends(get_current_claims)):
     """TEMPORAL -- solo para descubrir los nombres reales de los campos de
     monto (neto/IVA/total) antes de construir la validacion de montos.
     Borrar despues de usar. `modelo` permite apuntar tambien a account.move
-    (pasando el invoice_id como dte_id) para confirmar sus campos."""
+    (pasando el invoice_id como dte_id) para confirmar sus campos. `campos`
+    (coma-separado) evita pedir todos los campos -- necesario en
+    account.move porque algun campo relacionado toca pos.payment, que la
+    cuenta de servicio no tiene permiso de leer."""
     import traceback
     from fastapi.responses import PlainTextResponse
     _require_admin(claims)
     cliente = _odoo()
+    kwargs = {'fields': [c.strip() for c in campos.split(',')]} if campos else {}
     try:
-        docs = cliente._call(modelo, 'read', [[dte_id]], {})
+        docs = cliente._call(modelo, 'read', [[dte_id]], kwargs)
     except Exception:
         return PlainTextResponse(traceback.format_exc(), status_code=500)
     return docs[0] if docs else {}
