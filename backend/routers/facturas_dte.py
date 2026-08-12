@@ -22,6 +22,7 @@ codigo-de-proveedor -> product_id se aprende una vez (confirmada por un
 admin) y se reusa siempre despues -- tabla facturas_producto_mapa."""
 import os
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -43,59 +44,16 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
-
-@router.get("/_debug/sofia")
-def _debug_sofia(claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- estado real de Doña Sofía: OCs generadas desde Pedidos
-    (po_tracking), OCs reales en Odoo, DTEs recientes, y facturas ya creadas."""
-    import traceback
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        db = get_db()
-        cliente = _odoo()
-
-        po_tracking = db.table("po_tracking").select("*").ilike("proveedor", "%sof%") \
-            .order("id", desc=True).limit(20).execute().data or []
-
-        # partner de Doña Sofía -- confirmado antes: res.partner id=304
-        pos_odoo = cliente._call('purchase.order', 'search_read',
-            [[['partner_id', '=', 304]]],
-            {'fields': ['id', 'name', 'date_order', 'state', 'invoice_status', 'amount_total', 'origin', 'company_id'],
-             'order': 'date_order desc', 'limit': 15})
-
-        dtes = cliente._call('l10n_cl.supplier.xml', 'search_read',
-            [[['issuer_rut', '=', '77500046-5']]],
-            {'fields': ['id', 'l10n_latam_document_number', 'date', 'invoice_id', 'amount_total', 'company_id'],
-             'order': 'date desc', 'limit': 15})
-
-        moves = cliente._call('account.move', 'search_read',
-            [[['partner_id', '=', 304], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
-            {'fields': ['id', 'name', 'invoice_date', 'invoice_origin', 'amount_untaxed', 'amount_total', 'company_id'],
-             'order': 'invoice_date desc', 'limit': 10})
-
-        lineas_ultima = []
-        if moves:
-            lineas_ultima = cliente._call('account.move.line', 'search_read',
-                [[['move_id', '=', moves[0]['id']], ['display_type', '=', 'product']]],
-                {'fields': ['product_id', 'quantity', 'price_unit']})
-
-        lineas_oc = []
-        if pos_odoo:
-            lineas_oc = cliente._call('purchase.order.line', 'search_read',
-                [[['order_id', '=', pos_odoo[0]['id']]]],
-                {'fields': ['product_id', 'product_qty', 'price_unit', 'qty_received', 'qty_invoiced']})
-
-        return {
-            "po_tracking_sofia": po_tracking,
-            "purchase_orders_odoo": pos_odoo,
-            "dtes_sofia": dtes,
-            "facturas_ya_creadas": moves,
-            "lineas_ultima_factura": lineas_ultima,
-            "lineas_oc_mas_reciente": lineas_oc,
-        }
-    except Exception:
-        return {"error": traceback.format_exc()}
+# Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
+# de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
+# creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
+# existente, ajeno a este sistema (confirmado revisando Odoo real: facturas
+# ya creadas con invoice_origin apuntando a una OC, sin que el DTE
+# correspondiente jamas quedara marcado como procesado). Para este proveedor
+# NO se crea una OC nueva -- se busca la que ya existe y se reusa.
+RUT_DONA_SOFIA = "77500046-5"
+VENTANA_DIAS_OC_SOFIA = 5  # la OC real puede tener hasta esta cantidad de dias de anticipacion sobre el DTE
+UMBRAL_MATCH_CANTIDAD_SOFIA = 0.9  # al menos 90% de la cantidad del DTE debe calzar con la OC candidata
 
 
 def _require_admin(claims: dict):
@@ -459,6 +417,59 @@ def _verificar_montos(doc: dict, odoo_datos: dict) -> list[str]:
     return desajustes
 
 
+def _buscar_oc_sofia(cliente: OdooClient, partner_id: int, company_id: int, fecha_dte: str,
+                      qty_dte_por_producto: dict[int, float]) -> tuple[int | None, str | None, str | None]:
+    """Busca la Orden de Compra de Doña Sofía que ya existe en Odoo y
+    corresponde a este DTE -- NO se crea una OC nueva para este proveedor
+    (ver comentario junto a RUT_DONA_SOFIA). Matchea por CANTIDADES (no por
+    precio, que es justamente el dato que puede estar desactualizado en la
+    OC): al menos UMBRAL_MATCH_CANTIDAD_SOFIA de la cantidad total del DTE
+    debe encontrarse en las lineas de la OC candidata, para el mismo
+    producto. Si hay 0 candidatas o 2+ empatadas por encima del umbral, no
+    se elige ninguna -- mejor fallar que adivinar mal.
+
+    Devuelve (po_id, po_name, motivo_de_error). po_id es None si no se pudo
+    determinar una OC unica -- en ese caso motivo_de_error explica por que."""
+    desde = (date.fromisoformat(fecha_dte) - timedelta(days=VENTANA_DIAS_OC_SOFIA)).isoformat()
+    candidatas = cliente._call('purchase.order', 'search_read',
+        [[['partner_id', '=', partner_id], ['company_id', '=', company_id],
+          ['state', '=', 'purchase'], ['invoice_status', '=', 'no'],
+          ['date_order', '>=', f'{desde} 00:00:00'], ['date_order', '<=', f'{fecha_dte} 23:59:59']]],
+        {'fields': ['id', 'name']})
+    if not candidatas:
+        return None, None, (
+            f"no encontré ninguna Orden de Compra de Doña Sofía sin facturar en los últimos "
+            f"{VENTANA_DIAS_OC_SOFIA} días")
+
+    total_qty_dte = sum(qty_dte_por_producto.values())
+    calzan = []
+    for c in candidatas:
+        lineas_oc = cliente._call('purchase.order.line', 'search_read',
+            [[['order_id', '=', c['id']]]], {'fields': ['product_id', 'product_qty']})
+        qty_oc_por_producto: dict[int, float] = {}
+        for l in lineas_oc:
+            if l.get('product_id'):
+                pid = l['product_id'][0]
+                qty_oc_por_producto[pid] = qty_oc_por_producto.get(pid, 0) + (l.get('product_qty') or 0)
+        qty_calzada = sum(min(qty_dte, qty_oc_por_producto.get(pid, 0)) for pid, qty_dte in qty_dte_por_producto.items())
+        score = (qty_calzada / total_qty_dte) if total_qty_dte else 0
+        if score >= UMBRAL_MATCH_CANTIDAD_SOFIA:
+            calzan.append((c, score))
+
+    if not calzan:
+        return None, None, (
+            f"ninguna de las {len(candidatas)} Orden(es) de Compra sin facturar de Doña Sofía en los "
+            f"últimos {VENTANA_DIAS_OC_SOFIA} días calza al menos {int(UMBRAL_MATCH_CANTIDAD_SOFIA * 100)}% en cantidades")
+    if len(calzan) > 1:
+        nombres = ', '.join(c['name'] for c, _ in calzan)
+        return None, None, (
+            f"{len(calzan)} Órdenes de Compra de Doña Sofía calzan al menos "
+            f"{int(UMBRAL_MATCH_CANTIDAD_SOFIA * 100)}% en cantidades ({nombres}) -- no se puede elegir automáticamente")
+
+    oc_elegida, _ = calzan[0]
+    return oc_elegida['id'], oc_elegida['name'], None
+
+
 def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list[dict]) -> tuple[int, str]:
     """El trabajo pesado de verdad -- 6 llamadas seguidas a Odoo, por eso se
     corre en segundo plano (ver crear_factura) en vez de bloquear al usuario.
@@ -483,7 +494,11 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     metodo nativo y estandar de Odoo, no el boton roto). Asi Odoo completa
     solo el diario, la cuenta contable y el impuesto de cada linea (igual
     que en las facturas reales existentes) -- solo hay que fijar despues la
-    fecha y el folio del DTE, que Odoo no puede saber por si solo."""
+    fecha y el folio del DTE, que Odoo no puede saber por si solo.
+
+    EXCEPCION -- Doña Sofía (RUT_DONA_SOFIA): no se crea una OC nueva, se
+    busca y reusa la que ya existe (ver _buscar_oc_sofia) y solo se le
+    actualiza el precio de cada linea al del DTE real."""
     company_id = doc['company_id'][0]
     partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]],
         {'fields': ['id', 'supplier_rank']})
@@ -589,21 +604,78 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             linea_oc['taxes_id'] = [(6, 0, [tax_id_por_nombre[n] for n in nombres_impuestos])]
         order_lines.append((0, 0, linea_oc))
 
-    po_id = cliente._call('purchase.order', 'create', [{
-        'partner_id': partner_id,
-        'company_id': company_id,
-        'date_order': fecha_dte,
-        'order_line': order_lines,
-    }])
+    es_sofia = doc['issuer_rut'] == RUT_DONA_SOFIA
+    oc_reusada = False
+    precios_originales: dict[int, float] = {}  # solo se llena si es_sofia -- para revertir si no calza
+
+    if es_sofia:
+        qty_dte_por_producto: dict[int, float] = {}
+        for _, _, linea_oc in order_lines:
+            pid = linea_oc['product_id']
+            qty_dte_por_producto[pid] = qty_dte_por_producto.get(pid, 0) + linea_oc['product_qty']
+
+        oc_id, oc_name, motivo = _buscar_oc_sofia(cliente, partner_id, company_id, doc['date'], qty_dte_por_producto)
+        if oc_id is None:
+            raise RuntimeError(f"Doña Sofía: {motivo} -- no se creó nada, revisar a mano")
+
+        oc_actual = cliente._call('purchase.order', 'read', [[oc_id]], {'fields': ['invoice_status']})[0]
+        if oc_actual['invoice_status'] != 'no':
+            # La OC que calza por cantidades ya tiene factura -- creada por
+            # el proceso de compras existente de Doña Sofía, con el precio
+            # que tenía la OC en ese momento (no el del DTE real). Pedido
+            # explícito: no se toca una factura ya posteada, solo se avisa.
+            raise RuntimeError(
+                f"Doña Sofía: la Orden de Compra {oc_name} que calza con este DTE ya tiene una factura "
+                f"creada (por el proceso de compras existente, no por este sistema) -- no se modifica nada, "
+                f"revisar a mano si el precio de esa factura calza con este DTE"
+            )
+
+        lineas_oc_actuales = cliente._call('purchase.order.line', 'search_read',
+            [[['order_id', '=', oc_id]]], {'fields': ['product_id', 'price_unit']})
+        linea_id_por_producto = {l['product_id'][0]: l['id'] for l in lineas_oc_actuales if l.get('product_id')}
+        precios_originales = {l['id']: l['price_unit'] for l in lineas_oc_actuales}
+
+        # Solo se actualiza el PRECIO -- pedido explícito del usuario ("los
+        # precios que mandan son los de la factura, no los de la OC"). La
+        # cantidad de la OC no se toca (ya calzó al menos 90% para llegar
+        # hasta aca, y no fue lo que se pidió cambiar).
+        for _, _, linea_oc in order_lines:
+            linea_id = linea_id_por_producto.get(linea_oc['product_id'])
+            if linea_id:
+                cliente._call('purchase.order.line', 'write', [[linea_id], {'price_unit': linea_oc['price_unit']}])
+
+        po_id = oc_id
+        oc_reusada = True
+    else:
+        po_id = cliente._call('purchase.order', 'create', [{
+            'partner_id': partner_id,
+            'company_id': company_id,
+            'date_order': fecha_dte,
+            'order_line': order_lines,
+        }])
 
     # Verificacion de montos ANTES de confirmar/recibir/facturar -- en
-    # borrador, la OC ya calcula Neto/IVA/Total con el mismo motor de
-    # impuestos que usara la factura final, y todavia se puede borrar
-    # limpio (unlink) si no calza, sin dejar nada a medio crear en Odoo.
+    # borrador (o, para Doña Sofía, ya con los precios del DTE recien
+    # escritos), la OC ya calcula Neto/IVA/Total con el mismo motor de
+    # impuestos que usara la factura final.
     po_montos = cliente._call('purchase.order', 'read', [[po_id]],
         {'fields': ['amount_untaxed', 'amount_tax', 'amount_total']})[0]
     desajustes = _verificar_montos(doc, po_montos)
     if desajustes:
+        if oc_reusada:
+            # No se puede cancelar/borrar una OC de Doña Sofía -- ya estaba
+            # confirmada de antes (no la creamos nosotros). Se revierten los
+            # precios que se acaban de escribir, dejando la OC exactamente
+            # como se encontró -- "no tocar nada si no calza".
+            for linea_id, precio in precios_originales.items():
+                try:
+                    cliente._call('purchase.order.line', 'write', [[linea_id], {'price_unit': precio}])
+                except Exception:
+                    pass
+            raise RuntimeError(
+                f"No coinciden los valores con la Orden de Compra {oc_name} de Doña Sofía -- se revirtieron "
+                f"los precios, no se tocó nada más: " + "; ".join(desajustes)
+            )
         # Un borrador no se puede eliminar directo en esta instancia -- Odoo
         # exige cancelarlo primero (button_cancel) y recien ahi el unlink
         # funciona. button_cancel ademas devuelve None, que este XML-RPC no
@@ -625,7 +697,8 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             f"No coinciden los valores -- ingresar de manera manual. {detalle_oc}: " + "; ".join(desajustes)
         )
 
-    cliente._call('purchase.order', 'button_confirm', [[po_id]])
+    if not oc_reusada:
+        cliente._call('purchase.order', 'button_confirm', [[po_id]])
 
     po = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['picking_ids']})[0]
     for picking_id in po['picking_ids']:
