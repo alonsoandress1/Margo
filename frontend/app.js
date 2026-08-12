@@ -2430,6 +2430,10 @@ async function renderPlanillaCompras(el, s) {
       <div style="display:flex;align-items:flex-end">
         <button type="button" id="pc-catalogo" class="btn">Categorías de proveedores</button>
       </div>
+      ${state.planillaItems !== null ? `
+      <div style="display:flex;align-items:flex-end">
+        <button type="button" id="pc-exportar" class="btn">Exportar Excel</button>
+      </div>` : ''}
     </div>
     <p id="pc-error" class="error-msg"></p>
     ${state.planillaItems !== null ? `
@@ -2503,6 +2507,17 @@ async function renderPlanillaCompras(el, s) {
   });
 
   document.getElementById('pc-catalogo').addEventListener('click', showCatalogoProveedoresTipo);
+
+  document.getElementById('pc-exportar')?.addEventListener('click', async () => {
+    const errorEl = document.getElementById('pc-error');
+    errorEl.textContent = '';
+    const [anio, mes] = state.planillaMes.split('-').map(Number);
+    try {
+      await apiDownload(`/planilla-compras/exportar?anio=${anio}&mes=${mes}`, `Planilla de Compras ${state.planillaMes}.xlsx`);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
 
   document.getElementById('pc-traer-tcpos')?.addEventListener('click', async () => {
     const errorEl = document.getElementById('pc-error');

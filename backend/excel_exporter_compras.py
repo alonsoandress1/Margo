@@ -1,0 +1,73 @@
+# -*- coding: utf-8 -*-
+"""Exporta la Planilla de Compras de la web al Excel real "PLANILLA DE COMPRAS
+OFICIAL" -- usa la plantilla real (backend/templates/plantilla_planilla_compras.xlsx,
+limpia de datos pero con TODAS las formulas originales intactas, incluido el
+desglose por Tipo y por columna-de-proveedor arrastrado hasta el final de cada
+hoja) y solo escribe en las celdas de entrada (Tipo/Proveedor/N Factura/IVA/Total
+por fila, mas Venta Periodo/Venta Actual del resumen). El resto lo calcula el
+propio Excel al abrirlo.
+
+Las columnas y la fila de Total fueron confirmadas leyendo el archivo real mes
+por mes (no son un formato inventado) -- Tipo/Proveedor/N Factura/IVA/Total
+caen siempre en las mismas columnas (D/E/F/H/I) en los 12 meses, pero la fila
+de Total varia por mes (637-657 segun el mes), por eso se ubica en runtime
+buscando la celda "Total" en la columna B en vez de asumir una fila fija."""
+from io import BytesIO
+from pathlib import Path
+
+import openpyxl
+
+_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "plantilla_planilla_compras.xlsx"
+
+_MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO",
+          "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
+
+_COL_TIPO, _COL_PROVEEDOR, _COL_FACTURA, _COL_IVA, _COL_TOTAL = 4, 5, 6, 8, 9
+_FILA_DATOS_INICIO = 9
+_COL_VENTA_PERIODO = 5  # E3
+_COL_VENTA_ACTUAL = 4   # D4
+
+
+def _fila_total(ws) -> int:
+    for r in range(_FILA_DATOS_INICIO, ws.max_row + 1):
+        v = ws.cell(row=r, column=2).value
+        if v and str(v).strip().upper() == "TOTAL":
+            return r
+    raise ValueError(f"No se encontró la fila 'Total' en la hoja {ws.title}")
+
+
+def exportar_mes(anio: int, mes: int, items: list[dict], venta_periodo: float | None) -> bytes:
+    """Genera el Excel real, ya lleno, para un mes.
+
+    items: [{proveedor_nombre, num_factura, iva, total, tipo}], en el orden en
+    que se quieren escribir (ya vienen ordenados por fecha desde Odoo).
+    venta_periodo: mismo valor que "Venta del período" de la pantalla web --
+    se escribe tanto en VENTA PERIODO (E3) como en VENTA ACTUAL (D4), son el
+    mismo dato en este Excel.
+    """
+    wb = openpyxl.load_workbook(_TEMPLATE_PATH)
+    hoja = _MESES[mes - 1]
+    ws = wb[hoja]
+
+    fila_total = _fila_total(ws)
+    filas_disponibles = fila_total - _FILA_DATOS_INICIO
+    if len(items) > filas_disponibles:
+        raise ValueError(
+            f"{hoja} {anio} tiene {len(items)} facturas pero la plantilla solo tiene "
+            f"{filas_disponibles} filas disponibles antes de la fila de Total")
+
+    for i, it in enumerate(items):
+        fila = _FILA_DATOS_INICIO + i
+        ws.cell(row=fila, column=_COL_TIPO).value = it.get("tipo")
+        ws.cell(row=fila, column=_COL_PROVEEDOR).value = it.get("proveedor_nombre")
+        ws.cell(row=fila, column=_COL_FACTURA).value = it.get("num_factura")
+        ws.cell(row=fila, column=_COL_IVA).value = it.get("iva")
+        ws.cell(row=fila, column=_COL_TOTAL).value = it.get("total")
+
+    if venta_periodo is not None:
+        ws.cell(row=3, column=_COL_VENTA_PERIODO).value = venta_periodo
+        ws.cell(row=4, column=_COL_VENTA_ACTUAL).value = venta_periodo
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()

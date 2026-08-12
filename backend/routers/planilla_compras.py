@@ -14,10 +14,11 @@ from calendar import monthrange
 from datetime import date, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..db import get_db
 from ..deps import get_current_claims
+from ..excel_exporter_compras import exportar_mes
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -28,6 +29,9 @@ from tcpos_connector import TcposWebReportSession, construir_parametros  # noqa:
 from ..schemas import (PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen, ProveedorTipoIn,
                        ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoTcposOut)
 from ..tcpos_report_parser import parsear_financial_overview_cash_to_deposit
+
+_MESES_ES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO",
+             "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
 
 router = APIRouter(prefix="/planilla-compras", tags=["planilla-compras"])
 
@@ -60,12 +64,7 @@ def _odoo() -> OdooClient:
     return cliente
 
 
-@router.get("", response_model=PlanillaComprasOut)
-def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
-    """Todas las facturas de proveedor del mes en Odoo (Doña Delfina), con
-    el Tipo de cada una resuelto por su proveedor -- null si ese proveedor
-    todavia no tiene Tipo asignado (hay que clasificarlo en /proveedores)."""
-    _require_admin(claims)
+def _obtener_items_y_resumen(anio: int, mes: int) -> PlanillaComprasOut:
     cliente = _odoo()
     ultimo_dia = monthrange(anio, mes)[1]
     desde = f"{anio:04d}-{mes:02d}-01"
@@ -114,6 +113,36 @@ def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
         costo_venta=costo_venta, pct_costo_venta=pct_costo_venta,
     )
     return PlanillaComprasOut(items=items, resumen=resumen)
+
+
+@router.get("", response_model=PlanillaComprasOut)
+def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """Todas las facturas de proveedor del mes en Odoo (Doña Delfina), con
+    el Tipo de cada una resuelto por su proveedor -- null si ese proveedor
+    todavia no tiene Tipo asignado (hay que clasificarlo en /proveedores)."""
+    _require_admin(claims)
+    return _obtener_items_y_resumen(anio, mes)
+
+
+@router.get("/exportar")
+def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """Genera el Excel real "PLANILLA DE COMPRAS OFICIAL", ya lleno con las
+    facturas del mes -- misma plantilla original, con sus formulas intactas.
+    Escribe Tipo/Proveedor/N Factura/IVA/Total tal cual vienen de Odoo (sin
+    intentar matchear el nombre corto de las columnas de desglose por
+    proveedor -- esas quedan en 0 hasta que se ajusten a mano, igual que
+    cualquier fila nueva en el Excel real)."""
+    _require_admin(claims)
+    if not (1 <= mes <= 12):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mes inválido")
+    datos = _obtener_items_y_resumen(anio, mes)
+    contenido = exportar_mes(anio, mes, [it.model_dump() for it in datos.items], datos.resumen.venta_periodo)
+    nombre_mes = _MESES_ES[mes - 1].capitalize()
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="Planilla de Compras {nombre_mes} {anio}.xlsx"'},
+    )
 
 
 @router.put("/venta-periodo", status_code=status.HTTP_204_NO_CONTENT)
