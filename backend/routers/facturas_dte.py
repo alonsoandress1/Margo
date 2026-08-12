@@ -95,25 +95,6 @@ def _debug_lineas(dte_id: int, claims: dict = Depends(get_current_claims)):
     return lineas
 
 
-@router.get("/_debug-partner/{rut}")
-def _debug_partner(rut: str, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- ver por que res.partner no resuelve a un solo registro
-    para un RUT de proveedor (2 de 2 proveedores probados fallan aca).
-    Borrar despues."""
-    import traceback
-    from fastapi.responses import PlainTextResponse
-    _require_admin(claims)
-    cliente = _odoo()
-    try:
-        exacto = cliente._call('res.partner', 'search_read', [[['vat', '=', rut]]],
-            {'fields': ['id', 'name', 'vat', 'active', 'company_id', 'supplier_rank']})
-        parecido = cliente._call('res.partner', 'search_read', [[['vat', 'ilike', rut.split('-')[0]]]],
-            {'fields': ['id', 'name', 'vat', 'active', 'company_id', 'supplier_rank']})
-    except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
-    return {'exacto': exacto, 'parecido': parecido}
-
-
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
@@ -282,10 +263,27 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     que en las facturas reales existentes) -- solo hay que fijar despues la
     fecha y el folio del DTE, que Odoo no puede saber por si solo."""
     company_id = doc['company_id'][0]
-    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
-    if len(partners) != 1:
-        raise RuntimeError(f"No encontré (o encontré más de uno) el proveedor con RUT {doc['issuer_rut']} en Odoo")
-    partner_id = partners[0]['id']
+    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]],
+        {'fields': ['id', 'supplier_rank']})
+    if not partners:
+        raise RuntimeError(f"No encontré el proveedor con RUT {doc['issuer_rut']} en Odoo")
+    if len(partners) == 1:
+        partner_id = partners[0]['id']
+    else:
+        # Es comun que el mismo RUT quede repetido en varios res.partner --
+        # confirmado con datos reales en CCU (la empresa real + 2 contactos
+        # personales con el mismo vat copiado, supplier_rank=0) y en
+        # Comercializadora Global Products (duplicado de una razon social
+        # vieja). El registro correcto es el que realmente se ha usado como
+        # proveedor -- supplier_rank mucho mas alto que el resto. Si no hay
+        # un ganador claro, mejor fallar que adivinar mal.
+        ranking = sorted(partners, key=lambda p: p.get('supplier_rank') or 0, reverse=True)
+        if (ranking[0].get('supplier_rank') or 0) == (ranking[1].get('supplier_rank') or 0):
+            raise RuntimeError(
+                f"Encontré {len(partners)} proveedores con RUT {doc['issuer_rut']} en Odoo, "
+                f"sin uno claramente mas usado como proveedor -- hay que resolverlo a mano en Odoo"
+            )
+        partner_id = ranking[0]['id']
 
     product_ids = list({l['product_id'][0] for l in lineas})
     productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id', 'display_name']})
