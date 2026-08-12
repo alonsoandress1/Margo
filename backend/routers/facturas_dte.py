@@ -62,13 +62,21 @@ def _odoo() -> OdooClient:
     return cliente
 
 
-def _mejor_codigo(codigos: list[dict]) -> tuple[str | None, str | None]:
+def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[str | None, str | None]:
     """De los codigos de una linea (puede traer mas de uno), el primero que
-    tenga code_value -- mismo criterio que el script de extraccion."""
+    tenga code_value. Algunos proveedores no mandan NINGUN codigo interno en
+    el DTE (ej. Distribuidora Frio Express -- code_ids viene vacio en todas
+    sus lineas) -- en ese caso se usa el texto exacto del item como codigo
+    de respaldo (mismo patron que el script de extraccion, _extraer_productos_dte_proveedor.py).
+    Sin esto, un producto de estos proveedores nunca queda "aprendido": el
+    admin confirma el match una y otra vez, pero facturas_producto_mapa
+    nunca llega a guardar nada porque confirmar_match exige codigo_tipo +
+    codigo_valor no vacios."""
     for c in codigos:
         if c.get("code_value"):
             return c["code_type"], c["code_value"]
-    return None, None
+    texto = (item_name or "").strip()
+    return ("TEXTO", texto) if texto else (None, None)
 
 
 @router.get("", response_model=list[DteOut])
@@ -140,7 +148,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
     lineas: list[DteLineaOut] = []
     for l in lineas_raw:
         codigos = [codigos_por_id[c] for c in l.get('code_ids', []) if c in codigos_por_id]
-        codigo_tipo, codigo_valor = _mejor_codigo(codigos)
+        codigo_tipo, codigo_valor = _mejor_codigo(codigos, l.get('item_name'))
         product_id = l['product_id'][0] if l.get('product_id') else None
         product_name = l['product_id'][1] if l.get('product_id') else None
         sugerido = False
