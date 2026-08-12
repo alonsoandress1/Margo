@@ -334,19 +334,9 @@ class FavoritoIn(BaseModel):
     favorito: bool
 
 
-class GenerarOCIn(BaseModel):
-    email: str | None = None
-    password: str | None = None
-
-
 class GenerarOCOut(BaseModel):
     acciones: list[AccionCompra]
     omitidos: list[str] = []
-
-
-class FacturasBuscarIn(BaseModel):
-    email: str
-    password: str
 
 
 class FacturaLineaPreview(BaseModel):

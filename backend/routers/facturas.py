@@ -9,7 +9,7 @@ from postgrest.exceptions import APIError
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..schemas import (FacturaAceptarIn, FacturaLineaPreview, FacturaPreview,
-                       FacturasBuscarIn, FacturaTrackingOut)
+                       FacturaTrackingOut)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -25,10 +25,11 @@ def _require_admin(claims: dict):
 
 
 @router.post("/buscar", response_model=list[FacturaPreview])
-def buscar(body: FacturasBuscarIn, claims: dict = Depends(get_current_claims)):
+def buscar(claims: dict = Depends(get_current_claims)):
     """Trae facturas nuevas (no procesadas todavia) de Odoo para los
     proveedores con integracion Odoo -- solo lectura, no escribe nada.
-    Las credenciales viajan solo en este request y se descartan al terminar."""
+    Usa la cuenta de servicio de Odoo configurada en el servidor (misma
+    que Ingreso de Facturas)."""
     _require_admin(claims)
     db = get_db()
 
@@ -38,10 +39,13 @@ def buscar(body: FacturasBuscarIn, claims: dict = Depends(get_current_claims)):
 
     ya_procesadas = [r["odoo_invoice_id"] for r in db.table("factura_tracking").select("odoo_invoice_id").execute().data or []]
 
-    session = OdooWebSession(os.environ["ODOO_URL"])
-    ok, msg = session.connect(body.email, body.password)
+    try:
+        session = OdooWebSession(os.environ["ODOO_URL"])
+        ok, msg = session.connect(os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+    except KeyError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
     if not ok:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"No se pudo conectar a Odoo: {msg}")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
 
     proveedor_ids = [p["id"] for p in proveedores_odoo]
     productos = db.table("odoo_mapping").select("odoo_id,ingrediente_key").in_("proveedor_id", proveedor_ids).execute().data or []

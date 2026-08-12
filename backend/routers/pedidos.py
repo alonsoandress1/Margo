@@ -10,7 +10,7 @@ from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
 from ..email_sender import enviar_aviso_pedido, enviar_oc_pdf
-from ..schemas import (AccionCompra, FavoritoIn, GenerarOCIn, GenerarOCOut, PedidoEstadoIn,
+from ..schemas import (AccionCompra, FavoritoIn, GenerarOCOut, PedidoEstadoIn,
                        PedidoIn, PedidoOut, SugerenciaItem)
 
 # odoo_connector.py vive en la raiz del repo (lo comparte tambien la app de
@@ -206,12 +206,13 @@ def eliminar_pedido(pedido_id: str, claims: dict = Depends(get_current_claims)):
 
 
 @router.post("/{pedido_id}/generar-oc", response_model=GenerarOCOut)
-def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_current_claims)):
+def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims)):
     """Genera la accion de compra de un pedido ya aprobado, insumo por
     insumo se elige el proveedor mas barato entre los registrados:
     - Si ese proveedor tiene integracion a Odoo (usa_odoo=true, hoy solo
-      Doña Sofía), se crea la Orden de Compra real. Las credenciales de
-      Odoo viajan solo en este request, se usan una vez y se descartan.
+      Doña Sofía), se crea la Orden de Compra real usando la cuenta de
+      servicio de Odoo (misma que usa Ingreso de Facturas -- ver
+      ODOO_FACTURAS_USER/ODOO_FACTURAS_PASSWORD en Render).
     - Si no, se envia un correo con el nombre del proveedor y las
       cantidades solicitadas, al destinatario configurado en Configuración."""
     if claims["rol"] == "observador":
@@ -264,13 +265,14 @@ def generar_oc(pedido_id: str, body: GenerarOCIn, claims: dict = Depends(get_cur
         nombre_proveedor = proveedor["nombre"] if proveedor else "Proveedor desconocido"
 
         if proveedor and proveedor.get("usa_odoo"):
-            if not body.email or not body.password:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Faltan credenciales de Odoo para generar la OC de {nombre_proveedor}")
             if odoo_session is None:
-                odoo_session = OdooWebSession(os.environ["ODOO_URL"])
-                ok, msg = odoo_session.connect(body.email, body.password)
+                try:
+                    odoo_session = OdooWebSession(os.environ["ODOO_URL"])
+                    ok, msg = odoo_session.connect(os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+                except KeyError as e:
+                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
                 if not ok:
-                    raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"No se pudo conectar a Odoo: {msg}")
+                    raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
 
             bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))
             total_bloques = len(bloques)

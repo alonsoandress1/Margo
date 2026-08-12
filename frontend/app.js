@@ -282,40 +282,17 @@ document.getElementById('pw-form').addEventListener('submit', async (e) => {
   }
 });
 
-// ---------- Modal: Generar OC ----------
+// ---------- Generar OC ----------
+// Usa la cuenta de servicio de Odoo configurada en el servidor -- ya no
+// pide credenciales al usuario (mismo patrón que Ingreso de Facturas).
 
-let ocPedidoId = null;
-
-function openOcModal(pedidoId) {
-  ocPedidoId = pedidoId;
-  document.getElementById('oc-email').value = '';
-  document.getElementById('oc-password').value = '';
-  document.getElementById('oc-error').textContent = '';
-  document.getElementById('oc-modal').hidden = false;
-}
-
-function closeOcModal() {
-  document.getElementById('oc-modal').hidden = true;
-  ocPedidoId = null;
-}
-
-document.getElementById('oc-cancel').addEventListener('click', closeOcModal);
-
-document.getElementById('oc-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const errorEl = document.getElementById('oc-error');
-  const btn = e.target.querySelector('button[type=submit]');
-  const email = document.getElementById('oc-email').value.trim();
-  const password = document.getElementById('oc-password').value;
-  errorEl.textContent = '';
+async function generarOC(pedidoId, btn) {
+  if (!confirm('¿Generar la Orden de Compra / avisos de este pedido? Esto crea la OC real en Odoo (o envía el correo al proveedor) y no se puede deshacer desde aquí.')) return;
+  const original = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Creando…';
   try {
-    const res = await api(`/pedidos/${ocPedidoId}/generar-oc`, {
-      method: 'POST',
-      body: JSON.stringify({ email: email || null, password: password || null }),
-    });
-    closeOcModal();
+    const res = await api(`/pedidos/${pedidoId}/generar-oc`, { method: 'POST' });
     const lineas = res.acciones.map(a => {
       const base = a.tipo === 'odoo' ? `✓ OC creada en Odoo: ${a.po_name} (${a.proveedor})` : `✉ Aviso enviado por correo a ${a.proveedor}`;
       return a.aviso ? `${base}\n  ⚠ ${a.aviso}` : base;
@@ -327,52 +304,27 @@ document.getElementById('oc-form').addEventListener('submit', async (e) => {
     alert(msg);
     renderView();
   } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
+    alert(err.message);
     btn.disabled = false;
-    btn.textContent = 'Crear OC';
+    btn.textContent = original;
   }
-});
-
-// ---------- Modal: Buscar facturas ----------
-
-function openFacturaModal() {
-  document.getElementById('factura-email').value = '';
-  document.getElementById('factura-password').value = '';
-  document.getElementById('factura-error').textContent = '';
-  document.getElementById('factura-modal').hidden = false;
 }
 
-function closeFacturaModal() {
-  document.getElementById('factura-modal').hidden = true;
-}
+// ---------- Buscar facturas nuevas ----------
 
-document.getElementById('factura-cancel').addEventListener('click', closeFacturaModal);
-
-document.getElementById('factura-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const errorEl = document.getElementById('factura-error');
-  const btn = e.target.querySelector('button[type=submit]');
-  const email = document.getElementById('factura-email').value.trim();
-  const password = document.getElementById('factura-password').value;
-  errorEl.textContent = '';
+async function buscarFacturasNuevas(btn) {
+  const original = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Buscando…';
   try {
-    const facturas = await api('/facturas/buscar', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    state.facturasPendientes = facturas;
-    closeFacturaModal();
+    state.facturasPendientes = await api('/facturas/buscar', { method: 'POST' });
     renderView();
   } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
+    alert(err.message);
     btn.disabled = false;
-    btn.textContent = 'Buscar';
+    btn.textContent = original;
   }
-});
+}
 
 // ---------- Nav ----------
 
@@ -1592,7 +1544,7 @@ async function renderPedidos(el, s) {
     </div>`;
 
   el.querySelectorAll('button[data-oc]').forEach(btn => {
-    btn.onclick = () => openOcModal(btn.dataset.oc);
+    btn.onclick = () => generarOC(btn.dataset.oc, btn);
   });
 
   el.querySelectorAll('button[data-ver]').forEach(btn => {
@@ -1752,7 +1704,7 @@ async function renderFacturas(el, s) {
       </table>
     </div>`;
 
-  document.getElementById('btn-buscar-facturas')?.addEventListener('click', openFacturaModal);
+  document.getElementById('btn-buscar-facturas')?.addEventListener('click', (e) => buscarFacturasNuevas(e.target));
 
   if (editable && pendientes) {
     el.querySelectorAll('button[data-aceptar-factura]').forEach(btn => {
