@@ -535,6 +535,18 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             )
         partner_id = ranking[0]['id']
 
+    # Condicion de pago -- la que el proveedor ya tiene configurada por
+    # defecto en Odoo. Al crear la OC por API (no por el formulario) Odoo NO
+    # la autocompleta sola (ese autocompletado es un onchange, que solo se
+    # dispara desde la UI) -- confirmado en un caso real (Bidfood, "30 Days"
+    # configurado en el proveedor, la OC/factura creada por este sistema
+    # quedaba sin ninguna condicion). Se fija a mano para que quede igual
+    # que si alguien la hubiera creado a mano en Odoo.
+    partner_datos = cliente._call('res.partner', 'read', [[partner_id]],
+        {'fields': ['property_supplier_payment_term_id']})[0]
+    payment_term_id = (partner_datos['property_supplier_payment_term_id'][0]
+                        if partner_datos.get('property_supplier_payment_term_id') else False)
+
     product_ids = list({l['product_id'][0] for l in lineas})
     productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id', 'display_name']})
     info_por_producto = {p['id']: p for p in productos}
@@ -671,6 +683,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             'company_id': company_id,
             'date_order': fecha_dte,
             'order_line': order_lines,
+            'payment_term_id': payment_term_id,
         }])
 
     # Verificacion de montos ANTES de confirmar/recibir/facturar -- en
