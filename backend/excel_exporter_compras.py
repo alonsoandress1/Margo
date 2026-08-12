@@ -28,7 +28,7 @@ _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "planilla_compr
 _MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO",
           "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
 
-_COL_TIPO, _COL_PROVEEDOR, _COL_FACTURA, _COL_IVA, _COL_TOTAL = 4, 5, 6, 8, 9
+_COL_TIPO, _COL_PROVEEDOR, _COL_FACTURA, _COL_SUBTOTAL, _COL_IVA, _COL_TOTAL = 4, 5, 6, 7, 8, 9
 _FILA_DATOS_INICIO = 9
 _COL_VENTA_PERIODO = 5  # E3
 _COL_VENTA_ACTUAL = 4   # D4
@@ -45,7 +45,7 @@ def _fila_total(ws) -> int:
 def exportar_mes(anio: int, mes: int, items: list[dict], venta_periodo: float | None) -> bytes:
     """Genera el Excel real, ya lleno, para un mes.
 
-    items: [{proveedor_nombre, num_factura, iva, total, tipo}], en el orden en
+    items: [{proveedor_nombre, num_factura, subtotal, iva, total, tipo}], en el orden en
     que se quieren escribir (ya vienen ordenados por fecha desde Odoo).
     venta_periodo: mismo valor que "Venta del período" de la pantalla web --
     se escribe tanto en VENTA PERIODO (E3) como en VENTA ACTUAL (D4), son el
@@ -67,6 +67,11 @@ def exportar_mes(anio: int, mes: int, items: list[dict], venta_periodo: float | 
         ws.cell(row=fila, column=_COL_TIPO).value = it.get("tipo")
         ws.cell(row=fila, column=_COL_PROVEEDOR).value = it.get("proveedor_nombre")
         ws.cell(row=fila, column=_COL_FACTURA).value = it.get("num_factura")
+        # SUB TOTAL (G) se escribe como valor fijo, no se deja la formula
+        # =TOTAL-IVA de la plantilla -- algunos visores de Excel no
+        # recalculan las formulas al abrir (no respetan fullCalcOnLoad) y la
+        # celda queda en blanco hasta forzar un recalculo manual.
+        ws.cell(row=fila, column=_COL_SUBTOTAL).value = it.get("subtotal")
         ws.cell(row=fila, column=_COL_IVA).value = it.get("iva")
         ws.cell(row=fila, column=_COL_TOTAL).value = it.get("total")
 
