@@ -92,9 +92,14 @@ def _debug_campos(dte_id: int, modelo: str = 'l10n_cl.supplier.xml', claims: dic
     monto (neto/IVA/total) antes de construir la validacion de montos.
     Borrar despues de usar. `modelo` permite apuntar tambien a account.move
     (pasando el invoice_id como dte_id) para confirmar sus campos."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
     _require_admin(claims)
     cliente = _odoo()
-    docs = cliente._call(modelo, 'read', [[dte_id]], {})
+    try:
+        docs = cliente._call(modelo, 'read', [[dte_id]], {})
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
     return docs[0] if docs else {}
 
 
