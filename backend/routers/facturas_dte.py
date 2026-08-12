@@ -86,6 +86,17 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     ]
 
 
+@router.get("/{dte_id}/_debug-campos")
+def _debug_campos(dte_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- solo para descubrir los nombres reales de los campos de
+    monto (neto/IVA/total) en l10n_cl.supplier.xml antes de construir la
+    validacion de montos. Borrar despues de usar."""
+    _require_admin(claims)
+    cliente = _odoo()
+    docs = cliente._call('l10n_cl.supplier.xml', 'read', [[dte_id]], {})
+    return docs[0] if docs else {}
+
+
 @router.get("/productos/buscar", response_model=list[DteProductoOut])
 def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
     """Busca productos YA EXISTENTES en Odoo por nombre o codigo interno --
