@@ -449,6 +449,17 @@ class ProductoImpuestosIn(BaseModel):
     impuesto_nombres: list[str] = Field(default_factory=list, max_length=3)
 
 
+class FactorConversionOut(BaseModel):
+    factor_conversion: float = 1
+
+
+class FactorConversionIn(BaseModel):
+    proveedor_rut: str
+    codigo_tipo: str
+    codigo_valor: str
+    factor_conversion: float = Field(gt=0)
+
+
 class DteCrearFacturaOut(BaseModel):
     invoice_id: int
     invoice_name: str

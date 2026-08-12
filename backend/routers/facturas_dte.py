@@ -36,7 +36,8 @@ if str(_REPO_ROOT) not in sys.path:
 from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut,
-                       DteProductoOut, ImpuestoOut, ProductoImpuestosIn)
+                       DteProductoOut, FactorConversionIn, FactorConversionOut, ImpuestoOut,
+                       ProductoImpuestosIn)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
@@ -155,6 +156,36 @@ def fijar_impuestos_producto(producto_id: int, body: ProductoImpuestosIn, claims
              "impuesto_nombre": nombre, "actualizado_por": claims["sub"]}
             for nombre in body.impuesto_nombres
         ]).execute()
+
+
+@router.get("/mapeo/factor", response_model=FactorConversionOut)
+def obtener_factor_conversion(proveedor_rut: str, codigo_tipo: str, codigo_valor: str,
+                               claims: dict = Depends(get_current_claims)):
+    """Factor de conversion guardado para este mapeo (proveedor + codigo de
+    producto) -- 1 = sin conversion (el caso normal, el qty del DTE ya es la
+    cantidad real)."""
+    _require_admin(claims)
+    db = get_db()
+    fila = db.table("facturas_producto_mapa").select("factor_conversion") \
+        .eq("proveedor_rut", proveedor_rut).eq("codigo_tipo", codigo_tipo).eq("codigo_valor", codigo_valor).execute().data
+    return FactorConversionOut(factor_conversion=(fila[0]["factor_conversion"] if fila else 1) or 1)
+
+
+@router.put("/mapeo/factor", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_factor_conversion(body: FactorConversionIn, claims: dict = Depends(get_current_claims)):
+    """Guarda el factor de conversion para este mapeo -- ej. si el proveedor
+    declara "1" pero en realidad vienen 10 unidades reales por cada una
+    declarada (un bulto), factor_conversion=10. Se aplica multiplicando la
+    cantidad y dividiendo el precio unitario por el mismo factor (el total
+    de la linea no cambia). Requiere que el producto ya se haya confirmado
+    al menos una vez para este proveedor+codigo (la fila ya debe existir)."""
+    _require_admin(claims)
+    db = get_db()
+    res = db.table("facturas_producto_mapa").update({"factor_conversion": body.factor_conversion}) \
+        .eq("proveedor_rut", body.proveedor_rut).eq("codigo_tipo", body.codigo_tipo).eq("codigo_valor", body.codigo_valor).execute()
+    if not res.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+            "No hay un producto confirmado todavía para este código -- confírmalo primero")
 
 
 @router.get("/{dte_id}", response_model=DteDetalleOut)
@@ -343,6 +374,28 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
                 f"revisar el nombre o configurarlo en Odoo para esa empresa"
             )
 
+    # Factor de conversion por mapeo (proveedor + codigo) -- algunos
+    # proveedores declaran una cantidad que en realidad es un bulto con mas
+    # unidades reales (ej. el DTE dice "1 azucar" pero son 10 kg reales). Se
+    # resuelve el codigo real de cada linea (mismo criterio que detalle()) y
+    # se busca el factor guardado en facturas_producto_mapa -- default 1 si
+    # no hay nada guardado (el caso normal, el qty del DTE ya es el real).
+    code_ids = [c for l in lineas for c in l.get('code_ids', [])]
+    codigos_por_id = {}
+    if code_ids:
+        codigos = cliente._call('l10n_cl.supplier.xml.item.code', 'search_read',
+            [[['id', 'in', code_ids]]], {'fields': ['code_type', 'code_value']})
+        codigos_por_id = {c['id']: c for c in codigos}
+
+    mapeos_proveedor = db.table("facturas_producto_mapa").select("codigo_tipo,codigo_valor,factor_conversion") \
+        .eq("proveedor_rut", doc['issuer_rut']).execute().data or []
+    factor_por_codigo = {(m['codigo_tipo'], m['codigo_valor']): (m.get('factor_conversion') or 1) for m in mapeos_proveedor}
+
+    def _factor_de_linea(l: dict) -> float:
+        codigos_linea = [codigos_por_id[c] for c in l.get('code_ids', []) if c in codigos_por_id]
+        codigo_tipo, codigo_valor = _mejor_codigo(codigos_linea, l.get('item_name'))
+        return factor_por_codigo.get((codigo_tipo, codigo_valor), 1) or 1
+
     # Algunos proveedores (ej. Comercializadora Global Products) aplican un
     # descuento que solo se ve en el Neto declarado en la cabecera del DTE
     # -- el item_price de cada linea sigue siendo el precio SIN descuento,
@@ -359,11 +412,13 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     for l in lineas:
         pid = l['product_id'][0]
         prod = info_por_producto[pid]
+        factor_conversion = _factor_de_linea(l)
+        precio_real = (float(l.get('item_price') or 0) / factor_conversion) if factor_conversion else float(l.get('item_price') or 0)
         linea_oc = {
             'product_id': pid,
             'name': prod['display_name'],
-            'product_qty': l.get('qty') or 0,
-            'price_unit': round(float(l.get('item_price') or 0) * factor_descuento, 2),
+            'product_qty': (l.get('qty') or 0) * factor_conversion,
+            'price_unit': round(precio_real * factor_descuento, 2),
             'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
         }
         nombres_impuestos = nombres_por_producto.get(pid)
@@ -460,7 +515,7 @@ def _procesar_item_cola(cola_id: str, dte_id: int):
         if doc.get('invoice_id'):
             raise RuntimeError("Este DTE ya tiene una factura creada")
         lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
-            {'fields': ['id', 'product_id', 'qty', 'item_price']})
+            {'fields': ['id', 'product_id', 'qty', 'item_price', 'item_name', 'code_ids']})
         sin_producto = [l['id'] for l in lineas if not l.get('product_id')]
         if sin_producto:
             raise RuntimeError(f"Faltan {len(sin_producto)} línea(s) sin producto asignado")

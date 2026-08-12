@@ -2009,7 +2009,8 @@ async function showDteModal(dteId) {
                 : l.sugerido
                   ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
                   : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
-                ${l.product_id ? ` <button type="button" class="btn" data-impuestos-linea="${l.id}" data-impuestos-producto="${l.product_id}" title="Impuestos de este producto (máx. 3) -- si no se tocan, se usa el impuesto por defecto del producto en Odoo">Impuestos</button>` : ''}</td>
+                ${l.product_id ? ` <button type="button" class="btn" data-impuestos-linea="${l.id}" data-impuestos-producto="${l.product_id}" title="Impuestos de este producto (máx. 3) -- si no se tocan, se usa el impuesto por defecto del producto en Odoo">Impuestos</button>` : ''}
+                ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}</td>
             </tr>
             <tr data-buscador="${l.id}" style="display:none"><td colspan="4">
               <div class="item-row">
@@ -2018,6 +2019,15 @@ async function showDteModal(dteId) {
               </div>
               <div data-resultados="${l.id}" style="margin-top:.5rem"></div>
             </td></tr>
+            ${l.product_id && l.codigo_tipo ? `
+            <tr data-cantidad-fila="${l.id}" style="display:none"><td colspan="4">
+              <p class="placeholder" style="margin-bottom:.5rem">Esta factura declara <strong>${l.qty} ${l.item_name}</strong>. ¿Cuántas unidades reales vienen en cada una declarada? (ej. si "1 azúcar" son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código de producto, y se aplica en toda factura futura igual. 1 = sin cambios.</p>
+              <div class="item-row">
+                <input type="number" class="field dte-cantidad-input" data-linea-cantidad="${l.id}" min="0.0001" step="any" style="max-width:160px" value="1">
+                <button type="button" class="btn btn-primary" data-guardar-cantidad="${l.id}">Guardar</button>
+              </div>
+              <p class="placeholder" data-cantidad-error="${l.id}"></p>
+            </td></tr>` : ''}
             ${l.product_id ? `
             <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="4">
               <p class="placeholder" style="margin-bottom:.5rem">Máximo 3 impuestos para <strong>${l.product_name}</strong>. Esta selección <strong>reemplaza</strong> el impuesto del producto -- si marcas algo, incluye también el IVA 19% si corresponde. Vacío = usa el impuesto por defecto del producto en Odoo.</p>
@@ -2040,6 +2050,59 @@ async function showDteModal(dteId) {
       btn.onclick = () => {
         const fila = overlay.querySelector(`tr[data-buscador="${btn.dataset.buscarLinea}"]`);
         fila.style.display = fila.style.display === 'none' ? 'table-row' : 'none';
+      };
+    });
+
+    overlay.querySelectorAll('[data-cantidad-linea]').forEach(btn => {
+      btn.onclick = async () => {
+        const lineaId = btn.dataset.cantidadLinea;
+        const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+        const fila = overlay.querySelector(`tr[data-cantidad-fila="${lineaId}"]`);
+        const visible = fila.style.display !== 'none';
+        overlay.querySelectorAll('[data-cantidad-fila]').forEach(f => { f.style.display = 'none'; });
+        if (visible) return;
+        fila.style.display = 'table-row';
+        const input = overlay.querySelector(`.dte-cantidad-input[data-linea-cantidad="${lineaId}"]`);
+        const errorEl = overlay.querySelector(`[data-cantidad-error="${lineaId}"]`);
+        errorEl.textContent = '';
+        input.value = '…';
+        try {
+          const params = new URLSearchParams({
+            proveedor_rut: dte.proveedor_rut, codigo_tipo: linea.codigo_tipo, codigo_valor: linea.codigo_valor,
+          });
+          const actual = await api(`/facturas-dte/mapeo/factor?${params}`);
+          input.value = actual.factor_conversion;
+        } catch (err) {
+          input.value = '1';
+          errorEl.textContent = err.message;
+        }
+      };
+    });
+
+    overlay.querySelectorAll('[data-guardar-cantidad]').forEach(btn => {
+      btn.onclick = async () => {
+        const lineaId = btn.dataset.guardarCantidad;
+        const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+        const input = overlay.querySelector(`.dte-cantidad-input[data-linea-cantidad="${lineaId}"]`);
+        const errorEl = overlay.querySelector(`[data-cantidad-error="${lineaId}"]`);
+        errorEl.textContent = '';
+        const factor = parseFloat(input.value);
+        if (!factor || factor <= 0) {
+          errorEl.textContent = 'Ingresa un número mayor que 0.';
+          return;
+        }
+        try {
+          await api('/facturas-dte/mapeo/factor', {
+            method: 'PUT',
+            body: JSON.stringify({
+              proveedor_rut: dte.proveedor_rut, codigo_tipo: linea.codigo_tipo, codigo_valor: linea.codigo_valor,
+              factor_conversion: factor,
+            }),
+          });
+          overlay.querySelector(`tr[data-cantidad-fila="${lineaId}"]`).style.display = 'none';
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
       };
     });
 
