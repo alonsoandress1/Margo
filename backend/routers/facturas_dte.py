@@ -35,9 +35,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import (ColaFacturaOut, DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut,
-                       DteProductoOut, FactorConversionIn, FactorConversionOut, ImpuestoOut,
-                       ProductoImpuestosIn)
+from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DteDetalleOut, DteLineaOut,
+                       DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn, FactorConversionOut,
+                       ImpuestoOut, ProductoImpuestosIn)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
@@ -95,22 +95,6 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
                folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'), tiene_factura=False)
         for d in docs
     ]
-
-
-@router.get("/{move_id}/_debug-move-lineas")
-def _debug_move_lineas(move_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- confirmar campos reales de account.move.line antes de
-    construir el comparador DTE vs factura creada. Borrar despues."""
-    import traceback
-    from fastapi.responses import PlainTextResponse
-    _require_admin(claims)
-    cliente = _odoo()
-    try:
-        lineas = cliente._call('account.move.line', 'search_read', [[['move_id', '=', move_id]]],
-            {'fields': ['product_id', 'quantity', 'price_unit', 'tax_ids', 'display_type', 'name']})
-    except Exception:
-        return PlainTextResponse(traceback.format_exc(), status_code=500)
-    return lineas
 
 
 @router.get("/productos/buscar", response_model=list[DteProductoOut])
@@ -202,6 +186,71 @@ def fijar_factor_conversion(body: FactorConversionIn, claims: dict = Depends(get
     if not res.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND,
             "No hay un producto confirmado todavía para este código -- confírmalo primero")
+
+
+@router.get("/{dte_id}/comparar", response_model=CompararOut)
+def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
+    """Compara linea por linea lo que declaro el DTE del proveedor contra lo
+    que realmente quedo creado en la factura de Odoo -- lee la factura REAL
+    (no una simulacion), asi que solo funciona para DTE que ya tienen
+    factura creada."""
+    _require_admin(claims)
+    cliente = _odoo()
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'invoice_id', 'amount_untaxed', 'iva', 'amount_total']})
+    if not docs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
+    doc = docs[0]
+    if not doc.get('invoice_id'):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+            "Esta factura todavía no se ha creado en Odoo -- créala primero para poder comparar")
+    move_id = doc['invoice_id'][0]
+
+    lineas_dte = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
+        {'fields': ['item_name', 'qty', 'item_price', 'product_id']})
+
+    move = cliente._call('account.move', 'read', [[move_id]],
+        {'fields': ['name', 'amount_untaxed', 'amount_tax', 'amount_total']})[0]
+    move_lineas = cliente._call('account.move.line', 'search_read',
+        [[['move_id', '=', move_id], ['display_type', '=', 'product']]],
+        {'fields': ['product_id', 'quantity', 'price_unit', 'tax_ids']})
+
+    tax_ids = list({t for ml in move_lineas for t in ml.get('tax_ids', [])})
+    tax_nombres: dict[int, str] = {}
+    if tax_ids:
+        taxes = cliente._call('account.tax', 'read', [tax_ids], {'fields': ['name']})
+        tax_nombres = {t['id']: t['name'] for t in taxes}
+
+    # Empareja por product_id -- el flujo de creacion arma como maximo una
+    # linea de OC/factura por producto (ver _ejecutar_creacion), asi que
+    # alcanza para emparejar de vuelta con las lineas del DTE.
+    odoo_por_producto: dict[int, dict] = {}
+    for ml in move_lineas:
+        if ml.get('product_id'):
+            odoo_por_producto[ml['product_id'][0]] = ml
+
+    lineas_out = []
+    for l in lineas_dte:
+        pid = l['product_id'][0] if l.get('product_id') else None
+        ml = odoo_por_producto.get(pid) if pid else None
+        lineas_out.append(CompararLineaOut(
+            item_name=l.get('item_name') or '',
+            qty_dte=l.get('qty') or 0,
+            precio_dte=float(l.get('item_price') or 0),
+            subtotal_dte=round((l.get('qty') or 0) * float(l.get('item_price') or 0), 2),
+            producto_nombre=(l['product_id'][1] if l.get('product_id') else None),
+            qty_odoo=ml['quantity'] if ml else None,
+            precio_odoo=ml['price_unit'] if ml else None,
+            subtotal_odoo=round(ml['quantity'] * ml['price_unit'], 2) if ml else None,
+            impuestos_odoo=[tax_nombres.get(t, '?') for t in (ml.get('tax_ids') or [])] if ml else [],
+        ))
+
+    return CompararOut(
+        invoice_name=move['name'],
+        neto_dte=_monto(doc.get('amount_untaxed')), iva_dte=_monto(doc.get('iva')), total_dte=_monto(doc.get('amount_total')),
+        neto_odoo=move.get('amount_untaxed') or 0, iva_odoo=move.get('amount_tax') or 0, total_odoo=move.get('amount_total') or 0,
+        lineas=lineas_out,
+    )
 
 
 @router.get("/{dte_id}", response_model=DteDetalleOut)

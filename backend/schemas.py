@@ -460,6 +460,29 @@ class FactorConversionIn(BaseModel):
     factor_conversion: float = Field(gt=0)
 
 
+class CompararLineaOut(BaseModel):
+    item_name: str
+    qty_dte: float
+    precio_dte: float
+    subtotal_dte: float
+    producto_nombre: str | None = None
+    qty_odoo: float | None = None
+    precio_odoo: float | None = None
+    subtotal_odoo: float | None = None
+    impuestos_odoo: list[str] = []
+
+
+class CompararOut(BaseModel):
+    invoice_name: str
+    neto_dte: float
+    iva_dte: float
+    total_dte: float
+    neto_odoo: float
+    iva_odoo: float
+    total_odoo: float
+    lineas: list[CompararLineaOut]
+
+
 class DteCrearFacturaOut(BaseModel):
     invoice_id: int
     invoice_name: str

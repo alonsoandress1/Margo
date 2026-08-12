@@ -1942,7 +1942,10 @@ async function actualizarColaPanel() {
               <td>${c.proveedor_nombre}</td>
               <td>${c.folio}</td>
               <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${c.invoice_name}` : ''}${c.estado === 'error' ? ` — ${c.error_mensaje}` : ''}</td>
-              <td><button type="button" class="btn" data-eliminar-cola="${c.id}" title="Solo quita esta fila de la lista -- no afecta la factura en Odoo">Limpiar</button></td>
+              <td>
+                ${c.estado === 'completado' ? `<button type="button" class="btn" data-comparar-dte="${c.dte_id}">Comparar</button> ` : ''}
+                <button type="button" class="btn" data-eliminar-cola="${c.id}" title="Solo quita esta fila de la lista -- no afecta la factura en Odoo">Limpiar</button>
+              </td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -1957,6 +1960,10 @@ async function actualizarColaPanel() {
         alert(err.message);
       }
     });
+  });
+
+  panel.querySelectorAll('[data-comparar-dte]').forEach(btn => {
+    btn.addEventListener('click', () => showCompararModal(parseInt(btn.dataset.compararDte, 10)));
   });
 
   document.getElementById('dte-cola-limpiar-todas').addEventListener('click', async () => {
@@ -2248,6 +2255,62 @@ async function showDteModal(dteId) {
   } catch (err) {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-modal-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#dte-modal-cerrar-error').onclick = () => overlay.remove();
+  }
+}
+
+function _fmtMonto(n) {
+  return n == null ? '—' : '$' + Math.round(n).toLocaleString('es-CL');
+}
+
+async function showCompararModal(dteId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:960px"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const c = await api(`/facturas-dte/${dteId}/comparar`);
+    const diffMonto = (a, b) => Math.abs(a - b) > 9;
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Comparación — ${c.invoice_name}</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Lo que declaró el proveedor en su factura electrónica (DTE) vs. lo que quedó realmente creado en Odoo.</p>
+      <table style="margin-bottom:1rem">
+        <thead><tr><th></th><th>Neto</th><th>IVA</th><th>Total</th></tr></thead>
+        <tbody>
+          <tr><td>DTE del proveedor</td><td>${_fmtMonto(c.neto_dte)}</td><td>${_fmtMonto(c.iva_dte)}</td><td>${_fmtMonto(c.total_dte)}</td></tr>
+          <tr>
+            <td>Creado en Odoo</td>
+            <td class="${diffMonto(c.neto_dte, c.neto_odoo) ? 'error-msg' : ''}">${_fmtMonto(c.neto_odoo)}</td>
+            <td class="${diffMonto(c.iva_dte, c.iva_odoo) ? 'error-msg' : ''}">${_fmtMonto(c.iva_odoo)}</td>
+            <td class="${diffMonto(c.total_dte, c.total_odoo) ? 'error-msg' : ''}">${_fmtMonto(c.total_odoo)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <table>
+        <thead><tr>
+          <th colspan="3">Declarado en el DTE</th><th colspan="4">Creado en Odoo</th>
+        </tr><tr>
+          <th>Ítem</th><th>Cant.</th><th>Precio unit.</th>
+          <th>Producto</th><th>Cant.</th><th>Precio unit.</th><th>Impuestos</th>
+        </tr></thead>
+        <tbody>
+          ${c.lineas.map(l => `
+            <tr>
+              <td>${l.item_name}</td>
+              <td>${l.qty_dte}</td>
+              <td>${_fmtMonto(l.precio_dte)}</td>
+              <td>${l.producto_nombre || '<span class="placeholder">—</span>'}</td>
+              <td>${l.qty_odoo ?? '<span class="placeholder">—</span>'}</td>
+              <td>${l.precio_odoo != null ? _fmtMonto(l.precio_odoo) : '<span class="placeholder">—</span>'}</td>
+              <td>${l.impuestos_odoo.length ? l.impuestos_odoo.join(', ') : '<span class="placeholder">por defecto</span>'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:1.25rem"><button type="button" class="btn" id="comparar-modal-cerrar">Cerrar</button></div>`;
+    overlay.querySelector('#comparar-modal-cerrar').onclick = () => overlay.remove();
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="comparar-modal-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#comparar-modal-cerrar-error').onclick = () => overlay.remove();
   }
 }
 
