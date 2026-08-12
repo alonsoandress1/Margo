@@ -131,6 +131,24 @@ def mostrar_proveedor(proveedor_rut: str, claims: dict = Depends(get_current_cla
     db.table("facturas_proveedor_oculto").delete().eq("proveedor_rut", proveedor_rut).execute()
 
 
+@router.get("/_debug-tax-producto/{producto_id}")
+def _debug_tax_producto(producto_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- confirmar el campo real de impuesto de compra por defecto de un producto."""
+    _require_admin(claims)
+    import traceback
+    try:
+        cliente = _odoo()
+        prod = cliente._call('product.product', 'read', [[producto_id]],
+            {'fields': ['name', 'supplier_taxes_id', 'taxes_id']})
+        out = {'producto': prod}
+        if prod and prod[0].get('supplier_taxes_id'):
+            taxes = cliente._call('account.tax', 'read', [prod[0]['supplier_taxes_id']], {'fields': ['name', 'amount', 'type_tax_use']})
+            out['supplier_taxes'] = taxes
+        return out
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 @router.get("/productos/buscar", response_model=list[DteProductoOut])
 def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
     """Busca productos YA EXISTENTES en Odoo por nombre o codigo interno --
