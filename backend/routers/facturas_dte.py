@@ -44,7 +44,7 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
-@router.get("/_debug-sofia")
+@router.get("/_debug/sofia")
 def _debug_sofia(claims: dict = Depends(get_current_claims)):
     """TEMPORAL -- estado real de Doña Sofía: OCs generadas desde Pedidos
     (po_tracking), OCs reales en Odoo, DTEs recientes, y facturas ya creadas."""
