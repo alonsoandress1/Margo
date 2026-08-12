@@ -1904,12 +1904,13 @@ function renderDteResultados(dtes, filtroFolio) {
           <button type="button" class="btn" data-ocultar-proveedor="${encodeURIComponent(lista[0].proveedor_rut)}" data-ocultar-proveedor-nombre="${encodeURIComponent(proveedor)}">Ocultar proveedor</button>
         </div>
         <table>
-          <thead><tr><th>Folio</th><th>Fecha</th><th></th></tr></thead>
+          <thead><tr><th>Folio</th><th>Fecha</th><th>Monto</th><th></th></tr></thead>
           <tbody>
             ${lista.map(d => `
               <tr>
                 <td>${d.folio}</td>
                 <td>${d.fecha || '—'}</td>
+                <td>$${Math.round(d.monto_total || 0).toLocaleString('es-CL')}</td>
                 <td><button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button></td>
               </tr>`).join('')}
           </tbody>

@@ -114,11 +114,12 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     cliente = _odoo()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
         [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
-        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date'],
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'amount_total'],
          'order': 'issuer_name, date'})
     return [
         DteOut(id=d['id'], proveedor_rut=d.get('issuer_rut') or '', proveedor_nombre=d.get('issuer_name') or '',
-               folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'), tiene_factura=False)
+               folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'),
+               monto_total=_monto(d.get('amount_total')), tiene_factura=False)
         for d in docs
         if (d.get('issuer_rut') or '') not in ocultos
     ]

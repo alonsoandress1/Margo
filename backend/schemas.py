@@ -413,6 +413,7 @@ class DteOut(BaseModel):
     proveedor_nombre: str
     folio: str
     fecha: str | None = None
+    monto_total: float = 0
     tiene_factura: bool = False
 
 
