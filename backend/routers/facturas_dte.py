@@ -79,6 +79,17 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
     return ("TEXTO", texto) if texto else (None, None)
 
 
+@router.get("/_debug-impuestos")
+def _debug_impuestos(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- ver los impuestos reales configurados en Odoo antes de
+    construir la seleccion de impuestos por producto. Borrar despues."""
+    _require_admin(claims)
+    cliente = _odoo()
+    impuestos = cliente._call('account.tax', 'search_read', [[['type_tax_use', '=', 'purchase']]],
+        {'fields': ['id', 'name', 'amount', 'amount_type', 'company_id', 'active']})
+    return impuestos
+
+
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
