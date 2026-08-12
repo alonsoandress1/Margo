@@ -121,12 +121,41 @@ def _debug_auditoria(claims: dict = Depends(get_current_claims)):
         except Exception as e:
             po_p19867 = {'error': str(e)}
 
+        # OC P19867 (la que cree yo por duplicado) -- ver si su recepcion de
+        # mercaderia (picking) ya quedo validada (done). Si es asi, no se
+        # puede cancelar/eliminar la OC directo -- primero habria que
+        # devolver el stock (stock.return.picking), como ya paso una vez
+        # antes en este proyecto con otro bug de duplicados.
+        po_p19867_pickings = None
+        if po_p19867 and not isinstance(po_p19867, dict):
+            po_full = cliente._call('purchase.order', 'read', [[po_p19867[0]['id']]], {'fields': ['picking_ids']})[0]
+            po_p19867_pickings = cliente._call('stock.picking', 'read', [po_full['picking_ids']],
+                {'fields': ['name', 'state', 'move_ids']}) if po_full['picking_ids'] else []
+
         return {
             'por_dte': resultado, 'busqueda_directa_por_nombre': moves_directos, 'por_id_exacto': moves_por_id,
             'factura_vieja_1322131': m_vieja, 'po_p19741': po_p19741, 'po_p19867_huerfana': po_p19867,
+            'po_p19867_pickings': po_p19867_pickings,
         }
     except Exception:
         return {'error': traceback.format_exc()}
+
+
+@router.post("/_fix/vincular-dte-80924")
+def _fix_vincular_dte_80924(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL, UN SOLO USO -- autorizado explicitamente por el usuario.
+    Vincula el DTE 80924 a la factura real que ya existia (1322131, PO
+    P19741) -- no crea ni borra nada, solo escribe invoice_id en el DTE
+    (mismo campo que ya escribe _ejecutar_creacion al terminar normalmente).
+    Corrige el caso real encontrado: el DTE habia quedado sin vinculo
+    despues de que se borrara a mano la factura duplicada que este sistema
+    creo por error (1330983, antes de la validacion contra facturas
+    preexistentes)."""
+    if claims["rol"] != "administrador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+    cliente = _odoo()
+    cliente._call('l10n_cl.supplier.xml', 'write', [[80924], {'invoice_id': 1322131}])
+    return {"ok": True, "dte_id": 80924, "invoice_id": 1322131}
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
