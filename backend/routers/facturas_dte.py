@@ -79,6 +79,37 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
     return ("TEXTO", texto) if texto else (None, None)
 
 
+@router.get("/_debug-buscar-oc")
+def _debug_buscar_oc(partner_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- encontrar la OC huerfana que quedo de una prueba fallida
+    (unlink fallo antes del fix de cancelar primero). Borrar despues."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
+    _require_admin(claims)
+    cliente = _odoo()
+    try:
+        ocs = cliente._call('purchase.order', 'search_read', [[['partner_id', '=', partner_id]]],
+            {'fields': ['name', 'state', 'create_date', 'amount_total'], 'order': 'id desc', 'limit': 5})
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
+    return ocs
+
+
+@router.post("/_debug-limpiar-oc/{po_id}")
+def _debug_limpiar_oc(po_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- cancelar y eliminar una OC huerfana especifica. Borrar despues."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
+    _require_admin(claims)
+    cliente = _odoo()
+    try:
+        cliente._call('purchase.order', 'button_cancel', [[po_id]])
+        cliente._call('purchase.order', 'unlink', [[po_id]])
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
+    return {'ok': True}
+
+
 @router.get("/{dte_id}/_debug-lineas")
 def _debug_lineas(dte_id: int, claims: dict = Depends(get_current_claims)):
     """TEMPORAL -- ver todos los campos de las lineas de un DTE (buscando
@@ -317,10 +348,21 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         {'fields': ['amount_untaxed', 'amount_tax', 'amount_total']})[0]
     desajustes = _verificar_montos(doc, po_montos)
     if desajustes:
-        cliente._call('purchase.order', 'unlink', [[po_id]])
+        # Un borrador no se puede eliminar directo en esta instancia -- Odoo
+        # exige cancelarlo primero (button_cancel) y recien ahi el unlink
+        # funciona. Si algo de esto falla igual, no se sigue con la
+        # factura -- solo se avisa que la OC quedo cancelada para revisarla
+        # a mano en vez de afirmar (falso) que no quedo nada.
+        limpio = True
+        try:
+            cliente._call('purchase.order', 'button_cancel', [[po_id]])
+            cliente._call('purchase.order', 'unlink', [[po_id]])
+        except Exception:
+            limpio = False
+        detalle_oc = ("no quedó ninguna Orden de Compra ni factura en Odoo" if limpio
+            else f"la Orden de Compra borrador quedó cancelada en Odoo (revisar/eliminar a mano, id {po_id})")
         raise RuntimeError(
-            f"No coinciden los valores -- ingresar de manera manual. "
-            f"No se creó ninguna Orden de Compra ni factura en Odoo: " + "; ".join(desajustes)
+            f"No coinciden los valores -- ingresar de manera manual. {detalle_oc}: " + "; ".join(desajustes)
         )
 
     cliente._call('purchase.order', 'button_confirm', [[po_id]])
