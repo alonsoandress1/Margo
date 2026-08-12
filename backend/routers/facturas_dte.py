@@ -95,6 +95,25 @@ def _debug_lineas(dte_id: int, claims: dict = Depends(get_current_claims)):
     return lineas
 
 
+@router.get("/_debug-partner/{rut}")
+def _debug_partner(rut: str, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- ver por que res.partner no resuelve a un solo registro
+    para un RUT de proveedor (2 de 2 proveedores probados fallan aca).
+    Borrar despues."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
+    _require_admin(claims)
+    cliente = _odoo()
+    try:
+        exacto = cliente._call('res.partner', 'search_read', [[['vat', '=', rut]]],
+            {'fields': ['id', 'name', 'vat', 'active', 'company_id', 'supplier_rank']})
+        parecido = cliente._call('res.partner', 'search_read', [[['vat', 'ilike', rut.split('-')[0]]]],
+            {'fields': ['id', 'name', 'vat', 'active', 'company_id', 'supplier_rank']})
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
+    return {'exacto': exacto, 'parecido': parecido}
+
+
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
