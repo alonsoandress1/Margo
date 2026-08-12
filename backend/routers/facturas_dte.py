@@ -45,31 +45,6 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
-@router.get("/_debug/pago")
-def _debug_pago(move_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- ver que condicion de pago quedo en una factura ya creada
-    por este sistema, vs. la que tiene configurada el proveedor."""
-    import traceback
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        cliente = _odoo()
-        move = cliente._call('account.move', 'read', [[move_id]],
-            {'fields': ['name', 'invoice_payment_term_id', 'invoice_origin', 'partner_id']})[0]
-        po = None
-        if move.get('invoice_origin'):
-            pos = cliente._call('purchase.order', 'search_read', [[['name', '=', move['invoice_origin']]]],
-                {'fields': ['name', 'payment_term_id']})
-            po = pos[0] if pos else None
-        partner = None
-        if move.get('partner_id'):
-            partner = cliente._call('res.partner', 'read', [[move['partner_id'][0]]],
-                {'fields': ['name', 'property_supplier_payment_term_id', 'property_payment_term_id']})[0]
-        return {'move': move, 'po': po, 'partner': partner}
-    except Exception:
-        return {'error': traceback.format_exc()}
-
-
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
 # de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
 # creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
