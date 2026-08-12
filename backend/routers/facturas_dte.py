@@ -44,6 +44,53 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug-sofia")
+def _debug_sofia(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- estado real de Doña Sofía: OCs generadas desde Pedidos
+    (po_tracking), OCs reales en Odoo, DTEs recientes, y facturas ya creadas."""
+    import traceback
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        db = get_db()
+        cliente = _odoo()
+
+        po_tracking = db.table("po_tracking").select("*").ilike("proveedor", "%sofia%") \
+            .order("id", desc=True).limit(20).execute().data or []
+
+        # partner de Doña Sofía -- confirmado antes: res.partner id=304
+        pos_odoo = cliente._call('purchase.order', 'search_read',
+            [[['partner_id', '=', 304]]],
+            {'fields': ['id', 'name', 'date_order', 'state', 'invoice_status', 'amount_total', 'origin'],
+             'order': 'date_order desc', 'limit': 15})
+
+        dtes = cliente._call('l10n_cl.supplier.xml', 'search_read',
+            [[['issuer_rut', '=', '77500046-5']]],
+            {'fields': ['id', 'l10n_latam_document_number', 'date', 'invoice_id', 'amount_total'],
+             'order': 'date desc', 'limit': 15})
+
+        moves = cliente._call('account.move', 'search_read',
+            [[['partner_id', '=', 304], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+            {'fields': ['id', 'name', 'invoice_date', 'invoice_origin', 'amount_untaxed', 'amount_total'],
+             'order': 'invoice_date desc', 'limit': 10})
+
+        lineas_ultima = []
+        if moves:
+            lineas_ultima = cliente._call('account.move.line', 'search_read',
+                [[['move_id', '=', moves[0]['id']], ['display_type', '=', 'product']]],
+                {'fields': ['product_id', 'quantity', 'price_unit']})
+
+        return {
+            "po_tracking_sofia": po_tracking,
+            "purchase_orders_odoo": pos_odoo,
+            "dtes_sofia": dtes,
+            "facturas_ya_creadas": moves,
+            "lineas_ultima_factura": lineas_ultima,
+        }
+    except Exception:
+        return {"error": traceback.format_exc()}
+
+
 def _require_admin(claims: dict):
     if claims["rol"] != "administrador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador puede gestionar el ingreso de facturas")
