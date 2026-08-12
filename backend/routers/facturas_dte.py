@@ -36,7 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
 from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut,
-                       DteProductoOut)
+                       DteProductoOut, ImpuestoOut, ProductoImpuestosIn)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
@@ -79,17 +79,6 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
     return ("TEXTO", texto) if texto else (None, None)
 
 
-@router.get("/_debug-impuestos")
-def _debug_impuestos(claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- ver los impuestos reales configurados en Odoo antes de
-    construir la seleccion de impuestos por producto. Borrar despues."""
-    _require_admin(claims)
-    cliente = _odoo()
-    impuestos = cliente._call('account.tax', 'search_read', [[['type_tax_use', '=', 'purchase']]],
-        {'fields': ['id', 'name', 'amount', 'amount_type', 'company_id', 'active']})
-    return impuestos
-
-
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
@@ -122,6 +111,50 @@ def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
                         uom=p['uom_id'][1] if p.get('uom_id') else None)
         for p in productos
     ]
+
+
+@router.get("/impuestos/buscar", response_model=list[ImpuestoOut])
+def buscar_impuesto(q: str = '', claims: dict = Depends(get_current_claims)):
+    """Busca impuestos de compra YA EXISTENTES en Odoo por nombre (ej. "IVA
+    19% Compra", "Impuesto a la Carne 5%") -- solo lectura. Se buscan en la
+    empresa por defecto de la cuenta de servicio; al crear la factura se
+    resuelve el impuesto real de CADA empresa por el mismo nombre (los
+    impuestos son por empresa en Odoo, ver _ejecutar_creacion)."""
+    _require_admin(claims)
+    cliente = _odoo()
+    dominio = [['type_tax_use', '=', 'purchase'], ['active', '=', True]]
+    if q:
+        dominio.append(['name', 'ilike', q])
+    impuestos = cliente._call('account.tax', 'search_read', [dominio],
+        {'fields': ['id', 'name', 'amount'], 'limit': 30, 'order': 'name'})
+    return [ImpuestoOut(id=i['id'], name=i['name'], amount=i.get('amount') or 0) for i in impuestos]
+
+
+@router.get("/productos/{producto_id}/impuestos", response_model=list[str])
+def listar_impuestos_producto(producto_id: int, claims: dict = Depends(get_current_claims)):
+    """Impuestos guardados para este producto (hasta 3) -- vacio si el
+    producto no tiene nada especial configurado (usa el impuesto por
+    defecto del producto en Odoo, el caso normal)."""
+    _require_admin(claims)
+    db = get_db()
+    filas = db.table("facturas_producto_impuesto").select("impuesto_nombre").eq("odoo_product_id", producto_id).execute().data or []
+    return [f["impuesto_nombre"] for f in filas]
+
+
+@router.put("/productos/{producto_id}/impuestos", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_impuestos_producto(producto_id: int, body: ProductoImpuestosIn, claims: dict = Depends(get_current_claims)):
+    """Reemplaza los impuestos guardados de este producto por la lista
+    dada (maximo 3) -- lista vacia = volver a usar el impuesto por defecto
+    del producto en Odoo."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_producto_impuesto").delete().eq("odoo_product_id", producto_id).execute()
+    if body.impuesto_nombres:
+        db.table("facturas_producto_impuesto").insert([
+            {"odoo_product_id": producto_id, "odoo_product_name": body.odoo_product_name,
+             "impuesto_nombre": nombre, "actualizado_por": claims["sub"]}
+            for nombre in body.impuesto_nombres
+        ]).execute()
 
 
 @router.get("/{dte_id}", response_model=DteDetalleOut)
@@ -284,6 +317,32 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id', 'display_name']})
     info_por_producto = {p['id']: p for p in productos}
 
+    # Impuestos guardados por producto (tabla facturas_producto_impuesto,
+    # hasta 3 por producto) -- si un producto no tiene fila aca, Odoo usa el
+    # impuesto que ya tenga configurado por defecto (el caso normal). Los
+    # impuestos son por EMPRESA en Odoo, asi que se guarda el NOMBRE y se
+    # resuelve al id real de la empresa de este DTE recien aca.
+    db = get_db()
+    filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
+        .in_("odoo_product_id", product_ids).execute().data or []
+    nombres_por_producto: dict[int, list[str]] = {}
+    for f in filas_impuestos:
+        nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
+
+    tax_id_por_nombre: dict[str, int] = {}
+    if nombres_por_producto:
+        nombres_unicos = list({n for ns in nombres_por_producto.values() for n in ns})
+        impuestos_odoo = cliente._call('account.tax', 'search_read',
+            [[['name', 'in', nombres_unicos], ['company_id', '=', company_id], ['type_tax_use', '=', 'purchase']]],
+            {'fields': ['id', 'name']})
+        tax_id_por_nombre = {i['name']: i['id'] for i in impuestos_odoo}
+        faltantes = [n for n in nombres_unicos if n not in tax_id_por_nombre]
+        if faltantes:
+            raise RuntimeError(
+                f"No encontré el impuesto '{', '.join(faltantes)}' en la empresa de este DTE -- "
+                f"revisar el nombre o configurarlo en Odoo para esa empresa"
+            )
+
     # Algunos proveedores (ej. Comercializadora Global Products) aplican un
     # descuento que solo se ve en el Neto declarado en la cabecera del DTE
     # -- el item_price de cada linea sigue siendo el precio SIN descuento,
@@ -300,13 +359,17 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     for l in lineas:
         pid = l['product_id'][0]
         prod = info_por_producto[pid]
-        order_lines.append((0, 0, {
+        linea_oc = {
             'product_id': pid,
             'name': prod['display_name'],
             'product_qty': l.get('qty') or 0,
             'price_unit': round(float(l.get('item_price') or 0) * factor_descuento, 2),
             'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
-        }))
+        }
+        nombres_impuestos = nombres_por_producto.get(pid)
+        if nombres_impuestos:
+            linea_oc['taxes_id'] = [(6, 0, [tax_id_por_nombre[n] for n in nombres_impuestos])]
+        order_lines.append((0, 0, linea_oc))
 
     po_id = cliente._call('purchase.order', 'create', [{
         'partner_id': partner_id,

@@ -438,6 +438,17 @@ class DteProductoOut(BaseModel):
     uom: str | None = None
 
 
+class ImpuestoOut(BaseModel):
+    id: int
+    name: str
+    amount: float
+
+
+class ProductoImpuestosIn(BaseModel):
+    odoo_product_name: str
+    impuesto_nombres: list[str] = Field(default_factory=list, max_length=3)
+
+
 class DteCrearFacturaOut(BaseModel):
     invoice_id: int
     invoice_name: str

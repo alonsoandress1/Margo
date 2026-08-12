@@ -2008,7 +2008,8 @@ async function showDteModal(dteId) {
                 ? `<button type="button" class="btn" data-buscar-linea="${l.id}">Buscar producto</button>`
                 : l.sugerido
                   ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
-                  : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}</td>
+                  : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
+                ${l.product_id ? ` <button type="button" class="btn" data-impuestos-linea="${l.id}" data-impuestos-producto="${l.product_id}" title="Impuestos de este producto (máx. 3) -- si no se tocan, se usa el impuesto por defecto del producto en Odoo">Impuestos</button>` : ''}</td>
             </tr>
             <tr data-buscador="${l.id}" style="display:none"><td colspan="4">
               <div class="item-row">
@@ -2016,7 +2017,15 @@ async function showDteModal(dteId) {
                 <button type="button" class="btn" data-ejecutar-busqueda="${l.id}">Buscar</button>
               </div>
               <div data-resultados="${l.id}" style="margin-top:.5rem"></div>
-            </td></tr>`).join('')}
+            </td></tr>
+            ${l.product_id ? `
+            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="4">
+              <p class="placeholder" style="margin-bottom:.5rem">Máximo 3 impuestos para <strong>${l.product_name}</strong>. Esta selección <strong>reemplaza</strong> el impuesto del producto -- si marcas algo, incluye también el IVA 19% si corresponde. Vacío = usa el impuesto por defecto del producto en Odoo.</p>
+              <div data-impuestos-lista="${l.id}"><span class="placeholder">Cargando…</span></div>
+              <div class="item-row" style="margin-top:.5rem">
+                <button type="button" class="btn btn-primary" data-guardar-impuestos="${l.id}">Guardar impuestos</button>
+              </div>
+            </td></tr>` : ''}`).join('')}
         </tbody>
       </table>
       <p id="dte-modal-error" class="error-msg"></p>
@@ -2031,6 +2040,65 @@ async function showDteModal(dteId) {
       btn.onclick = () => {
         const fila = overlay.querySelector(`tr[data-buscador="${btn.dataset.buscarLinea}"]`);
         fila.style.display = fila.style.display === 'none' ? 'table-row' : 'none';
+      };
+    });
+
+    overlay.querySelectorAll('[data-impuestos-linea]').forEach(btn => {
+      btn.onclick = async () => {
+        const lineaId = btn.dataset.impuestosLinea;
+        const productoId = btn.dataset.impuestosProducto;
+        const fila = overlay.querySelector(`tr[data-impuestos-fila="${lineaId}"]`);
+        const visible = fila.style.display !== 'none';
+        overlay.querySelectorAll('[data-impuestos-fila]').forEach(f => { f.style.display = 'none'; });
+        if (visible) return;
+        fila.style.display = 'table-row';
+        const listaEl = overlay.querySelector(`[data-impuestos-lista="${lineaId}"]`);
+        listaEl.innerHTML = '<span class="placeholder">Cargando…</span>';
+        try {
+          const [todos, actuales] = await Promise.all([
+            api('/facturas-dte/impuestos/buscar'),
+            api(`/facturas-dte/productos/${productoId}/impuestos`),
+          ]);
+          listaEl.innerHTML = todos.length
+            ? todos.map(t => `
+                <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;padding:.2rem 0">
+                  <input type="checkbox" class="dte-impuesto-check" data-linea-impuesto="${lineaId}" value="${t.name.replace(/"/g, '&quot;')}" ${actuales.includes(t.name) ? 'checked' : ''}>
+                  ${t.name} (${t.amount}%)
+                </label>`).join('')
+            : '<span class="placeholder">Sin impuestos de compra configurados en Odoo.</span>';
+          const checks = () => Array.from(listaEl.querySelectorAll(`.dte-impuesto-check[data-linea-impuesto="${lineaId}"]`));
+          checks().forEach(chk => {
+            chk.addEventListener('change', () => {
+              if (checks().filter(c => c.checked).length > 3) {
+                chk.checked = false;
+                alert('Máximo 3 impuestos por producto.');
+              }
+            });
+          });
+        } catch (err) {
+          listaEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
+        }
+      };
+    });
+
+    overlay.querySelectorAll('[data-guardar-impuestos]').forEach(btn => {
+      btn.onclick = async () => {
+        const lineaId = btn.dataset.guardarImpuestos;
+        const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+        const errorEl = overlay.querySelector('#dte-modal-error');
+        errorEl.textContent = '';
+        const seleccionados = Array.from(
+          overlay.querySelectorAll(`.dte-impuesto-check[data-linea-impuesto="${lineaId}"]:checked`)
+        ).map(c => c.value);
+        try {
+          await api(`/facturas-dte/productos/${linea.product_id}/impuestos`, {
+            method: 'PUT',
+            body: JSON.stringify({ odoo_product_name: linea.product_name, impuesto_nombres: seleccionados }),
+          });
+          overlay.querySelector(`tr[data-impuestos-fila="${lineaId}"]`).style.display = 'none';
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
       };
     });
 
