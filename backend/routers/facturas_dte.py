@@ -79,6 +79,22 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
     return ("TEXTO", texto) if texto else (None, None)
 
 
+@router.get("/{dte_id}/_debug-lineas")
+def _debug_lineas(dte_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- ver todos los campos de las lineas de un DTE (buscando
+    campos de descuento) antes de ajustar la formula de price_unit para
+    proveedores con descuento en la linea. Borrar despues."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
+    _require_admin(claims)
+    cliente = _odoo()
+    try:
+        lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]], {})
+    except Exception:
+        return PlainTextResponse(traceback.format_exc(), status_code=500)
+    return lineas
+
+
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
