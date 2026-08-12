@@ -44,6 +44,24 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
+
+@router.get("/_debug/pago")
+def _debug_pago(po_id: int, move_id: int, partner_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- ver que condicion de pago quedo en una OC/factura ya
+    creada por este sistema, vs. la que tiene configurada el proveedor."""
+    import traceback
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        po = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['name', 'payment_term_id']})[0]
+        move = cliente._call('account.move', 'read', [[move_id]], {'fields': ['name', 'invoice_payment_term_id']})[0]
+        partner = cliente._call('res.partner', 'read', [[partner_id]],
+            {'fields': ['name', 'property_supplier_payment_term_id', 'property_payment_term_id']})[0]
+        return {'po': po, 'move': move, 'partner': partner}
+    except Exception:
+        return {'error': traceback.format_exc()}
+
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
 # de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
 # creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
