@@ -195,7 +195,7 @@ def _fix_eliminar_oc_huerfana_p19867(claims: dict = Depends(get_current_claims))
         wizard = cliente._call('stock.return.picking', 'read', [[wizard_id]], {'fields': ['product_return_moves']})[0]
         if not wizard['product_return_moves']:
             return {'error': 'el wizard de devolucion no genero lineas -- revisar a mano'}
-        resultado = cliente._call('stock.return.picking', 'create_returns', [[wizard_id]])
+        resultado = cliente._call('stock.return.picking', 'action_create_returns', [[wizard_id]])
         return_picking_id = resultado.get('res_id') if isinstance(resultado, dict) else None
         if return_picking_id:
             cliente._call('stock.picking', 'action_confirm', [[return_picking_id]])
