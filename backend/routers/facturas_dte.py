@@ -417,6 +417,35 @@ def _verificar_montos(doc: dict, odoo_datos: dict) -> list[str]:
     return desajustes
 
 
+@router.get("/_debug/comparar-sofia")
+def _debug_comparar_sofia(dte_id: int, po_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- comparar lineas del DTE (con su producto ya matcheado) vs
+    las lineas actuales de la OC, para diagnosticar un desajuste de montos."""
+    import traceback
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        dte_lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read',
+            [[['invoice_id', '=', dte_id]]], {'fields': ['item_name', 'qty', 'item_price', 'product_id']})
+        oc_lineas = cliente._call('purchase.order.line', 'search_read',
+            [[['order_id', '=', po_id]]], {'fields': ['product_id', 'product_qty', 'price_unit']})
+        oc_por_producto = {l['product_id'][0]: l for l in oc_lineas if l.get('product_id')}
+        comparacion = []
+        for l in dte_lineas:
+            pid = l['product_id'][0] if l.get('product_id') else None
+            oc_l = oc_por_producto.get(pid) if pid else None
+            comparacion.append({
+                'item_dte': l['item_name'], 'qty_dte': l['qty'], 'precio_dte': l['item_price'],
+                'en_oc': oc_l is not None,
+                'qty_oc': oc_l['product_qty'] if oc_l else None,
+                'precio_oc': oc_l['price_unit'] if oc_l else None,
+            })
+        return {'comparacion': comparacion, 'total_lineas_oc': len(oc_lineas)}
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 def _buscar_oc_sofia(cliente: OdooClient, partner_id: int, company_id: int, fecha_dte: str,
                       qty_dte_por_producto: dict[int, float]) -> tuple[int | None, str | None, str | None]:
     """Busca la Orden de Compra de Doña Sofía que ya existe en Odoo y
