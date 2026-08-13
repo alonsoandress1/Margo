@@ -46,66 +46,6 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
-@router.get("/_debug/marcado-manual")
-def _debug_marcado_manual(folio: str, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- diagnosticar por que un DTE marcado 'Ingresada
-    Manualmente' no aparece en Planilla de Compras. Borrar despues."""
-    if claims["rol"] != "administrador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
-    cliente = _odoo()
-    db = get_db()
-
-    docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
-        [[['l10n_latam_document_number', '=', folio]]],
-        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'invoice_id', 'date']})
-
-    resultado = {'dtes_encontrados': docs, 'marcas_manual': [], 'candidatas_odoo': []}
-
-    for d in docs:
-        marca = db.table("facturas_dte_ingresado_manual").select("*").eq("dte_id", d['id']).execute().data
-        resultado['marcas_manual'].extend(marca)
-
-        partners = cliente._call('res.partner', 'search_read', [[['vat', '=', d['issuer_rut']]]], {'fields': ['id', 'name']})
-        partner_ids = [p['id'] for p in partners]
-        if partner_ids:
-            facturas = cliente._call('account.move', 'search_read',
-                [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
-                {'fields': ['id', 'name', 'l10n_latam_document_number', 'invoice_origin', 'company_id',
-                            'invoice_date', 'state', 'partner_id']})
-            candidatas = [f for f in facturas if str(f.get('l10n_latam_document_number') or '').strip() == folio.strip()]
-            resultado['candidatas_odoo'].extend(candidatas)
-
-    ids_planilla = db.table("planilla_compras_factura_manual").select("*").execute().data or []
-    resultado['planilla_compras_factura_manual'] = ids_planilla
-    return resultado
-
-
-@router.get("/_debug/facturas-proveedor")
-def _debug_facturas_proveedor(rut: str, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- ver todas las facturas/OC recientes de un proveedor,
-    sin filtrar por folio exacto (para revisar formato real del folio).
-    Borrar despues."""
-    if claims["rol"] != "administrador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
-    cliente = _odoo()
-    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', rut]]], {'fields': ['id', 'name']})
-    partner_ids = [p['id'] for p in partners]
-    facturas = []
-    ocs = []
-    if partner_ids:
-        facturas = cliente._call('account.move', 'search_read',
-            [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice']]],
-            {'fields': ['id', 'name', 'l10n_latam_document_number', 'invoice_origin', 'state', 'invoice_date'],
-             'order': 'id desc', 'limit': 15})
-        ocs = cliente._call('purchase.order', 'search_read',
-            [[['partner_id', 'in', partner_ids]]],
-            {'fields': ['id', 'name', 'state', 'invoice_status', 'date_order', 'amount_total'],
-             'order': 'id desc', 'limit': 15})
-    return {'partners': partners, 'facturas_recientes': facturas, 'ocs_recientes': ocs}
-
-
-
-
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
@@ -227,7 +167,7 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
     doc = docs[0]
 
     factura_id_vinculada = None
-    folio = str(doc.get('l10n_latam_document_number') or '').strip()
+    folio = _normalizar_folio(doc.get('l10n_latam_document_number'))
     if folio and doc.get('issuer_rut'):
         partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
         partner_ids = [p['id'] for p in partners]
@@ -235,7 +175,7 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
             facturas = cliente._call('account.move', 'search_read',
                 [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
                 {'fields': ['id', 'l10n_latam_document_number', 'invoice_origin']})
-            candidatas = [f for f in facturas if str(f.get('l10n_latam_document_number') or '').strip() == folio]
+            candidatas = [f for f in facturas if _normalizar_folio(f.get('l10n_latam_document_number')) == folio]
             if len(candidatas) == 1:
                 factura = candidatas[0]
                 factura_id_vinculada = factura['id']
@@ -768,6 +708,25 @@ def _monto(valor) -> float:
         return 0.0
 
 
+def _normalizar_folio(valor) -> str:
+    """El folio del DTE viene sin rellenar (ej. "10199"), pero Odoo guarda
+    l10n_latam_document_number con ceros a la izquierda hasta 6 digitos
+    (ej. "010199", el mismo zfill(6) que usa _ejecutar_creacion al crear la
+    factura) -- comparar como texto exacto nunca calza salvo que el folio
+    tenga exactamente 6 digitos. Confirmado con un caso real (Doña Sofía,
+    folio 10199 vs "010199": el chequeo de duplicados y el vinculado de
+    "Ingresada Manualmente" nunca encontraban la factura real que sí
+    existía). Se comparan como numero -- los folios chilenos son siempre
+    numericos."""
+    texto = str(valor or '').strip()
+    if not texto:
+        return ''
+    try:
+        return str(int(texto))
+    except ValueError:
+        return texto
+
+
 def _verificar_montos(doc: dict, odoo_datos: dict) -> list[str]:
     """Compara Neto/Impuestos/Total del DTE contra los mismos montos ya
     calculados en Odoo (la OC en borrador, antes de confirmar nada) -- deben
@@ -921,12 +880,12 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     # folios completamente distintos). Por eso se trae el universo acotado
     # (proveedor + tipo factura + no cancelada) y se compara el folio en
     # Python, igual que ya se hizo en el escaneo de duplicados anterior.
-    folio = str(doc.get('l10n_latam_document_number') or '').strip()
+    folio = _normalizar_folio(doc.get('l10n_latam_document_number'))
     if folio:
         facturas_proveedor = cliente._call('account.move', 'search_read',
             [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
             {'fields': ['id', 'name', 'amount_total', 'l10n_latam_document_number']})
-        ya_facturada = [m for m in facturas_proveedor if str(m.get('l10n_latam_document_number') or '').strip() == folio]
+        ya_facturada = [m for m in facturas_proveedor if _normalizar_folio(m.get('l10n_latam_document_number')) == folio]
         if ya_facturada:
             nombres = ', '.join(m['name'] for m in ya_facturada)
             raise RuntimeError(
