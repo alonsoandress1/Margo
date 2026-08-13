@@ -89,6 +89,22 @@ def _debug_descuento(claims: dict = Depends(get_current_claims)):
             [[['invoice_id', 'in', dte_ids_recientes], ['discount', '!=', False]]],
             {'fields': ['invoice_id', 'item_name', 'qty', 'item_price', 'discount'], 'limit': 15})
 
+        # Andina / CCU -- el usuario dice que sus OC reales SI traen
+        # descuento cargado. Buscar sus OC recientes y ver el patron real
+        # (precio unitario de lista + % descuento, o algo distinto).
+        partners_andina_ccu = cliente._call('res.partner', 'search_read',
+            [['|', ['name', 'ilike', 'andina'], ['name', 'ilike', 'ccu']]],
+            {'fields': ['id', 'name', 'supplier_rank']})
+        ids_partners = [p['id'] for p in partners_andina_ccu if (p.get('supplier_rank') or 0) > 0]
+        ocs_andina_ccu = cliente._call('purchase.order', 'search_read',
+            [[['partner_id', 'in', ids_partners]]],
+            {'fields': ['id', 'name', 'partner_id', 'amount_untaxed'], 'order': 'id desc', 'limit': 5}) if ids_partners else []
+        lineas_andina_ccu = []
+        if ocs_andina_ccu:
+            lineas_andina_ccu = cliente._call('purchase.order.line', 'search_read',
+                [[['order_id', 'in', [o['id'] for o in ocs_andina_ccu]]]],
+                {'fields': ['order_id', 'product_id', 'product_qty', 'price_unit', 'discount', 'price_subtotal']})
+
         return {
             'tiene_campo_discount': tiene_discount,
             'campo_discount_info': campo_discount,
@@ -97,6 +113,9 @@ def _debug_descuento(claims: dict = Depends(get_current_claims)):
             'campos_descuento_en_dte_crudo': campos_descuento_dte,
             'total_dtes_revisados': len(dte_ids_recientes),
             'lineas_dte_con_discount_poblado': lineas_con_discount_dte,
+            'partners_andina_ccu': partners_andina_ccu,
+            'ocs_andina_ccu': ocs_andina_ccu,
+            'lineas_andina_ccu': lineas_andina_ccu,
         }
     except Exception:
         return {'error': traceback.format_exc()}
