@@ -700,14 +700,25 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
 
     # Algunos proveedores (ej. Comercializadora Global Products) aplican un
     # descuento que solo se ve en el Neto declarado en la cabecera del DTE
-    # -- el item_price de cada linea sigue siendo el precio SIN descuento,
-    # asi que sumar item_price*qty da un Neto mas alto que el real y la
-    # factura nunca calza. Se corrige escalando todas las lineas por un
-    # mismo factor para que la suma de line coincida con el Neto declarado
-    # -- si no hay descuento el factor es 1 y no cambia nada.
+    # -- el item_price de cada linea sigue siendo el precio SIN descuento
+    # (confirmado revisando 500 DTE recientes: el campo 'discount' del DTE
+    # crudo nunca viene poblado por ningun proveedor), asi que sumar
+    # item_price*qty da un Neto mas alto que el real. Se calcula un
+    # descuento porcentual UNIFORME para que la suma de las lineas coincida
+    # con el Neto declarado -- si no hay descuento, sale 0 y no cambia nada.
+    #
+    # Ojo: el precio unitario de la linea queda SIEMPRE en su valor de lista
+    # (sin descontar) -- el % de descuento va en el campo real de Odoo
+    # (purchase.order.line.discount, "Discount (%)"), igual que cuando se
+    # completa la OC a mano (confirmado con OC reales de CCU/Andina: mismo
+    # patron, price_subtotal = qty * price_unit * (1 - discount/100)).
+    # Pedido explicito del usuario -- si el precio unitario quedara ya
+    # descontado, el seguimiento de precio del producto a futuro quedaria
+    # adulterado.
     neto_dte = _monto(doc.get('amount_untaxed'))
     neto_sin_descuento = sum((l.get('qty') or 0) * float(l.get('item_price') or 0) for l in lineas)
     factor_descuento = (neto_dte / neto_sin_descuento) if neto_dte and neto_sin_descuento else 1.0
+    descuento_pct = round((1 - factor_descuento) * 100, 4) if factor_descuento != 1.0 else 0.0
 
     fecha_dte = f"{doc['date']} 12:00:00"
     order_lines = []
@@ -720,7 +731,8 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             'product_id': pid,
             'name': prod['display_name'],
             'product_qty': (l.get('qty') or 0) * factor_conversion,
-            'price_unit': round(precio_real * factor_descuento, 2),
+            'price_unit': round(precio_real, 2),
+            'discount': descuento_pct,
             'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
         }
         nombres_impuestos = nombres_por_producto.get(pid)
@@ -754,22 +766,24 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             )
 
         lineas_oc_actuales = cliente._call('purchase.order.line', 'search_read',
-            [[['order_id', '=', oc_id]]], {'fields': ['product_id', 'price_unit', 'product_qty']})
+            [[['order_id', '=', oc_id]]], {'fields': ['product_id', 'price_unit', 'product_qty', 'discount']})
         linea_id_por_producto = {l['product_id'][0]: l['id'] for l in lineas_oc_actuales if l.get('product_id')}
-        valores_originales = {l['id']: {'price_unit': l['price_unit'], 'product_qty': l['product_qty']} for l in lineas_oc_actuales}
+        valores_originales = {l['id']: {'price_unit': l['price_unit'], 'product_qty': l['product_qty'], 'discount': l['discount']}
+                               for l in lineas_oc_actuales}
 
-        # Se actualiza el PRECIO de toda linea -- pedido explícito del
-        # usuario ("los precios que mandan son los de la factura, no los de
-        # la OC"). La CANTIDAD de la OC solo se toca para los dos productos
-        # con peso variable real (PRODUCTOS_PESO_VARIABLE_SOFIA) -- para
-        # cualquier otro producto, si la cantidad no calza es un desajuste
-        # real que debe revisarse a mano, no ajustarse solo.
+        # Se actualiza el PRECIO (de lista, sin descontar) y el % de
+        # DESCUENTO de toda linea -- pedido explícito del usuario ("los
+        # precios que mandan son los de la factura, no los de la OC"). La
+        # CANTIDAD de la OC solo se toca para los dos productos con peso
+        # variable real (PRODUCTOS_PESO_VARIABLE_SOFIA) -- para cualquier
+        # otro producto, si la cantidad no calza es un desajuste real que
+        # debe revisarse a mano, no ajustarse solo.
         for _, _, linea_oc in order_lines:
             pid = linea_oc['product_id']
             linea_id = linea_id_por_producto.get(pid)
             if not linea_id:
                 continue
-            valores = {'price_unit': linea_oc['price_unit']}
+            valores = {'price_unit': linea_oc['price_unit'], 'discount': linea_oc['discount']}
             if pid in PRODUCTOS_PESO_VARIABLE_SOFIA:
                 valores['product_qty'] = linea_oc['product_qty']
             cliente._call('purchase.order.line', 'write', [[linea_id], valores])
