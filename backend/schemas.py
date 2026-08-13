@@ -495,6 +495,21 @@ class CompararOut(BaseModel):
     lineas: list[CompararLineaOut]
 
 
+class SimularImpuestoOut(BaseModel):
+    nombre: str
+    monto: float
+
+
+class SimularOut(BaseModel):
+    neto: float
+    impuestos: list[SimularImpuestoOut]
+    total: float
+    lineas_sin_producto: int  # no se pudieron incluir en el calculo -- no se sabe que impuesto usan
+    neto_dte: float
+    iva_dte: float
+    total_dte: float
+
+
 class ProveedorOcultoOut(BaseModel):
     proveedor_rut: str
     proveedor_nombre: str

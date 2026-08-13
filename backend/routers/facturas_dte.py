@@ -39,7 +39,7 @@ from odoo_connector import OdooClient  # noqa: E402
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
                        FactorConversionOut, ImpuestoOut, ProductoImpuestosIn, ProductoImpuestosOut,
-                       ProveedorOcultarIn, ProveedorOcultoOut)
+                       ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
@@ -371,6 +371,91 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
         neto_dte=_monto(doc.get('amount_untaxed')), iva_dte=_monto(doc.get('iva')), total_dte=_monto(doc.get('amount_total')),
         neto_odoo=move.get('amount_untaxed') or 0, iva_odoo=move.get('amount_tax') or 0, total_odoo=move.get('amount_total') or 0,
         lineas=lineas_out,
+    )
+
+
+@router.get("/{dte_id}/simular", response_model=SimularOut)
+def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
+    """Calcula Neto, cada impuesto por separado y Total con lo que esta
+    confirmado HOY para esta factura (producto asignado, descuento por
+    linea, impuestos por producto guardados o el default del producto en
+    Odoo) -- sin escribir nada en Odoo. Aproxima el motor de impuestos de
+    Odoo (suma simple por %, sin impuestos compuestos -- el caso real de
+    este negocio). Las lineas sin producto asignado no se pueden incluir
+    (no se sabe que impuesto usan) y se cuentan aparte en
+    lineas_sin_producto."""
+    _require_admin(claims)
+    cliente = _odoo()
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'company_id', 'amount_untaxed', 'iva', 'amount_total']})
+    if not docs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
+    doc = docs[0]
+    company_id = doc['company_id'][0]
+
+    lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
+        {'fields': ['id', 'qty', 'item_price', 'product_id']})
+
+    db = get_db()
+    linea_ids = [l['id'] for l in lineas]
+    descuentos = db.table("facturas_dte_linea_descuento").select("dte_linea_id,descuento_pct") \
+        .in_("dte_linea_id", linea_ids).execute().data or [] if linea_ids else []
+    descuento_por_linea = {d["dte_linea_id"]: d["descuento_pct"] for d in descuentos}
+
+    # Impuestos por producto -- mismo fallback de dos niveles que
+    # listar_impuestos_producto (override guardado, si no el default que el
+    # producto ya tiene en Odoo), resuelto aca de una vez para todos los
+    # productos de la factura en vez de uno por uno.
+    product_ids = list({l['product_id'][0] for l in lineas if l.get('product_id')})
+    nombres_por_producto: dict[int, list[str]] = {}
+    if product_ids:
+        filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
+            .in_("odoo_product_id", product_ids).execute().data or []
+        for f in filas_impuestos:
+            nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
+
+        sin_override = [pid for pid in product_ids if pid not in nombres_por_producto]
+        if sin_override:
+            productos = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
+            tax_ids_defecto = list({t for p in productos for t in (p.get('supplier_taxes_id') or [])})
+            nombre_por_tax_id: dict[int, str] = {}
+            if tax_ids_defecto:
+                taxes = cliente._call('account.tax', 'read', [tax_ids_defecto], {'fields': ['name']})
+                nombre_por_tax_id = {t['id']: t['name'] for t in taxes}
+            for p in productos:
+                nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in (p.get('supplier_taxes_id') or [])
+                                                  if t in nombre_por_tax_id]
+
+    nombres_unicos = list({n for ns in nombres_por_producto.values() for n in ns})
+    tasa_por_nombre: dict[str, float] = {}
+    if nombres_unicos:
+        taxes = cliente._call('account.tax', 'search_read',
+            [[['name', 'in', nombres_unicos], ['company_id', '=', company_id], ['type_tax_use', '=', 'purchase']]],
+            {'fields': ['name', 'amount']})
+        tasa_por_nombre = {t['name']: t['amount'] for t in taxes}
+
+    neto = 0.0
+    impuestos_acumulados: dict[str, float] = {}
+    lineas_sin_producto = 0
+    for l in lineas:
+        if not l.get('product_id'):
+            lineas_sin_producto += 1
+            continue
+        pid = l['product_id'][0]
+        descuento = descuento_por_linea.get(l['id'], 0)
+        subtotal = (l.get('qty') or 0) * float(l.get('item_price') or 0) * (1 - descuento / 100)
+        neto += subtotal
+        for nombre in nombres_por_producto.get(pid, []):
+            tasa = tasa_por_nombre.get(nombre, 0)
+            impuestos_acumulados[nombre] = impuestos_acumulados.get(nombre, 0) + subtotal * tasa / 100
+
+    total = neto + sum(impuestos_acumulados.values())
+    return SimularOut(
+        neto=round(neto, 2),
+        impuestos=[SimularImpuestoOut(nombre=n, monto=round(m, 2)) for n, m in impuestos_acumulados.items()],
+        total=round(total, 2),
+        lineas_sin_producto=lineas_sin_producto,
+        neto_dte=_monto(doc.get('amount_untaxed')), iva_dte=_monto(doc.get('iva')), total_dte=_monto(doc.get('amount_total')),
     )
 
 

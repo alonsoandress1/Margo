@@ -2146,6 +2146,7 @@ async function showDteModal(dteId) {
             </td></tr>` : ''}`).join('')}
         </tbody>
       </table>
+      <div id="dte-resumen" style="margin-top:1rem"><p class="placeholder">Calculando…</p></div>
       <p id="dte-modal-error" class="error-msg"></p>
       <div style="margin-top:1.25rem;display:flex;gap:.5rem">
         <button type="button" class="btn" id="dte-modal-cerrar">Cerrar</button>
@@ -2153,6 +2154,38 @@ async function showDteModal(dteId) {
       </div>`;
 
     overlay.querySelector('#dte-modal-cerrar').onclick = () => overlay.remove();
+
+    async function cargarResumen() {
+      const resumenEl = overlay.querySelector('#dte-resumen');
+      try {
+        const r = await api(`/facturas-dte/${dteId}/simular`);
+        const sumaImpuestos = r.impuestos.reduce((acc, i) => acc + i.monto, 0);
+        const diff = (a, b) => Math.abs(a - b) > 9;
+        resumenEl.innerHTML = `
+          <table>
+            <thead><tr><th></th><th>Neto</th><th>IVA / Impuestos</th><th>Total</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Calculado (con lo confirmado hoy)</td>
+                <td>${_fmtMonto(r.neto)}</td>
+                <td>${_fmtMonto(sumaImpuestos)}</td>
+                <td>${_fmtMonto(r.total)}</td>
+              </tr>
+              <tr>
+                <td>Declarado en el DTE</td>
+                <td class="${diff(r.neto, r.neto_dte) ? 'error-msg' : ''}">${_fmtMonto(r.neto_dte)}</td>
+                <td>${_fmtMonto(r.iva_dte)}</td>
+                <td class="${diff(r.total, r.total_dte) ? 'error-msg' : ''}">${_fmtMonto(r.total_dte)}</td>
+              </tr>
+            </tbody>
+          </table>
+          ${r.impuestos.length ? `<p class="placeholder" style="margin-top:.4rem">${r.impuestos.map(i => `${i.nombre}: ${_fmtMonto(i.monto)}`).join(' · ')}</p>` : ''}
+          ${r.lineas_sin_producto ? `<p class="placeholder" style="margin-top:.4rem">${r.lineas_sin_producto} línea(s) sin producto asignado no se incluyen en este cálculo.</p>` : ''}`;
+      } catch (err) {
+        resumenEl.innerHTML = `<p class="error-msg">${err.message}</p>`;
+      }
+    }
+    cargarResumen();
 
     overlay.querySelectorAll('.dte-descuento-inline').forEach(input => {
       const lineaId = input.dataset.lineaDescuentoInline;
@@ -2182,6 +2215,7 @@ async function showDteModal(dteId) {
           estadoEl.textContent = '✓ guardado';
           estadoEl.className = 'placeholder';
           setTimeout(() => { if (estadoEl.textContent === '✓ guardado') estadoEl.textContent = ''; }, 1500);
+          cargarResumen();
         } catch (err) {
           estadoEl.textContent = err.message;
           estadoEl.className = 'error-msg';
@@ -2316,6 +2350,7 @@ async function showDteModal(dteId) {
             body: JSON.stringify({ odoo_product_name: linea.product_name, impuesto_nombres: seleccionados }),
           });
           fila.style.display = 'none';
+          cargarResumen();
         } catch (err) {
           errorEl.textContent = err.message;
         }
