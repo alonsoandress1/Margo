@@ -2097,18 +2097,18 @@ async function showDteModal(dteId) {
       <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
       <table>
-        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Precio unit.</th><th>Desc. %</th><th>Precio c/desc.</th><th>Producto en Odoo</th><th></th></tr></thead>
+        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
           ${dte.lineas.map(l => `
             <tr data-linea="${l.id}">
               <td>${l.item_name}</td>
               <td>${l.qty}</td>
-              <td>${_fmtMonto(l.item_price)}</td>
+              <td>${_fmtMonto(l.qty * l.item_price)}</td>
               <td>${l.product_id ? `
                 <input type="number" class="field dte-descuento-inline" data-linea-descuento-inline="${l.id}" min="0" max="100" step="any" style="width:70px" value="${l.descuento_pct || 0}">
                 <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem"></span>`
                 : '<span class="placeholder">—</span>'}</td>
-              <td data-precio-desc="${l.id}">${_fmtMonto(l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
+              <td data-precio-desc="${l.id}">${_fmtMonto(l.qty * l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
               <td>${l.product_id
                 ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
                 : '<span class="placeholder">Sin producto</span>'}</td>
@@ -2163,7 +2163,7 @@ async function showDteModal(dteId) {
       input.addEventListener('input', () => {
         const valor = parseFloat(input.value);
         const pct = isNaN(valor) ? 0 : valor;
-        precioCell.textContent = _fmtMonto(linea.item_price * (1 - pct / 100));
+        precioCell.textContent = _fmtMonto(linea.qty * linea.item_price * (1 - pct / 100));
       });
 
       input.addEventListener('change', async () => {
