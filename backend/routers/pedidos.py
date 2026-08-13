@@ -4,12 +4,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from ..bodega_service import stock_bodega_por_insumo
 from ..catalogo import productos_mas_baratos
 from ..db import get_db
-from ..deps import get_current_claims, locales_permitidos, verificar_acceso_local
+from ..deps import get_current_claims, get_odoo_credentials, locales_permitidos, verificar_acceso_local
 from ..email_sender import enviar_aviso_pedido, enviar_oc_pdf
 from ..schemas import (AccionCompra, FavoritoIn, GenerarOCOut, PedidoEstadoIn,
                        PedidoIn, PedidoOut, SugerenciaItem)
@@ -201,13 +201,16 @@ def eliminar_pedido(pedido_id: str, claims: dict = Depends(get_current_claims)):
 
 
 @router.post("/{pedido_id}/generar-oc", response_model=GenerarOCOut)
-def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims)):
+def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
+                x_odoo_user: str | None = Header(default=None),
+                x_odoo_password: str | None = Header(default=None)):
     """Genera la accion de compra de un pedido ya aprobado, insumo por
     insumo se elige el proveedor mas barato entre los registrados:
     - Si ese proveedor tiene integracion a Odoo (usa_odoo=true, hoy solo
-      Doña Sofía), se crea la Orden de Compra real usando la cuenta de
-      servicio de Odoo (misma que usa Ingreso de Facturas -- ver
-      ODOO_FACTURAS_USER/ODOO_FACTURAS_PASSWORD en Render).
+      Doña Sofía), se crea la Orden de Compra real con las credenciales de
+      Odoo de la persona conectada (nunca una cuenta compartida) -- por eso
+      NO se usa Depends(get_odoo_credentials) aca: solo hace falta pedirlas
+      si algun proveedor del pedido realmente usa Odoo, no siempre.
     - Si no, se envia un correo con el nombre del proveedor y las
       cantidades solicitadas, al destinatario configurado en Configuración."""
     if claims["rol"] == "observador":
@@ -261,12 +264,16 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims)):
 
         if proveedor and proveedor.get("usa_odoo"):
             if odoo_session is None:
+                if not x_odoo_user or not x_odoo_password:
+                    raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Faltan tus credenciales de Odoo")
                 try:
                     odoo_session = OdooWebSession(os.environ["ODOO_URL"])
-                    ok, msg = odoo_session.connect(os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+                    ok, msg = odoo_session.connect(x_odoo_user, x_odoo_password)
                 except KeyError as e:
                     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
                 if not ok:
+                    if "login rechazado" in msg.lower():
+                        raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
                     raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
 
             bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))

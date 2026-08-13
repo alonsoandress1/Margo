@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..db import get_db
-from ..deps import get_current_claims
+from ..deps import get_current_claims, get_odoo_credentials
 from ..excel_exporter_compras import exportar_mes
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -52,20 +52,25 @@ def _require_admin(claims: dict):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador puede ver la Planilla de Compras")
 
 
-def _odoo() -> OdooClient:
+def _odoo(odoo_creds: tuple[str, str]) -> OdooClient:
+    """Conecta con las credenciales de Odoo de la persona que esta usando el
+    sistema en este momento -- nunca una cuenta compartida (ver
+    get_odoo_credentials en deps.py)."""
+    usuario, password = odoo_creds
     try:
-        cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"],
-                              os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+        cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"], usuario, password)
     except KeyError as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
     ok, msg = cliente.connect()
     if not ok:
+        if "credenciales incorrectas" in msg.lower():
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
     return cliente
 
 
-def _obtener_items_y_resumen(anio: int, mes: int) -> PlanillaComprasOut:
-    cliente = _odoo()
+def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str]) -> PlanillaComprasOut:
+    cliente = _odoo(odoo_creds)
     ultimo_dia = monthrange(anio, mes)[1]
     desde = f"{anio:04d}-{mes:02d}-01"
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
@@ -127,16 +132,18 @@ def _obtener_items_y_resumen(anio: int, mes: int) -> PlanillaComprasOut:
 
 
 @router.get("", response_model=PlanillaComprasOut)
-def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims),
+           odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Todas las facturas de proveedor del mes en Odoo (Doña Delfina), con
     el Tipo de cada una resuelto por su proveedor -- null si ese proveedor
     todavia no tiene Tipo asignado (hay que clasificarlo en /proveedores)."""
     _require_admin(claims)
-    return _obtener_items_y_resumen(anio, mes)
+    return _obtener_items_y_resumen(anio, mes, odoo_creds)
 
 
 @router.get("/exportar")
-def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims),
+             odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Genera el Excel real "PLANILLA DE COMPRAS OFICIAL", ya lleno con las
     facturas del mes -- misma plantilla original, con sus formulas intactas.
     Escribe Tipo/Proveedor/N Factura/IVA/Total tal cual vienen de Odoo (sin
@@ -146,7 +153,7 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     if not (1 <= mes <= 12):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mes inválido")
-    datos = _obtener_items_y_resumen(anio, mes)
+    datos = _obtener_items_y_resumen(anio, mes, odoo_creds)
     contenido = exportar_mes(anio, mes, [it.model_dump() for it in datos.items], datos.resumen.model_dump())
     nombre_mes = _MESES_ES[mes - 1].capitalize()
     return Response(
@@ -157,7 +164,8 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
 
 
 @router.get("/faltantes", response_model=list[PlanillaFaltanteOut])
-def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_claims),
+                      odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Compara las facturas de Facturas SII que YA tienen una factura real
     creada en Odoo (invoice_id) contra lo que Planilla de Compras muestra
     este mes -- solo para detectar facturas reales que quedan omitidas
@@ -168,12 +176,12 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     es puramente informativo, cada una se agrega a mano con POST
     /faltantes/{factura_id}/agregar."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     ultimo_dia = monthrange(anio, mes)[1]
     desde = f"{anio:04d}-{mes:02d}-01"
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
 
-    ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes).items}
+    ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes, odoo_creds).items}
 
     # Acotado por la fecha del DTE (con margen de 15 dias a cada lado, por si
     # difiere un poco de la invoice_date real que usa Planilla) -- sin esto,

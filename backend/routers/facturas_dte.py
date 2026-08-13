@@ -29,7 +29,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 
 from ..db import get_db
-from ..deps import get_current_claims
+from ..deps import get_current_claims, get_odoo_credentials
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -44,44 +44,6 @@ from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoL
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
-
-
-@router.get("/_debug/diag-marcado/{dte_id}")
-def _debug_diag_marcado(dte_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- diagnosticar por que un DTE marcado 'Ingresada
-    Manualmente' sigue sin vincularse. Borrar despues."""
-    if claims["rol"] != "administrador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
-    cliente = _odoo()
-    db = get_db()
-
-    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
-        {'fields': ['id', 'issuer_rut', 'l10n_latam_document_number', 'invoice_id']})
-    if not docs:
-        return {'error': 'DTE no encontrado'}
-    doc = docs[0]
-    folio_normalizado = _normalizar_folio(doc.get('l10n_latam_document_number'))
-
-    marca = db.table("facturas_dte_ingresado_manual").select("*").eq("dte_id", dte_id).execute().data
-
-    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id', 'name']})
-    partner_ids = [p['id'] for p in partners]
-    facturas = []
-    if partner_ids:
-        facturas = cliente._call('account.move', 'search_read',
-            [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
-            {'fields': ['id', 'name', 'l10n_latam_document_number', 'invoice_origin', 'state']})
-    for f in facturas:
-        f['folio_normalizado'] = _normalizar_folio(f.get('l10n_latam_document_number'))
-    candidatas = [f for f in facturas if f['folio_normalizado'] == folio_normalizado]
-
-    return {
-        'doc': doc, 'folio_normalizado': folio_normalizado, 'marca_actual': marca,
-        'partners': partners, 'total_facturas_proveedor': len(facturas),
-        'candidatas': candidatas,
-    }
-
-
 
 
 
@@ -114,16 +76,23 @@ def _require_admin(claims: dict):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador puede gestionar el ingreso de facturas")
 
 
-def _odoo() -> OdooClient:
-    """Cuenta de servicio dedicada -- guardada en Render, nunca en el chat
-    ni en el navegador. Ver _configurar_cuenta_servicio_facturas.py."""
+def _odoo(odoo_creds: tuple[str, str]) -> OdooClient:
+    """Conecta con las credenciales de Odoo de la persona que esta usando el
+    sistema en este momento -- nunca una cuenta compartida (pedido explicito
+    del usuario). El navegador las manda en cada request (headers
+    X-Odoo-User/X-Odoo-Password, ver get_odoo_credentials en deps.py);
+    nunca se guardan en la base de datos."""
+    usuario, password = odoo_creds
     try:
-        cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"],
-                              os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+        cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"], usuario, password)
     except KeyError as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
     ok, msg = cliente.connect()
     if not ok:
+        # Credenciales de Odoo invalidas -> 428 (el frontend vuelve a pedirlas),
+        # no 502 (que es para un problema real de conectividad/servidor).
+        if "credenciales incorrectas" in msg.lower():
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
     return cliente
 
@@ -146,7 +115,8 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
 
 
 @router.get("", response_model=list[DteOut])
-def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
+def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims),
+                       odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
     una factura borrador creada en Odoo (invoice_id vacio). Solo Factura
     Electrónica (tipo SII 33) -- otros tipos (Notas de Crédito, Guías de
@@ -161,7 +131,7 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     db = get_db()
     ocultos = {f["proveedor_rut"] for f in (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
     marcados_manual = {f["dte_id"] for f in (db.table("facturas_dte_ingresado_manual").select("dte_id").execute().data or [])}
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
         [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
         {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'amount_total',
@@ -178,7 +148,8 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
 
 
 @router.post("/{dte_id}/marcar-manual", status_code=status.HTTP_204_NO_CONTENT)
-def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_claims)):
+def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_claims),
+                             odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Marca este DTE como ya ingresado a mano en Odoo (por fuera de esta
     pantalla) -- deja de aparecer como pendiente. Ademas busca la factura
     real en Odoo (mismo proveedor + mismo folio, igual criterio que el
@@ -195,7 +166,7 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
     candidatas), se marca igual como resuelta pero sin vincular ni agregar
     a la planilla -- revisar a mano despues."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     db = get_db()
 
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
@@ -276,12 +247,13 @@ def mostrar_proveedor(proveedor_rut: str, claims: dict = Depends(get_current_cla
 
 
 @router.get("/productos/buscar", response_model=list[DteProductoOut])
-def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
+def buscar_producto(q: str, claims: dict = Depends(get_current_claims),
+                     odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Busca productos YA EXISTENTES en Odoo por nombre o codigo interno --
     solo lectura, nunca crea nada. Para cuando una linea no tiene sugerencia
     y hay que buscar el producto correcto a mano."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     productos = cliente._call('product.product', 'search_read',
         [['|', ['name', 'ilike', q], ['default_code', 'ilike', q]]],
         {'fields': ['id', 'name', 'default_code', 'uom_id'], 'limit': 30})
@@ -293,14 +265,15 @@ def buscar_producto(q: str, claims: dict = Depends(get_current_claims)):
 
 
 @router.get("/impuestos/buscar", response_model=list[ImpuestoOut])
-def buscar_impuesto(q: str = '', claims: dict = Depends(get_current_claims)):
+def buscar_impuesto(q: str = '', claims: dict = Depends(get_current_claims),
+                     odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Busca impuestos de compra YA EXISTENTES en Odoo por nombre (ej. "IVA
     19% Compra", "Impuesto a la Carne 5%") -- solo lectura. Se buscan en la
-    empresa por defecto de la cuenta de servicio; al crear la factura se
+    empresa por defecto del usuario conectado; al crear la factura se
     resuelve el impuesto real de CADA empresa por el mismo nombre (los
     impuestos son por empresa en Odoo, ver _ejecutar_creacion)."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     dominio = [['type_tax_use', '=', 'purchase'], ['active', '=', True]]
     if q:
         dominio.append(['name', 'ilike', q])
@@ -401,13 +374,14 @@ def quitar_linea_manual(linea_id: int, claims: dict = Depends(get_current_claims
 
 
 @router.get("/{dte_id}/comparar", response_model=CompararOut)
-def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
+def comparar(dte_id: int, claims: dict = Depends(get_current_claims),
+             odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Compara linea por linea lo que declaro el DTE del proveedor contra lo
     que realmente quedo creado en la factura de Odoo -- lee la factura REAL
     (no una simulacion), asi que solo funciona para DTE que ya tienen
     factura creada."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
         {'fields': ['id', 'invoice_id', 'amount_untaxed', 'amount_total']})
     if not docs:
@@ -474,7 +448,8 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
 
 
 @router.get("/{dte_id}/simular", response_model=SimularOut)
-def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
+def simular(dte_id: int, claims: dict = Depends(get_current_claims),
+            odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Calcula Neto, cada impuesto por separado y Total con lo que esta
     confirmado HOY para esta factura (producto asignado, descuento por
     linea, impuestos por producto guardados o el default del producto en
@@ -484,7 +459,7 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
     (no se sabe que impuesto usan) y se cuentan aparte en
     lineas_sin_producto."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
         {'fields': ['id', 'company_id', 'amount_untaxed', 'amount_total']})
     if not docs:
@@ -555,7 +530,8 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
 
 
 @router.get("/{dte_id}", response_model=DteDetalleOut)
-def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
+def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
+            odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Detalle de un DTE con sus lineas. Cuando el codigo de una linea ya
     tiene un mapeo aprendido (facturas_producto_mapa), se AUTOCONFIRMA
     solo -- se escribe el product_id directo en Odoo, sin pedir el clic
@@ -565,7 +541,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
     linea vuelve a quedar como sugerencia pendiente del clic manual
     (fallback, mismo comportamiento de antes)."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
         {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'invoice_id']})
     if not docs:
@@ -683,13 +659,14 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
 
 
 @router.post("/lineas/match", status_code=status.HTTP_204_NO_CONTENT)
-def confirmar_match(body: DteMatchLineaIn, claims: dict = Depends(get_current_claims)):
+def confirmar_match(body: DteMatchLineaIn, claims: dict = Depends(get_current_claims),
+                     odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Un admin confirma que una linea del DTE corresponde a un producto ya
     existente en Odoo: escribe el product_id en la linea (unico cambio que
     se hace en Odoo aca) y guarda el mapeo para que la proxima factura del
     mismo proveedor con el mismo codigo se sugiera sola."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
     cliente._call('l10n_cl.supplier.xml.line', 'write', [[body.line_id], {'product_id': body.odoo_product_id}])
 
     if body.codigo_tipo and body.codigo_valor:
@@ -1210,13 +1187,16 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     return move_id, move['name']
 
 
-def _procesar_item_cola(cola_id: str, dte_id: int):
+def _procesar_item_cola(cola_id: str, dte_id: int, odoo_creds: tuple[str, str]):
     """Corre en un hilo aparte (FastAPI BackgroundTasks) -- no bloquea al
-    resto del servidor mientras Odoo procesa la OC/recepcion/factura."""
+    resto del servidor mientras Odoo procesa la OC/recepcion/factura.
+    odoo_creds viaja como argumento de funcion (nunca a disco/Supabase) --
+    se captura en crear_factura, que si tiene la request activa para leer
+    los headers, antes de encolar."""
     db = get_db()
     db.table("facturas_dte_cola").update({"estado": "procesando"}).eq("id", cola_id).execute()
     try:
-        cliente = _odoo_sin_http()
+        cliente = _odoo_sin_http(odoo_creds)
         docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
             {'fields': ['id', 'issuer_rut', 'date', 'invoice_id', 'company_id', 'l10n_latam_document_number',
                         'amount_untaxed', 'amount_total']})
@@ -1239,11 +1219,11 @@ def _procesar_item_cola(cola_id: str, dte_id: int):
         db.table("facturas_dte_cola").update({"estado": "error", "error_mensaje": str(e)[:500]}).eq("id", cola_id).execute()
 
 
-def _odoo_sin_http() -> OdooClient:
+def _odoo_sin_http(odoo_creds: tuple[str, str]) -> OdooClient:
     """Igual que _odoo() pero sin HTTPException -- para usar desde el hilo
     en segundo plano, donde no hay una request activa a la que responder."""
-    cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"],
-                          os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+    usuario, password = odoo_creds
+    cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"], usuario, password)
     ok, msg = cliente.connect()
     if not ok:
         raise RuntimeError(f"No se pudo conectar a Odoo: {msg}")
@@ -1251,14 +1231,15 @@ def _odoo_sin_http() -> OdooClient:
 
 
 @router.post("/{dte_id}/crear-factura", response_model=ColaFacturaOut, status_code=status.HTTP_202_ACCEPTED)
-def crear_factura(dte_id: int, background_tasks: BackgroundTasks, claims: dict = Depends(get_current_claims)):
+def crear_factura(dte_id: int, background_tasks: BackgroundTasks, claims: dict = Depends(get_current_claims),
+                   odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Valida rapido (lecturas nomas) y encola la creacion real -- crear la
     factura implica 6 llamadas seguidas a Odoo (OC, confirmar, recibir,
     facturar, fijar fecha, fijar folio) y puede demorar varios segundos.
     Encolar en vez de bloquear permite seguir revisando/confirmando otros
     DTE mientras este se procesa en segundo plano (ver _procesar_item_cola)."""
     _require_admin(claims)
-    cliente = _odoo()
+    cliente = _odoo(odoo_creds)
 
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
         {'fields': ['id', 'issuer_name', 'invoice_id', 'l10n_latam_document_type_id_code', 'l10n_latam_document_number']})
@@ -1293,7 +1274,7 @@ def crear_factura(dte_id: int, background_tasks: BackgroundTasks, claims: dict =
             raise HTTPException(status.HTTP_409_CONFLICT, "Esta factura ya está en la cola -- espera a que termine") from e
         raise
 
-    background_tasks.add_task(_procesar_item_cola, fila["id"], dte_id)
+    background_tasks.add_task(_procesar_item_cola, fila["id"], dte_id, odoo_creds)
     return ColaFacturaOut(**fila)
 
 

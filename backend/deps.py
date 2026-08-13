@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .db import get_db
@@ -45,3 +45,19 @@ def verificar_acceso_local(claims: dict, local_id: str):
     permitidos = locales_permitidos(claims)
     if permitidos is not None and local_id not in permitidos:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes acceso a ese local")
+
+
+def get_odoo_credentials(
+    x_odoo_user: str | None = Header(default=None),
+    x_odoo_password: str | None = Header(default=None),
+) -> tuple[str, str]:
+    """Credenciales de Odoo de la persona que esta usando el sistema --
+    nunca una cuenta de servicio compartida (pedido explicito del usuario:
+    "ninguna cuenta lo es"). El navegador las manda en estos headers una vez
+    que el admin las escribio (una vez por sesion de pestaña, nunca se
+    guardan en la base de datos -- ver frontend/app.js). 428 (no 401) para
+    que el frontend pueda distinguir "falta iniciar sesion en Odoo" de
+    "la sesion de la app expiro" sin tocar el manejo de 401 ya existente."""
+    if not x_odoo_user or not x_odoo_password:
+        raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Faltan tus credenciales de Odoo")
+    return x_odoo_user, x_odoo_password

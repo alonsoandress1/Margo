@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 
 from ..db import get_db
-from ..deps import get_current_claims, verificar_acceso_local
+from ..deps import get_current_claims, get_odoo_credentials, verificar_acceso_local
 from ..schemas import (FacturaAceptarIn, FacturaLineaPreview, FacturaPreview,
                        FacturaTrackingOut)
 
@@ -25,11 +25,12 @@ def _require_admin(claims: dict):
 
 
 @router.post("/buscar", response_model=list[FacturaPreview])
-def buscar(claims: dict = Depends(get_current_claims)):
+def buscar(claims: dict = Depends(get_current_claims),
+           odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Trae facturas nuevas (no procesadas todavia) de Odoo para los
     proveedores con integracion Odoo -- solo lectura, no escribe nada.
-    Usa la cuenta de servicio de Odoo configurada en el servidor (misma
-    que Ingreso de Facturas)."""
+    Usa las credenciales de Odoo de la persona conectada (nunca una cuenta
+    compartida -- ver get_odoo_credentials en deps.py)."""
     _require_admin(claims)
     db = get_db()
 
@@ -39,12 +40,15 @@ def buscar(claims: dict = Depends(get_current_claims)):
 
     ya_procesadas = [r["odoo_invoice_id"] for r in db.table("factura_tracking").select("odoo_invoice_id").execute().data or []]
 
+    usuario, password = odoo_creds
     try:
         session = OdooWebSession(os.environ["ODOO_URL"])
-        ok, msg = session.connect(os.environ["ODOO_FACTURAS_USER"], os.environ["ODOO_FACTURAS_PASSWORD"])
+        ok, msg = session.connect(usuario, password)
     except KeyError as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
     if not ok:
+        if "login rechazado" in msg.lower():
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
 
     proveedor_ids = [p["id"] for p in proveedores_odoo]

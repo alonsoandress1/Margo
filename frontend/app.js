@@ -22,6 +22,11 @@ const SECCIONES = [
 let state = {
   token: localStorage.getItem('token') || null,
   usuario: JSON.parse(localStorage.getItem('usuario') || 'null'),
+  // Credenciales de Odoo de la persona conectada -- SOLO en memoria, nunca en
+  // localStorage ni en el backend. Se piden una vez por sesion de pestaña
+  // (ver asegurarCredencialesOdoo) y se pierden al cerrar o recargar.
+  odooUsuario: null,
+  odooPassword: null,
   section: 'resumen',
   locales: [],
   facturasPendientes: null,
@@ -102,15 +107,83 @@ function diasDeLaSemana(fechaISO) {
   });
 }
 
+// Credenciales de Odoo personales -- se piden una vez por sesion de pestaña
+// (nunca se guardan en localStorage ni en el backend, ver definicion de
+// state.odooUsuario/odooPassword mas arriba). Las 4 funciones api* de abajo
+// comparten el mismo patron: si el backend responde 428 (faltan credenciales
+// de Odoo, ver get_odoo_credentials en backend/deps.py), se pide el modal y
+// se reintenta la misma llamada UNA sola vez. 401 sigue significando
+// "sesion de la app expirada" y no se toca esa logica.
+
+let _odooCredsPromise = null;
+
+function _odooHeaders() {
+  return state.odooUsuario
+    ? { 'X-Odoo-User': state.odooUsuario, 'X-Odoo-Password': state.odooPassword }
+    : {};
+}
+
+function pedirCredencialesOdoo(mensaje) {
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-box" style="width:380px">
+        <h3>Credenciales de Odoo</h3>
+        <p class="placeholder" style="margin-bottom:1rem">${mensaje || 'Ingresa tu usuario y contraseña de Odoo para continuar.'}</p>
+        <form id="odoo-creds-form">
+          <label class="field-label">Usuario Odoo</label>
+          <input type="text" id="odoo-creds-user" class="field" required autocomplete="username" style="width:100%;margin-bottom:0.75rem">
+          <label class="field-label">Contraseña Odoo</label>
+          <input type="password" id="odoo-creds-pass" class="field" required autocomplete="current-password" style="width:100%;margin-bottom:1rem">
+          <button type="submit" class="btn btn-primary">Entrar</button>
+          <button type="button" class="btn" id="odoo-creds-cancel">Cancelar</button>
+        </form>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#odoo-creds-cancel').onclick = () => {
+      overlay.remove();
+      reject(new Error('Ingreso a Odoo cancelado'));
+    };
+    overlay.querySelector('#odoo-creds-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const usuario = overlay.querySelector('#odoo-creds-user').value.trim();
+      const password = overlay.querySelector('#odoo-creds-pass').value;
+      if (!usuario || !password) return;
+      state.odooUsuario = usuario;
+      state.odooPassword = password;
+      overlay.remove();
+      resolve();
+    });
+    overlay.querySelector('#odoo-creds-user').focus();
+  });
+}
+
+function asegurarCredencialesOdoo(mensaje) {
+  if (state.odooUsuario && state.odooPassword) return Promise.resolve();
+  if (!_odooCredsPromise) {
+    _odooCredsPromise = pedirCredencialesOdoo(mensaje).finally(() => { _odooCredsPromise = null; });
+  }
+  return _odooCredsPromise;
+}
+
 async function api(path, options = {}) {
-  const res = await fetch(path, {
+  const doFetch = () => fetch(path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+      ..._odooHeaders(),
       ...(options.headers || {}),
     },
   });
+  let res = await doFetch();
+  if (res.status === 428) {
+    const body = await res.json().catch(() => ({}));
+    await asegurarCredencialesOdoo(body.detail);
+    res = await doFetch();
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+  }
   if (res.status === 401) {
     logout();
     throw new Error('Sesión expirada');
@@ -126,11 +199,18 @@ async function api(path, options = {}) {
 }
 
 async function apiUpload(path, formData) {
-  const res = await fetch(path, {
+  const doFetch = () => fetch(path, {
     method: 'POST',
-    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ..._odooHeaders() },
     body: formData,
   });
+  let res = await doFetch();
+  if (res.status === 428) {
+    const body = await res.json().catch(() => ({}));
+    await asegurarCredencialesOdoo(body.detail);
+    res = await doFetch();
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+  }
   if (res.status === 401) {
     logout();
     throw new Error('Sesión expirada');
@@ -146,9 +226,16 @@ async function apiUpload(path, formData) {
 }
 
 async function apiDownload(path, filename) {
-  const res = await fetch(path, {
-    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+  const doFetch = () => fetch(path, {
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ..._odooHeaders() },
   });
+  let res = await doFetch();
+  if (res.status === 428) {
+    const body = await res.json().catch(() => ({}));
+    await asegurarCredencialesOdoo(body.detail);
+    res = await doFetch();
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+  }
   if (res.status === 401) {
     logout();
     throw new Error('Sesión expirada');
@@ -167,9 +254,16 @@ async function apiDownload(path, filename) {
 }
 
 async function apiViewBlob(path) {
-  const res = await fetch(path, {
-    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+  const doFetch = () => fetch(path, {
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ..._odooHeaders() },
   });
+  let res = await doFetch();
+  if (res.status === 428) {
+    const body = await res.json().catch(() => ({}));
+    await asegurarCredencialesOdoo(body.detail);
+    res = await doFetch();
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+  }
   if (res.status === 401) {
     logout();
     throw new Error('Sesión expirada');
@@ -205,6 +299,8 @@ function logout() {
   localStorage.removeItem('usuario');
   state.token = null;
   state.usuario = null;
+  state.odooUsuario = null;
+  state.odooPassword = null;
   showLogin();
 }
 
