@@ -2103,7 +2103,7 @@ function iniciarPollingCola() {
 async function showDteModal(dteId) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.innerHTML = '<div class="modal-box" style="width:920px"><p class="placeholder">Cargando…</p></div>';
+  overlay.innerHTML = '<div class="modal-box" style="width:1300px;max-width:96vw"><p class="placeholder">Cargando…</p></div>';
   document.body.appendChild(overlay);
 
   async function recargar() {
@@ -2118,6 +2118,7 @@ async function showDteModal(dteId) {
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
+      <div style="overflow-x:auto">
       <table>
         <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Impuestos</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
@@ -2131,8 +2132,8 @@ async function showDteModal(dteId) {
                 <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem">${l.descuento_sugerido ? 'según la última vez -- confirma' : ''}</span>`
                 : '<span class="placeholder">—</span>'}</td>
               <td data-precio-desc="${l.id}">${_fmtMonto(l.qty * l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
-              <td style="max-width:240px">${l.product_id ? `
-                <div data-impuestos-chips="${l.id}" data-seleccionados="${encodeURIComponent(JSON.stringify(l.impuesto_nombres || []))}" style="display:flex;flex-wrap:nowrap;gap:.2rem;overflow-x:auto;padding-bottom:.2rem">
+              <td>${l.product_id ? `
+                <div data-impuestos-chips="${l.id}" data-seleccionados="${encodeURIComponent(JSON.stringify(l.impuesto_nombres || []))}" style="display:flex;flex-wrap:nowrap;gap:.2rem">
                   ${IMPUESTOS_RAPIDOS.map(({ nombre, corto }) => {
                     const activo = (l.impuesto_nombres || []).includes(nombre);
                     return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap;flex-shrink:0" title="${nombre}" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${corto}</button>`;
@@ -2181,6 +2182,7 @@ async function showDteModal(dteId) {
             </td></tr>` : ''}`).join('')}
         </tbody>
       </table>
+      </div>
       <div style="margin-top:.75rem">
         <button type="button" class="btn" id="dte-manual-toggle">+ Agregar línea manual</button>
         <div id="dte-manual-form" style="display:none;margin-top:.5rem">
