@@ -38,32 +38,12 @@ from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
-                       FactorConversionOut, ImpuestoOut, ProductoImpuestosIn, ProductoImpuestosOut,
+                       FactorConversionOut, ImpuestoOut, LineaManualIn, ProductoImpuestosIn, ProductoImpuestosOut,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
-
-
-@router.get("/_debug/referencia-pago")
-def _debug_referencia_pago(claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- confirmar el campo real de "referencia de pago" en una
-    factura creada por este sistema antes de escribirlo. Borrar despues."""
-    if claims["rol"] != "administrador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
-    cliente = _odoo()
-    docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
-        [[['invoice_id', '!=', False]]], {'fields': ['id', 'invoice_id'], 'order': 'id desc', 'limit': 3})
-    resultados = []
-    for d in docs:
-        move_id = d['invoice_id'][0]
-        move = cliente._call('account.move', 'read', [[move_id]],
-            {'fields': ['name', 'ref', 'payment_reference', 'invoice_origin', 'narration']})[0]
-        resultados.append({'dte_id': d['id'], 'move': move})
-    return resultados
-
-
 
 
 
@@ -329,6 +309,43 @@ def fijar_descuento_linea(linea_id: int, body: DescuentoLineaIn, claims: dict = 
     }, on_conflict="dte_linea_id").execute()
 
 
+@router.post("/{dte_id}/lineas-manuales", status_code=status.HTTP_204_NO_CONTENT)
+def agregar_linea_manual(dte_id: int, body: LineaManualIn, claims: dict = Depends(get_current_claims)):
+    """Agrega una linea a mano para este DTE -- para un producto/cargo que el
+    proveedor declaro en el Neto/Total pero que no vino como linea propia en
+    el XML (ej. flete, envase). No toca l10n_cl.supplier.xml.line (esa tabla
+    es la copia fiel de lo que declaro el SII) -- se guarda aparte y se suma
+    a las lineas reales del DTE recien al crear la Orden de Compra (ver
+    _ejecutar_creacion). No soportado para Doña Sofía -- se valida ahi
+    mismo, al momento de crear, no aca."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_linea_manual").insert({
+        "dte_id": dte_id, "odoo_product_id": body.odoo_product_id, "odoo_product_name": body.odoo_product_name,
+        "qty": body.qty, "precio_unitario": body.precio_unitario, "descuento_pct": body.descuento_pct,
+        "agregado_por": claims["sub"],
+    }).execute()
+
+
+@router.put("/lineas-manuales/{linea_id}/descuento", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_descuento_linea_manual(linea_id: int, body: DescuentoLineaIn, claims: dict = Depends(get_current_claims)):
+    """Igual que fijar_descuento_linea pero para una linea agregada a mano
+    -- se guarda directo en su propia fila (no en facturas_dte_linea_descuento,
+    que es solo para lineas reales del DTE)."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_linea_manual").update({"descuento_pct": body.descuento_pct}).eq("id", linea_id).execute()
+
+
+@router.delete("/lineas-manuales/{linea_id}", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_linea_manual(linea_id: int, claims: dict = Depends(get_current_claims)):
+    """Quita una linea agregada a mano -- reversible en el sentido de que se
+    puede volver a agregar, pero la fila se borra (no queda historial)."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_linea_manual").delete().eq("id", linea_id).execute()
+
+
 @router.get("/{dte_id}/comparar", response_model=CompararOut)
 def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
     """Compara linea por linea lo que declaro el DTE del proveedor contra lo
@@ -427,11 +444,14 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
         .in_("dte_linea_id", linea_ids).execute().data or [] if linea_ids else []
     descuento_por_linea = {d["dte_linea_id"]: d["descuento_pct"] for d in descuentos}
 
+    lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).execute().data or []
+
     # Impuestos por producto -- mismo fallback de dos niveles que
     # listar_impuestos_producto (override guardado, si no el default que el
     # producto ya tiene en Odoo), resuelto aca de una vez para todos los
     # productos de la factura en vez de uno por uno.
-    product_ids = list({l['product_id'][0] for l in lineas if l.get('product_id')})
+    product_ids = list({l['product_id'][0] for l in lineas if l.get('product_id')}
+                        | {lm['odoo_product_id'] for lm in lineas_manuales})
     nombres_por_producto: dict[int, list[str]] = {}
     if product_ids:
         filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
@@ -469,6 +489,14 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
         pid = l['product_id'][0]
         descuento = descuento_por_linea.get(l['id'], 0)
         subtotal = (l.get('qty') or 0) * float(l.get('item_price') or 0) * (1 - descuento / 100)
+        neto += subtotal
+        for nombre in nombres_por_producto.get(pid, []):
+            tasa = tasa_por_nombre.get(nombre, 0)
+            impuestos_acumulados[nombre] = impuestos_acumulados.get(nombre, 0) + subtotal * tasa / 100
+
+    for lm in lineas_manuales:
+        pid = lm['odoo_product_id']
+        subtotal = (lm.get('qty') or 0) * float(lm.get('precio_unitario') or 0) * (1 - (lm.get('descuento_pct') or 0) / 100)
         neto += subtotal
         for nombre in nombres_por_producto.get(pid, []):
             tasa = tasa_por_nombre.get(nombre, 0)
@@ -544,6 +572,21 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
             codigo_tipo=codigo_tipo, codigo_valor=codigo_valor,
             product_id=product_id, product_name=product_name, sugerido=sugerido,
             descuento_pct=descuento_por_linea.get(l['id'], 0),
+        ))
+
+    # Lineas agregadas a mano (facturas_dte_linea_manual) -- id NEGATIVO a
+    # proposito: los id reales de l10n_cl.supplier.xml.line son siempre
+    # positivos, asi que no hay riesgo de que el id de una linea manual
+    # choque con el de una linea real del DTE en el mismo detalle (el
+    # frontend usa l.id como key de fila/selector -- una colision mezclaria
+    # botones/filas de dos lineas distintas).
+    lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).order("id").execute().data or []
+    for lm in lineas_manuales:
+        lineas.append(DteLineaOut(
+            id=-lm['id'], item_name=lm['odoo_product_name'], qty=lm['qty'], item_price=float(lm['precio_unitario']),
+            codigo_tipo=None, codigo_valor=None,
+            product_id=lm['odoo_product_id'], product_name=lm['odoo_product_name'], sugerido=False,
+            descuento_pct=lm.get('descuento_pct') or 0, es_manual=True,
         ))
 
     return DteDetalleOut(
@@ -762,7 +805,23 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     payment_term_id = (partner_datos['property_supplier_payment_term_id'][0]
                         if partner_datos.get('property_supplier_payment_term_id') else False)
 
-    product_ids = list({l['product_id'][0] for l in lineas})
+    db = get_db()
+
+    # Lineas agregadas a mano (facturas_dte_linea_manual, ver detalle()) --
+    # se suman a las lineas reales del DTE para armar la OC. No soportado
+    # para Doña Sofía: esa rama REUSA una OC ya confirmada de antes (ver
+    # _buscar_oc_sofia) y solo actualiza precio/descuento de sus lineas
+    # existentes -- no hay forma de agregarle una linea nueva por este
+    # camino sin escribir codigo aparte, asi que mejor fallar claro que
+    # ignorar en silencio una linea que el admin agrego a proposito.
+    lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).execute().data or []
+    if lineas_manuales and doc['issuer_rut'] == RUT_DONA_SOFIA:
+        raise RuntimeError(
+            "Doña Sofía: las líneas agregadas a mano no están soportadas para este proveedor -- "
+            "se reusa una Orden de Compra ya existente y no se le pueden agregar productos nuevos por acá"
+        )
+
+    product_ids = list({l['product_id'][0] for l in lineas} | {lm['odoo_product_id'] for lm in lineas_manuales})
     productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id', 'display_name']})
     info_por_producto = {p['id']: p for p in productos}
 
@@ -771,7 +830,6 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     # impuesto que ya tenga configurado por defecto (el caso normal). Los
     # impuestos son por EMPRESA en Odoo, asi que se guarda el NOMBRE y se
     # resuelve al id real de la empresa de este DTE recien aca.
-    db = get_db()
     filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
         .in_("odoo_product_id", product_ids).execute().data or []
     nombres_por_producto: dict[int, list[str]] = {}
@@ -846,6 +904,24 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             'product_qty': (l.get('qty') or 0) * factor_conversion,
             'price_unit': round(precio_real, 2),
             'discount': descuento_por_linea.get(l['id'], 0),
+            'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
+        }
+        nombres_impuestos = nombres_por_producto.get(pid)
+        if nombres_impuestos:
+            linea_oc['taxes_id'] = [(6, 0, [tax_id_por_nombre[n] for n in nombres_impuestos])]
+        order_lines.append((0, 0, linea_oc))
+
+    # Lineas agregadas a mano -- mismo armado que las reales del DTE, sin
+    # factor de conversion (no tienen codigo de proveedor asociado).
+    for lm in lineas_manuales:
+        pid = lm['odoo_product_id']
+        prod = info_por_producto[pid]
+        linea_oc = {
+            'product_id': pid,
+            'name': prod['display_name'],
+            'product_qty': lm['qty'],
+            'price_unit': round(float(lm['precio_unitario']), 2),
+            'discount': lm.get('descuento_pct') or 0,
             'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
         }
         nombres_impuestos = nombres_por_producto.get(pid)

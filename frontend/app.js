@@ -2101,7 +2101,7 @@ async function showDteModal(dteId) {
         <tbody>
           ${dte.lineas.map(l => `
             <tr data-linea="${l.id}">
-              <td>${l.item_name}</td>
+              <td>${l.item_name}${l.es_manual ? ' <span class="placeholder" title="Agregada a mano -- no vino como línea propia en el DTE">(manual)</span>' : ''}</td>
               <td>${l.qty}</td>
               <td>${_fmtMonto(l.qty * l.item_price)}</td>
               <td>${l.product_id ? `
@@ -2112,11 +2112,13 @@ async function showDteModal(dteId) {
               <td>${l.product_id
                 ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
                 : '<span class="placeholder">Sin producto</span>'}</td>
-              <td>${!l.product_id
-                ? `<button type="button" class="btn" data-buscar-linea="${l.id}">Buscar producto</button>`
-                : l.sugerido
-                  ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
-                  : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
+              <td>${l.es_manual
+                ? `<button type="button" class="btn" data-quitar-manual="${l.id}">Quitar</button>`
+                : !l.product_id
+                  ? `<button type="button" class="btn" data-buscar-linea="${l.id}">Buscar producto</button>`
+                  : l.sugerido
+                    ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
+                    : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
                 ${l.product_id ? ` <button type="button" class="btn" data-impuestos-linea="${l.id}" data-impuestos-producto="${l.product_id}" title="Impuestos de este producto (máx. 3) -- si no se tocan, se usa el impuesto por defecto del producto en Odoo">Impuestos</button>` : ''}
                 ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}</td>
             </tr>
@@ -2146,6 +2148,26 @@ async function showDteModal(dteId) {
             </td></tr>` : ''}`).join('')}
         </tbody>
       </table>
+      <div style="margin-top:.75rem">
+        <button type="button" class="btn" id="dte-manual-toggle">+ Agregar línea manual</button>
+        <div id="dte-manual-form" style="display:none;margin-top:.5rem">
+          <p class="placeholder" style="margin-bottom:.5rem">Para un producto que el proveedor declaró en el Neto/Total pero no vino como línea propia en esta factura (ej. flete, envase).</p>
+          <div class="item-row">
+            <input type="text" class="field" id="dte-manual-buscar-input" placeholder="Buscar producto por nombre o código..." style="flex:1">
+            <button type="button" class="btn" id="dte-manual-buscar-btn">Buscar</button>
+          </div>
+          <div id="dte-manual-resultados" style="margin-top:.5rem"></div>
+          <div id="dte-manual-detalle" style="display:none;margin-top:.5rem">
+            <p class="placeholder">Producto: <strong id="dte-manual-producto-nombre"></strong></p>
+            <div class="item-row">
+              <input type="number" class="field" id="dte-manual-qty" placeholder="Cantidad" min="0.0001" step="any" style="max-width:140px">
+              <input type="number" class="field" id="dte-manual-precio" placeholder="Precio unitario" min="0" step="any" style="max-width:160px">
+              <button type="button" class="btn btn-primary" id="dte-manual-guardar">Agregar línea</button>
+            </div>
+          </div>
+          <p class="error-msg" id="dte-manual-error"></p>
+        </div>
+      </div>
       <div id="dte-resumen" style="margin-top:1rem"><p class="placeholder">Calculando…</p></div>
       <p id="dte-modal-error" class="error-msg"></p>
       <div style="margin-top:1.25rem;display:flex;gap:.5rem">
@@ -2154,6 +2176,68 @@ async function showDteModal(dteId) {
       </div>`;
 
     overlay.querySelector('#dte-modal-cerrar').onclick = () => overlay.remove();
+
+    let manualProductoElegido = null;
+    overlay.querySelector('#dte-manual-toggle').onclick = () => {
+      const form = overlay.querySelector('#dte-manual-form');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    };
+    overlay.querySelector('#dte-manual-buscar-btn').onclick = async () => {
+      const q = overlay.querySelector('#dte-manual-buscar-input').value.trim();
+      const resultadosEl = overlay.querySelector('#dte-manual-resultados');
+      if (!q) return;
+      resultadosEl.innerHTML = '<span class="placeholder">Buscando…</span>';
+      try {
+        const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
+        resultadosEl.innerHTML = productos.length
+          ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-manual="${p.id}" data-nombre="${p.name.replace(/"/g, '&quot;')}">${p.name}${p.default_code ? ' (' + p.default_code + ')' : ''}</button>`).join('')
+          : '<span class="placeholder">Sin resultados.</span>';
+        resultadosEl.querySelectorAll('[data-elegir-manual]').forEach(pbtn => {
+          pbtn.onclick = () => {
+            manualProductoElegido = { id: parseInt(pbtn.dataset.elegirManual, 10), nombre: pbtn.dataset.nombre };
+            overlay.querySelector('#dte-manual-producto-nombre').textContent = manualProductoElegido.nombre;
+            overlay.querySelector('#dte-manual-detalle').style.display = 'block';
+          };
+        });
+      } catch (err) {
+        resultadosEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
+      }
+    };
+    overlay.querySelector('#dte-manual-guardar').onclick = async () => {
+      const errorEl = overlay.querySelector('#dte-manual-error');
+      errorEl.textContent = '';
+      if (!manualProductoElegido) { errorEl.textContent = 'Elegí un producto primero.'; return; }
+      const qty = parseFloat(overlay.querySelector('#dte-manual-qty').value);
+      const precio = parseFloat(overlay.querySelector('#dte-manual-precio').value);
+      if (isNaN(qty) || qty <= 0) { errorEl.textContent = 'Ingresa una cantidad mayor que 0.'; return; }
+      if (isNaN(precio) || precio < 0) { errorEl.textContent = 'Ingresa un precio unitario válido.'; return; }
+      try {
+        await api(`/facturas-dte/${dteId}/lineas-manuales`, {
+          method: 'POST',
+          body: JSON.stringify({
+            odoo_product_id: manualProductoElegido.id, odoo_product_name: manualProductoElegido.nombre,
+            qty, precio_unitario: precio, descuento_pct: 0,
+          }),
+        });
+        recargar();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    };
+
+    overlay.querySelectorAll('[data-quitar-manual]').forEach(btn => {
+      btn.onclick = async () => {
+        const errorEl = overlay.querySelector('#dte-modal-error');
+        errorEl.textContent = '';
+        if (!confirm('¿Quitar esta línea agregada a mano?')) return;
+        try {
+          await api(`/facturas-dte/lineas-manuales/${Math.abs(parseInt(btn.dataset.quitarManual, 10))}`, { method: 'DELETE' });
+          recargar();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      };
+    });
 
     async function cargarResumen() {
       const resumenEl = overlay.querySelector('#dte-resumen');
@@ -2215,8 +2299,11 @@ async function showDteModal(dteId) {
         if (valor === (linea.descuento_pct || 0)) return;  // sin cambios, no guardar de nuevo
         estadoEl.textContent = 'Guardando…';
         estadoEl.className = 'placeholder';
+        const endpoint = linea.es_manual
+          ? `/facturas-dte/lineas-manuales/${Math.abs(linea.id)}/descuento`
+          : `/facturas-dte/lineas/${lineaId}/descuento`;
         try {
-          await api(`/facturas-dte/lineas/${lineaId}/descuento`, { method: 'PUT', body: JSON.stringify({ descuento_pct: valor }) });
+          await api(endpoint, { method: 'PUT', body: JSON.stringify({ descuento_pct: valor }) });
           linea.descuento_pct = valor;
           estadoEl.textContent = '✓ guardado';
           estadoEl.className = 'placeholder';
