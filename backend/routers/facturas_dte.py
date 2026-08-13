@@ -393,7 +393,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
     doc = docs[0]
 
     lineas_raw = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
-        {'fields': ['id', 'item_name', 'qty', 'product_id', 'code_ids']})
+        {'fields': ['id', 'item_name', 'qty', 'item_price', 'product_id', 'code_ids']})
 
     code_ids = [c for l in lineas_raw for c in l.get('code_ids', [])]
     codigos_por_id = {}
@@ -426,6 +426,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
                 sugerido = True  # no se pudo autoconfirmar -- que quede el clic manual como respaldo
         lineas.append(DteLineaOut(
             id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
+            item_price=float(l.get('item_price') or 0),
             codigo_tipo=codigo_tipo, codigo_valor=codigo_valor,
             product_id=product_id, product_name=product_name, sugerido=sugerido,
             descuento_pct=descuento_por_linea.get(l['id'], 0),

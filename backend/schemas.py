@@ -400,6 +400,7 @@ class DteLineaOut(BaseModel):
     id: int
     item_name: str
     qty: float
+    item_price: float = 0  # precio unitario SIN descuento tal como lo declara el DTE
     codigo_tipo: str | None = None
     codigo_valor: str | None = None
     product_id: int | None = None

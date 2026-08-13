@@ -2084,7 +2084,7 @@ function iniciarPollingCola() {
 async function showDteModal(dteId) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.innerHTML = '<div class="modal-box" style="width:720px"><p class="placeholder">Cargando…</p></div>';
+  overlay.innerHTML = '<div class="modal-box" style="width:920px"><p class="placeholder">Cargando…</p></div>';
   document.body.appendChild(overlay);
 
   async function recargar() {
@@ -2097,12 +2097,18 @@ async function showDteModal(dteId) {
       <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
       <table>
-        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Producto en Odoo</th><th></th></tr></thead>
+        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Precio unit.</th><th>Desc. %</th><th>Precio c/desc.</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
           ${dte.lineas.map(l => `
             <tr data-linea="${l.id}">
               <td>${l.item_name}</td>
               <td>${l.qty}</td>
+              <td>${_fmtMonto(l.item_price)}</td>
+              <td>${l.product_id ? `
+                <input type="number" class="field dte-descuento-inline" data-linea-descuento-inline="${l.id}" min="0" max="100" step="any" style="width:70px" value="${l.descuento_pct || 0}">
+                <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem"></span>`
+                : '<span class="placeholder">—</span>'}</td>
+              <td data-precio-desc="${l.id}">${_fmtMonto(l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
               <td>${l.product_id
                 ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
                 : '<span class="placeholder">Sin producto</span>'}</td>
@@ -2112,10 +2118,9 @@ async function showDteModal(dteId) {
                   ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
                   : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
                 ${l.product_id ? ` <button type="button" class="btn" data-impuestos-linea="${l.id}" data-impuestos-producto="${l.product_id}" title="Impuestos de este producto (máx. 3) -- si no se tocan, se usa el impuesto por defecto del producto en Odoo">Impuestos</button>` : ''}
-                ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}
-                ${l.product_id ? ` <button type="button" class="btn" data-descuento-linea="${l.id}" title="% de descuento de este producto en esta factura -- el DTE no lo trae, revisa la factura real y complétalo${l.descuento_pct ? ` (actual: ${l.descuento_pct}%)` : ''}">Descuento</button>` : ''}</td>
+                ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}</td>
             </tr>
-            <tr data-buscador="${l.id}" style="display:none"><td colspan="4">
+            <tr data-buscador="${l.id}" style="display:none"><td colspan="7">
               <div class="item-row">
                 <input type="text" class="field dte-buscar-input" data-linea-buscar="${l.id}" placeholder="Buscar por nombre o código..." style="flex:1">
                 <button type="button" class="btn" data-ejecutar-busqueda="${l.id}">Buscar</button>
@@ -2123,7 +2128,7 @@ async function showDteModal(dteId) {
               <div data-resultados="${l.id}" style="margin-top:.5rem"></div>
             </td></tr>
             ${l.product_id && l.codigo_tipo ? `
-            <tr data-cantidad-fila="${l.id}" style="display:none"><td colspan="4">
+            <tr data-cantidad-fila="${l.id}" style="display:none"><td colspan="7">
               <p class="placeholder" style="margin-bottom:.5rem">Esta factura declara <strong>${l.qty} ${l.item_name}</strong>. ¿Cuántas unidades reales vienen en cada una declarada? (ej. si "1 azúcar" son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código de producto, y se aplica en toda factura futura igual. 1 = sin cambios.</p>
               <div class="item-row">
                 <input type="number" class="field dte-cantidad-input" data-linea-cantidad="${l.id}" min="0.0001" step="any" style="max-width:160px" value="1">
@@ -2132,21 +2137,12 @@ async function showDteModal(dteId) {
               <p class="placeholder" data-cantidad-error="${l.id}"></p>
             </td></tr>` : ''}
             ${l.product_id ? `
-            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="4">
+            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="7">
               <p class="placeholder" style="margin-bottom:.5rem">Máximo 3 impuestos para <strong>${l.product_name}</strong>. Esta selección <strong>reemplaza</strong> el impuesto del producto -- si marcas algo, incluye también el IVA 19% si corresponde. Vacío = usa el impuesto por defecto del producto en Odoo.</p>
               <div data-impuestos-lista="${l.id}"><span class="placeholder">Cargando…</span></div>
               <div class="item-row" style="margin-top:.5rem">
                 <button type="button" class="btn btn-primary" data-guardar-impuestos="${l.id}">Guardar impuestos</button>
               </div>
-            </td></tr>` : ''}
-            ${l.product_id ? `
-            <tr data-descuento-fila="${l.id}" style="display:none"><td colspan="4">
-              <p class="placeholder" style="margin-bottom:.5rem">% de descuento de <strong>${l.product_name}</strong> en esta factura -- el DTE no lo trae, se completa a mano (revisa la factura real). El precio unitario queda en su valor de lista, el descuento va aparte. 0 = sin descuento.</p>
-              <div class="item-row">
-                <input type="number" class="field dte-descuento-input" data-linea-descuento="${l.id}" min="0" max="100" step="any" style="max-width:160px" value="${l.descuento_pct || 0}">
-                <button type="button" class="btn btn-primary" data-guardar-descuento="${l.id}">Guardar</button>
-              </div>
-              <p class="placeholder" data-descuento-error="${l.id}"></p>
             </td></tr>` : ''}`).join('')}
         </tbody>
       </table>
@@ -2158,33 +2154,39 @@ async function showDteModal(dteId) {
 
     overlay.querySelector('#dte-modal-cerrar').onclick = () => overlay.remove();
 
-    overlay.querySelectorAll('[data-descuento-linea]').forEach(btn => {
-      btn.onclick = () => {
-        const fila = overlay.querySelector(`tr[data-descuento-fila="${btn.dataset.descuentoLinea}"]`);
-        const visible = fila.style.display !== 'none';
-        overlay.querySelectorAll('[data-descuento-fila]').forEach(f => { f.style.display = 'none'; });
-        fila.style.display = visible ? 'none' : 'table-row';
-      };
-    });
+    overlay.querySelectorAll('.dte-descuento-inline').forEach(input => {
+      const lineaId = input.dataset.lineaDescuentoInline;
+      const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+      const precioCell = overlay.querySelector(`[data-precio-desc="${lineaId}"]`);
+      const estadoEl = overlay.querySelector(`[data-descuento-estado="${lineaId}"]`);
 
-    overlay.querySelectorAll('[data-guardar-descuento]').forEach(btn => {
-      btn.onclick = async () => {
-        const lineaId = btn.dataset.guardarDescuento;
-        const input = overlay.querySelector(`.dte-descuento-input[data-linea-descuento="${lineaId}"]`);
-        const errorEl = overlay.querySelector(`[data-descuento-error="${lineaId}"]`);
-        errorEl.textContent = '';
+      input.addEventListener('input', () => {
+        const valor = parseFloat(input.value);
+        const pct = isNaN(valor) ? 0 : valor;
+        precioCell.textContent = _fmtMonto(linea.item_price * (1 - pct / 100));
+      });
+
+      input.addEventListener('change', async () => {
         const valor = parseFloat(input.value);
         if (isNaN(valor) || valor < 0 || valor > 100) {
-          errorEl.textContent = 'Ingresa un número entre 0 y 100.';
+          estadoEl.textContent = '0-100';
+          estadoEl.className = 'error-msg';
           return;
         }
+        if (valor === (linea.descuento_pct || 0)) return;  // sin cambios, no guardar de nuevo
+        estadoEl.textContent = 'Guardando…';
+        estadoEl.className = 'placeholder';
         try {
           await api(`/facturas-dte/lineas/${lineaId}/descuento`, { method: 'PUT', body: JSON.stringify({ descuento_pct: valor }) });
-          overlay.querySelector(`tr[data-descuento-fila="${lineaId}"]`).style.display = 'none';
+          linea.descuento_pct = valor;
+          estadoEl.textContent = '✓ guardado';
+          estadoEl.className = 'placeholder';
+          setTimeout(() => { if (estadoEl.textContent === '✓ guardado') estadoEl.textContent = ''; }, 1500);
         } catch (err) {
-          errorEl.textContent = err.message;
+          estadoEl.textContent = err.message;
+          estadoEl.className = 'error-msg';
         }
-      };
+      });
     });
 
     overlay.querySelectorAll('[data-buscar-linea]').forEach(btn => {
