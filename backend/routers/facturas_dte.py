@@ -110,10 +110,14 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
     una factura borrador creada en Odoo (invoice_id vacio). No incluye
-    proveedores marcados como ocultos (facturas_proveedor_oculto)."""
+    proveedores marcados como ocultos (facturas_proveedor_oculto) ni DTE
+    marcados como ingresados a mano (facturas_dte_ingresado_manual --
+    alguien ya creo la factura real en Odoo por fuera de esta pantalla,
+    sin que el DTE quedara vinculado a ella)."""
     _require_admin(claims)
     db = get_db()
     ocultos = {f["proveedor_rut"] for f in (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
+    marcados_manual = {f["dte_id"] for f in (db.table("facturas_dte_ingresado_manual").select("dte_id").execute().data or [])}
     cliente = _odoo()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
         [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
@@ -124,8 +128,29 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
                folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'),
                monto_total=_monto(d.get('amount_total')), tiene_factura=False)
         for d in docs
-        if (d.get('issuer_rut') or '') not in ocultos
+        if (d.get('issuer_rut') or '') not in ocultos and d['id'] not in marcados_manual
     ]
+
+
+@router.post("/{dte_id}/marcar-manual", status_code=status.HTTP_204_NO_CONTENT)
+def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_claims)):
+    """Marca este DTE como ya ingresado a mano en Odoo (por fuera de esta
+    pantalla) -- deja de aparecer como pendiente. No toca nada en Odoo,
+    reversible con DELETE."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_ingresado_manual").upsert({
+        "dte_id": dte_id, "marcado_por": claims["sub"],
+    }, on_conflict="dte_id").execute()
+
+
+@router.delete("/{dte_id}/marcar-manual", status_code=status.HTTP_204_NO_CONTENT)
+def desmarcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_claims)):
+    """Revierte la marca de 'ingresada a mano' -- vuelve a aparecer como
+    pendiente si Odoo sigue sin tener invoice_id vinculado."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_ingresado_manual").delete().eq("dte_id", dte_id).execute()
 
 
 @router.get("/proveedores/ocultos", response_model=list[ProveedorOcultoOut])

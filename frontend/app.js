@@ -1911,7 +1911,10 @@ function renderDteResultados(dtes, filtroFolio) {
                 <td>${d.folio}</td>
                 <td>${d.fecha || '—'}</td>
                 <td>$${Math.round(d.monto_total || 0).toLocaleString('es-CL')}</td>
-                <td><button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button></td>
+                <td>
+                  <button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button>
+                  <button type="button" class="btn" data-marcar-manual-dte="${d.id}" title="Ya se ingresó esta factura a mano directo en Odoo -- la saca de esta lista sin tocar nada en Odoo">Ingresada Manualmente</button>
+                </td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -1935,6 +1938,22 @@ function bindDteResultadosBotones() {
           body: JSON.stringify({ proveedor_rut: proveedorRut, proveedor_nombre: proveedorNombre }),
         });
         state.dteLista = state.dteLista.filter(d => d.proveedor_rut !== proveedorRut);
+        document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
+        bindDteResultadosBotones();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  });
+  document.querySelectorAll('[data-marcar-manual-dte]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dteId = parseInt(btn.dataset.marcarManualDte, 10);
+      if (!confirm('¿Ya ingresaste esta factura a mano directo en Odoo? Va a salir de esta lista -- no se toca nada en Odoo.')) return;
+      const errorEl = document.getElementById('dte-error');
+      errorEl.textContent = '';
+      try {
+        await api(`/facturas-dte/${dteId}/marcar-manual`, { method: 'POST' });
+        state.dteLista = state.dteLista.filter(d => d.id !== dteId);
         document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
         bindDteResultadosBotones();
       } catch (err) {
