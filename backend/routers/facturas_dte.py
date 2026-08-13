@@ -71,11 +71,19 @@ def _debug_descuento(claims: dict = Depends(get_current_claims)):
             con_descuento = cliente._call('purchase.order.line', 'search_read',
                 [[['discount', '>', 0]]], {'fields': ['order_id', 'product_id', 'price_unit', 'discount'], 'limit': 10})
 
+        # el DTE crudo -- tiene algun campo de descuento por linea que
+        # podamos leer directo, o el discount que ve el proceso real viene
+        # solo de que alguien lo escribe a mano mirando el PDF/factura?
+        dte_fields = cliente._call('l10n_cl.supplier.xml.line', 'fields_get', [],
+            {'attributes': ['string', 'type']})
+        campos_descuento_dte = {k: v for k, v in dte_fields.items() if 'disc' in k.lower() or 'descuent' in k.lower()}
+
         return {
             'tiene_campo_discount': tiene_discount,
             'campo_discount_info': campo_discount,
             'lineas_p19741': lineas_p19741,
             'lineas_con_descuento_real_encontradas': con_descuento,
+            'campos_descuento_en_dte_crudo': campos_descuento_dte,
         }
     except Exception:
         return {'error': traceback.format_exc()}
