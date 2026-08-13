@@ -2132,13 +2132,13 @@ async function showDteModal(dteId) {
                 <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem">${l.descuento_sugerido ? 'según la última vez -- confirma' : ''}</span>`
                 : '<span class="placeholder">—</span>'}</td>
               <td data-precio-desc="${l.id}">${_fmtMonto(l.qty * l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
-              <td>${l.product_id ? `
-                <div data-impuestos-chips="${l.id}" data-seleccionados="${encodeURIComponent(JSON.stringify(l.impuesto_nombres || []))}" style="display:flex;flex-wrap:nowrap;gap:.2rem">
+              <td style="max-width:300px">${l.product_id ? `
+                <div data-impuestos-chips="${l.id}" data-seleccionados="${encodeURIComponent(JSON.stringify(l.impuesto_nombres || []))}" style="display:flex;flex-wrap:wrap;gap:.2rem">
                   ${IMPUESTOS_RAPIDOS.map(({ nombre, corto }) => {
                     const activo = (l.impuesto_nombres || []).includes(nombre);
-                    return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap;flex-shrink:0" title="${nombre}" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${corto}</button>`;
+                    return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" title="${nombre}" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${corto}</button>`;
                   }).join('')}
-                  ${(l.impuesto_nombres || []).filter(n => !IMPUESTOS_RAPIDOS_NOMBRES.includes(n)).map(nombre => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap;flex-shrink:0" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${nombre}</button>`).join('')}
+                  ${(l.impuesto_nombres || []).filter(n => !IMPUESTOS_RAPIDOS_NOMBRES.includes(n)).map(nombre => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${nombre}</button>`).join('')}
                 </div>
                 <p data-impuesto-estado="${l.id}" style="margin-top:.1rem;font-size:.7rem"></p>`
                 : '<span class="placeholder">—</span>'}</td>
@@ -2449,9 +2449,9 @@ async function showDteModal(dteId) {
         const extras = nuevos.filter(n => !IMPUESTOS_RAPIDOS_NOMBRES.includes(n));
         const rapidosHtml = IMPUESTOS_RAPIDOS.map(({ nombre, corto }) => {
           const activo = nuevos.includes(nombre);
-          return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap;flex-shrink:0" title="${nombre}" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${corto}</button>`;
+          return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" title="${nombre}" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${corto}</button>`;
         }).join('');
-        const extrasHtml = extras.map(n => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap;flex-shrink:0" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${n.replace(/"/g, '&quot;')}">${n}</button>`).join('');
+        const extrasHtml = extras.map(n => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${n.replace(/"/g, '&quot;')}">${n}</button>`).join('');
         cont.innerHTML = rapidosHtml + extrasHtml;
         renderImpuestoChips(lineaId);
         estadoEl.textContent = '';
