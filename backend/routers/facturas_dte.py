@@ -218,11 +218,16 @@ def _fix_eliminar_oc_huerfana_p19867(claims: dict = Depends(get_current_claims))
             if p['picking_type_id'][1] == 'Doña Delfina: Órdenes de entrega' and p['state'] not in ('done', 'cancel'):
                 cliente._call('stock.picking', 'action_cancel', [[p['id']]])
 
+        error_cancel = None
         try:
             cliente._call('purchase.order', 'button_cancel', [[po_id]])
-        except Exception:
-            pass
+        except Exception as e:
+            error_cancel = str(e)
+
+        po_estado = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['state']})[0]
+
         limpio = True
+        error_unlink = None
         try:
             cliente._call('purchase.order', 'unlink', [[po_id]])
         except Exception as e:
@@ -230,9 +235,10 @@ def _fix_eliminar_oc_huerfana_p19867(claims: dict = Depends(get_current_claims))
             error_unlink = str(e)
 
         return {
-            'pickings_vistos': pickings_actuales,
+            'error_cancel_capturado': error_cancel,
+            'estado_oc_despues_de_cancelar': po_estado,
             'oc_eliminada': limpio,
-            'error_unlink': None if limpio else error_unlink,
+            'error_unlink': error_unlink,
         }
     except Exception:
         return {'error': traceback.format_exc()}
