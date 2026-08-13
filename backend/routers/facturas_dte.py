@@ -660,7 +660,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
             if pid is not None and pid not in historial_descuento_por_producto:
                 historial_descuento_por_producto[pid] = f["descuento_pct"]
 
-    lineas: list[DteLineaOut] = []
+    lineas_procesadas = []
     for l in lineas_raw:
         codigos = [codigos_por_id[c] for c in l.get('code_ids', []) if c in codigos_por_id]
         codigo_tipo, codigo_valor = _mejor_codigo(codigos, l.get('item_name'))
@@ -674,7 +674,38 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
                 cliente._call('l10n_cl.supplier.xml.line', 'write', [[l['id']], {'product_id': product_id}])
             except Exception:
                 sugerido = True  # no se pudo autoconfirmar -- que quede el clic manual como respaldo
+        lineas_procesadas.append((l, product_id, product_name, sugerido, codigo_tipo, codigo_valor))
 
+    lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).order("id").execute().data or []
+
+    # Impuestos ACTUALES por producto (override guardado, o el default que
+    # el producto ya tiene en Odoo) -- mismo fallback de dos niveles que
+    # listar_impuestos_producto/simular(), resuelto batcheado para todos los
+    # productos de la factura de una vez. Pedido explicito del usuario: que
+    # se vean directo en la fila de cada linea, sin tener que abrir nada
+    # para saber que impuesto tiene aplicado hoy.
+    product_ids_impuestos = list({pid for _, pid, *_ in lineas_procesadas if pid}
+                                  | {lm['odoo_product_id'] for lm in lineas_manuales})
+    nombres_por_producto: dict[int, list[str]] = {}
+    if product_ids_impuestos:
+        filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
+            .in_("odoo_product_id", product_ids_impuestos).execute().data or []
+        for f in filas_impuestos:
+            nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
+        sin_override = [pid for pid in product_ids_impuestos if pid not in nombres_por_producto]
+        if sin_override:
+            productos_tax = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
+            tax_ids_defecto = list({t for p in productos_tax for t in (p.get('supplier_taxes_id') or [])})
+            nombre_por_tax_id: dict[int, str] = {}
+            if tax_ids_defecto:
+                taxes = cliente._call('account.tax', 'read', [tax_ids_defecto], {'fields': ['name']})
+                nombre_por_tax_id = {t['id']: t['name'] for t in taxes}
+            for p in productos_tax:
+                nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in (p.get('supplier_taxes_id') or [])
+                                                  if t in nombre_por_tax_id]
+
+    lineas: list[DteLineaOut] = []
+    for l, product_id, product_name, sugerido, codigo_tipo, codigo_valor in lineas_procesadas:
         descuento_pct = descuento_por_linea.get(l['id'])
         descuento_sugerido = False
         if descuento_pct is None and product_id in historial_descuento_por_producto:
@@ -692,6 +723,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
             codigo_tipo=codigo_tipo, codigo_valor=codigo_valor,
             product_id=product_id, product_name=product_name, sugerido=sugerido,
             descuento_pct=descuento_pct or 0, descuento_sugerido=descuento_sugerido,
+            impuesto_nombres=nombres_por_producto.get(product_id, []) if product_id else [],
         ))
 
     # Lineas agregadas a mano (facturas_dte_linea_manual) -- id NEGATIVO a
@@ -700,13 +732,13 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
     # choque con el de una linea real del DTE en el mismo detalle (el
     # frontend usa l.id como key de fila/selector -- una colision mezclaria
     # botones/filas de dos lineas distintas).
-    lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).order("id").execute().data or []
     for lm in lineas_manuales:
         lineas.append(DteLineaOut(
             id=-lm['id'], item_name=lm['odoo_product_name'], qty=lm['qty'], item_price=float(lm['precio_unitario']),
             codigo_tipo=None, codigo_valor=None,
             product_id=lm['odoo_product_id'], product_name=lm['odoo_product_name'], sugerido=False,
             descuento_pct=lm.get('descuento_pct') or 0, es_manual=True,
+            impuesto_nombres=nombres_por_producto.get(lm['odoo_product_id'], []),
         ))
 
     return DteDetalleOut(

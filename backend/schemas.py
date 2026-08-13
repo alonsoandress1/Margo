@@ -409,6 +409,7 @@ class DteLineaOut(BaseModel):
     descuento_pct: float = 0  # confirmado a mano por linea -- el DTE nunca trae descuento por linea
     descuento_sugerido: bool = False  # True si el % vino solo del historial (mismo proveedor+producto), no confirmado a mano para ESTA factura
     es_manual: bool = False  # True si la agrego un admin a mano -- no existe como linea propia en el DTE
+    impuesto_nombres: list[str] = []  # override guardado o el default del producto en Odoo -- para mostrar chips ya marcados sin tener que abrir nada
 
 
 class DteOut(BaseModel):

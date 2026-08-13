@@ -2104,7 +2104,11 @@ async function showDteModal(dteId) {
   document.body.appendChild(overlay);
 
   async function recargar() {
-    const dte = await api(`/facturas-dte/${dteId}`);
+    const [dte, todosImpuestos] = await Promise.all([
+      api(`/facturas-dte/${dteId}`),
+      api('/facturas-dte/impuestos/buscar'),
+    ]);
+    const impuestoAmountPorNombre = new Map(todosImpuestos.map(t => [t.name, t.amount]));
     // "sugerido" = todavia no se escribio en Odoo, solo es una propuesta de
     // nuestro mapeo -- hay que confirmarla (boton "Confirmar / cambiar")
     // antes de que cuente como matcheada de verdad.
@@ -2113,7 +2117,7 @@ async function showDteModal(dteId) {
       <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
       <table>
-        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Producto en Odoo</th><th></th></tr></thead>
+        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Impuestos</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
           ${dte.lineas.map(l => `
             <tr data-linea="${l.id}">
@@ -2125,6 +2129,17 @@ async function showDteModal(dteId) {
                 <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem">${l.descuento_sugerido ? 'según la última vez -- confirma' : ''}</span>`
                 : '<span class="placeholder">—</span>'}</td>
               <td data-precio-desc="${l.id}">${_fmtMonto(l.qty * l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
+              <td>${l.product_id ? `
+                <div data-impuestos-chips="${l.id}" data-seleccionados="${encodeURIComponent(JSON.stringify(l.impuesto_nombres || []))}" style="display:flex;flex-wrap:wrap;gap:.25rem;max-width:220px">
+                  ${IMPUESTOS_RAPIDOS.map(nombre => {
+                    const activo = (l.impuesto_nombres || []).includes(nombre);
+                    const amount = impuestoAmountPorNombre.get(nombre);
+                    return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.75rem;padding:.15rem .4rem" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${nombre}${amount != null ? ` ${amount}%` : ''}</button>`;
+                  }).join('')}
+                  ${(l.impuesto_nombres || []).filter(n => !IMPUESTOS_RAPIDOS.includes(n)).map(nombre => `<button type="button" class="btn btn-primary" style="font-size:.75rem;padding:.15rem .4rem" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${nombre}</button>`).join('')}
+                </div>
+                <p data-impuesto-estado="${l.id}" style="margin-top:.2rem;font-size:.7rem"></p>`
+                : '<span class="placeholder">—</span>'}</td>
               <td>${l.product_id
                 ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
                 : '<span class="placeholder">Sin producto</span>'}</td>
@@ -2135,10 +2150,10 @@ async function showDteModal(dteId) {
                   : l.sugerido
                     ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
                     : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
-                ${l.product_id ? ` <button type="button" class="btn" data-impuestos-linea="${l.id}" data-impuestos-producto="${l.product_id}" title="Impuestos de este producto (máx. 3) -- si no se tocan, se usa el impuesto por defecto del producto en Odoo">Impuestos</button>` : ''}
+                ${l.product_id ? ` <button type="button" class="btn" data-otros-impuestos-linea="${l.id}" title="Buscar un impuesto que no esté entre los de uso frecuente">Otros impuestos</button>` : ''}
                 ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}</td>
             </tr>
-            <tr data-buscador="${l.id}" style="display:none"><td colspan="7">
+            <tr data-buscador="${l.id}" style="display:none"><td colspan="8">
               <div class="item-row">
                 <input type="text" class="field dte-buscar-input" data-linea-buscar="${l.id}" placeholder="Buscar por nombre o código..." style="flex:1">
                 <button type="button" class="btn" data-ejecutar-busqueda="${l.id}">Buscar</button>
@@ -2146,7 +2161,7 @@ async function showDteModal(dteId) {
               <div data-resultados="${l.id}" style="margin-top:.5rem"></div>
             </td></tr>
             ${l.product_id && l.codigo_tipo ? `
-            <tr data-cantidad-fila="${l.id}" style="display:none"><td colspan="7">
+            <tr data-cantidad-fila="${l.id}" style="display:none"><td colspan="8">
               <p class="placeholder" style="margin-bottom:.5rem">Esta factura declara <strong>${l.qty} ${l.item_name}</strong>. ¿Cuántas unidades reales vienen en cada una declarada? (ej. si "1 azúcar" son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código de producto, y se aplica en toda factura futura igual. 1 = sin cambios.</p>
               <div class="item-row">
                 <input type="number" class="field dte-cantidad-input" data-linea-cantidad="${l.id}" min="0.0001" step="any" style="max-width:160px" value="1">
@@ -2155,9 +2170,13 @@ async function showDteModal(dteId) {
               <p class="placeholder" data-cantidad-error="${l.id}"></p>
             </td></tr>` : ''}
             ${l.product_id ? `
-            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="7">
-              <p class="placeholder" style="margin-bottom:.5rem">Impuestos de <strong>${l.product_name}</strong> (máx. 3) -- un clic aplica y guarda al toque, reemplaza el impuesto por defecto del producto (incluye el IVA si corresponde).</p>
-              <div data-impuestos-lista="${l.id}"><span class="placeholder">Cargando…</span></div>
+            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="8">
+              <p class="placeholder" style="margin-bottom:.5rem">Buscar un impuesto de <strong>${l.product_name}</strong> que no esté entre los de uso frecuente (máx. 3 en total, aplica y guarda al elegirlo).</p>
+              <div class="item-row">
+                <input type="text" class="field dte-impuesto-buscar-otro" data-linea-buscar-impuesto="${l.id}" placeholder="Buscar otro impuesto..." style="flex:1;max-width:260px">
+                <button type="button" class="btn" data-impuesto-buscar-otro-btn="${l.id}">Buscar</button>
+              </div>
+              <div data-impuesto-otro-resultados="${l.id}" style="margin-top:.3rem"></div>
             </td></tr>` : ''}`).join('')}
         </tbody>
       </table>
@@ -2392,53 +2411,18 @@ async function showDteModal(dteId) {
       };
     });
 
-    function renderImpuestosLinea(lineaId, productoId, seleccionados) {
-      const fila = overlay.querySelector(`tr[data-impuestos-fila="${lineaId}"]`);
-      const listaEl = overlay.querySelector(`[data-impuestos-lista="${lineaId}"]`);
-      const todos = JSON.parse(fila.dataset.impuestosTodos || '[]');
-      const porNombre = new Map(todos.map(t => [t.name, t]));
-      // Los rapidos siempre se muestran (aunque no esten en la lista de Odoo
-      // de esta empresa, por si acaso) + cualquier impuesto ya aplicado que
-      // no sea uno de los rapidos, para no esconder una seleccion existente.
-      const extras = seleccionados.filter(n => !IMPUESTOS_RAPIDOS.includes(n));
-      const chips = [...IMPUESTOS_RAPIDOS, ...extras];
-      listaEl.innerHTML = `
-        <div style="display:flex;flex-wrap:wrap;gap:.35rem">
-          ${chips.map(nombre => {
-            const info = porNombre.get(nombre);
-            const activo = seleccionados.includes(nombre);
-            return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${nombre}${info ? ` (${info.amount}%)` : ''}</button>`;
-          }).join('')}
-        </div>
-        <div class="item-row" style="margin-top:.5rem">
-          <input type="text" class="field dte-impuesto-buscar-otro" data-linea-buscar-impuesto="${lineaId}" placeholder="Buscar otro impuesto..." style="flex:1;max-width:260px">
-          <button type="button" class="btn" data-impuesto-buscar-otro-btn="${lineaId}">Buscar</button>
-        </div>
-        <div data-impuesto-otro-resultados="${lineaId}" style="margin-top:.3rem"></div>
-        <p data-impuesto-estado="${lineaId}" style="margin-top:.3rem;font-size:.8rem"></p>`;
-
-      overlay.querySelectorAll(`[data-impuesto-chip="${lineaId}"]`).forEach(chip => {
-        chip.onclick = () => toggleImpuestoLinea(lineaId, productoId, chip.dataset.impuestoNombre);
+    function renderImpuestoChips(lineaId) {
+      const cont = overlay.querySelector(`[data-impuestos-chips="${lineaId}"]`);
+      cont.querySelectorAll('[data-impuesto-chip]').forEach(chip => {
+        chip.onclick = () => toggleImpuestoLinea(lineaId, chip.dataset.impuestoNombre);
       });
-      overlay.querySelector(`[data-impuesto-buscar-otro-btn="${lineaId}"]`).onclick = () => {
-        const q = overlay.querySelector(`.dte-impuesto-buscar-otro[data-linea-buscar-impuesto="${lineaId}"]`).value.trim().toLowerCase();
-        const resEl = overlay.querySelector(`[data-impuesto-otro-resultados="${lineaId}"]`);
-        if (!q) return;
-        const encontrados = todos.filter(t => t.name.toLowerCase().includes(q));
-        resEl.innerHTML = encontrados.length
-          ? encontrados.map(t => `<button type="button" class="btn" style="margin:.15rem" data-impuesto-otro-elegir="${lineaId}" data-impuesto-otro-nombre="${t.name.replace(/"/g, '&quot;')}">${t.name} (${t.amount}%)</button>`).join('')
-          : '<span class="placeholder">Sin resultados.</span>';
-        resEl.querySelectorAll('[data-impuesto-otro-elegir]').forEach(rbtn => {
-          rbtn.onclick = () => toggleImpuestoLinea(lineaId, productoId, rbtn.dataset.impuestoOtroNombre);
-        });
-      };
     }
 
-    async function toggleImpuestoLinea(lineaId, productoId, nombre) {
+    async function toggleImpuestoLinea(lineaId, nombre) {
       const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
-      const fila = overlay.querySelector(`tr[data-impuestos-fila="${lineaId}"]`);
+      const cont = overlay.querySelector(`[data-impuestos-chips="${lineaId}"]`);
       const estadoEl = overlay.querySelector(`[data-impuesto-estado="${lineaId}"]`);
-      const seleccionados = JSON.parse(fila.dataset.impuestosSeleccionados || '[]');
+      const seleccionados = JSON.parse(decodeURIComponent(cont.dataset.seleccionados || '%5B%5D'));
       let nuevos;
       if (seleccionados.includes(nombre)) {
         nuevos = seleccionados.filter(n => n !== nombre);
@@ -2453,12 +2437,20 @@ async function showDteModal(dteId) {
       estadoEl.textContent = 'Guardando…';
       estadoEl.className = 'placeholder';
       try {
-        await api(`/facturas-dte/productos/${productoId}/impuestos`, {
+        await api(`/facturas-dte/productos/${linea.product_id}/impuestos`, {
           method: 'PUT',
           body: JSON.stringify({ odoo_product_name: linea.product_name, impuesto_nombres: nuevos }),
         });
-        fila.dataset.impuestosSeleccionados = JSON.stringify(nuevos);
-        renderImpuestosLinea(lineaId, productoId, nuevos);
+        linea.impuesto_nombres = nuevos;
+        cont.dataset.seleccionados = encodeURIComponent(JSON.stringify(nuevos));
+        const extras = nuevos.filter(n => !IMPUESTOS_RAPIDOS.includes(n));
+        cont.innerHTML = [...IMPUESTOS_RAPIDOS, ...extras].map(n => {
+          const activo = nuevos.includes(n);
+          const amount = impuestoAmountPorNombre.get(n);
+          return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.75rem;padding:.15rem .4rem" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${n.replace(/"/g, '&quot;')}">${n}${amount != null ? ` ${amount}%` : ''}</button>`;
+        }).join('');
+        renderImpuestoChips(lineaId);
+        estadoEl.textContent = '';
         cargarResumen();
       } catch (err) {
         estadoEl.textContent = err.message;
@@ -2466,28 +2458,30 @@ async function showDteModal(dteId) {
       }
     }
 
-    overlay.querySelectorAll('[data-impuestos-linea]').forEach(btn => {
-      btn.onclick = async () => {
-        const lineaId = btn.dataset.impuestosLinea;
-        const productoId = btn.dataset.impuestosProducto;
+    overlay.querySelectorAll('[data-impuestos-chips]').forEach(cont => {
+      renderImpuestoChips(cont.dataset.impuestosChips);
+    });
+
+    overlay.querySelectorAll('[data-otros-impuestos-linea]').forEach(btn => {
+      btn.onclick = () => {
+        const lineaId = btn.dataset.otrosImpuestosLinea;
         const fila = overlay.querySelector(`tr[data-impuestos-fila="${lineaId}"]`);
         const visible = fila.style.display !== 'none';
         overlay.querySelectorAll('[data-impuestos-fila]').forEach(f => { f.style.display = 'none'; });
         if (visible) return;
         fila.style.display = 'table-row';
-        const listaEl = overlay.querySelector(`[data-impuestos-lista="${lineaId}"]`);
-        listaEl.innerHTML = '<span class="placeholder">Cargando…</span>';
-        try {
-          const [todos, actuales] = await Promise.all([
-            api('/facturas-dte/impuestos/buscar'),
-            api(`/facturas-dte/productos/${productoId}/impuestos`),
-          ]);
-          fila.dataset.impuestosTodos = JSON.stringify(todos);
-          fila.dataset.impuestosSeleccionados = JSON.stringify(actuales.impuesto_nombres);
-          renderImpuestosLinea(lineaId, productoId, actuales.impuesto_nombres);
-        } catch (err) {
-          listaEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
-        }
+        overlay.querySelector(`[data-impuesto-buscar-otro-btn="${lineaId}"]`).onclick = () => {
+          const q = overlay.querySelector(`.dte-impuesto-buscar-otro[data-linea-buscar-impuesto="${lineaId}"]`).value.trim().toLowerCase();
+          const resEl = overlay.querySelector(`[data-impuesto-otro-resultados="${lineaId}"]`);
+          if (!q) return;
+          const encontrados = todosImpuestos.filter(t => t.name.toLowerCase().includes(q));
+          resEl.innerHTML = encontrados.length
+            ? encontrados.map(t => `<button type="button" class="btn" style="margin:.15rem" data-impuesto-otro-elegir="${lineaId}" data-impuesto-otro-nombre="${t.name.replace(/"/g, '&quot;')}">${t.name} (${t.amount}%)</button>`).join('')
+            : '<span class="placeholder">Sin resultados.</span>';
+          resEl.querySelectorAll('[data-impuesto-otro-elegir]').forEach(rbtn => {
+            rbtn.onclick = () => toggleImpuestoLinea(lineaId, rbtn.dataset.impuestoOtroNombre);
+          });
+        };
       };
     });
 
