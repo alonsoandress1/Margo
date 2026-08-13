@@ -142,21 +142,67 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
 @router.post("/{dte_id}/marcar-manual", status_code=status.HTTP_204_NO_CONTENT)
 def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_claims)):
     """Marca este DTE como ya ingresado a mano en Odoo (por fuera de esta
-    pantalla) -- deja de aparecer como pendiente. No toca nada en Odoo,
-    reversible con DELETE."""
+    pantalla) -- deja de aparecer como pendiente. Ademas busca la factura
+    real en Odoo (mismo proveedor + mismo folio, igual criterio que el
+    chequeo de duplicados de _ejecutar_creacion) para:
+    1) vincularla al DTE (invoice_id) -- para que quede prolijo, no se
+       arriesgue un duplicado despues, y quede disponible para "Comparar",
+    2) si esa factura no tiene Orden de Compra detras (invoice_origin
+       vacio -- el caso tipico de una factura entrada a mano directo en
+       Odoo, sin pasar por OC), agregarla a planilla_compras_factura_manual
+       para que igual aparezca en la Planilla de Compras -- que de otra
+       forma la excluye por parecer un gasto administrativo (arriendo,
+       seguro), ver planilla_compras.py.
+    Si no se encuentra una factura real que calce sola (0 o 2+
+    candidatas), se marca igual como resuelta pero sin vincular ni agregar
+    a la planilla -- revisar a mano despues."""
     _require_admin(claims)
+    cliente = _odoo()
     db = get_db()
+
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'issuer_rut', 'l10n_latam_document_number']})
+    if not docs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
+    doc = docs[0]
+
+    factura_id_vinculada = None
+    folio = str(doc.get('l10n_latam_document_number') or '').strip()
+    if folio and doc.get('issuer_rut'):
+        partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
+        partner_ids = [p['id'] for p in partners]
+        if partner_ids:
+            facturas = cliente._call('account.move', 'search_read',
+                [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+                {'fields': ['id', 'l10n_latam_document_number', 'invoice_origin']})
+            candidatas = [f for f in facturas if str(f.get('l10n_latam_document_number') or '').strip() == folio]
+            if len(candidatas) == 1:
+                factura = candidatas[0]
+                factura_id_vinculada = factura['id']
+                cliente._call('l10n_cl.supplier.xml', 'write', [[dte_id], {'invoice_id': factura['id']}])
+                if not factura.get('invoice_origin'):
+                    db.table("planilla_compras_factura_manual").upsert({
+                        "factura_id": factura['id'], "agregado_por": claims["sub"],
+                    }).execute()
+
     db.table("facturas_dte_ingresado_manual").upsert({
-        "dte_id": dte_id, "marcado_por": claims["sub"],
+        "dte_id": dte_id, "marcado_por": claims["sub"], "factura_id_vinculada": factura_id_vinculada,
     }, on_conflict="dte_id").execute()
 
 
 @router.delete("/{dte_id}/marcar-manual", status_code=status.HTTP_204_NO_CONTENT)
 def desmarcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_claims)):
     """Revierte la marca de 'ingresada a mano' -- vuelve a aparecer como
-    pendiente si Odoo sigue sin tener invoice_id vinculado."""
+    pendiente si Odoo sigue sin tener invoice_id vinculado (si se encontro
+    y vinculo una factura real al marcarla, ese vinculo en Odoo NO se
+    deshace -- es un hecho real, no solo la marca de esta pantalla). Si
+    esa factura se habia agregado a planilla_compras_factura_manual, se
+    saca de ahi tambien."""
     _require_admin(claims)
     db = get_db()
+    fila = db.table("facturas_dte_ingresado_manual").select("factura_id_vinculada").eq("dte_id", dte_id).execute().data
+    if fila and fila[0].get("factura_id_vinculada"):
+        db.table("planilla_compras_factura_manual").delete().eq("factura_id", fila[0]["factura_id_vinculada"]).execute()
     db.table("facturas_dte_ingresado_manual").delete().eq("dte_id", dte_id).execute()
 
 

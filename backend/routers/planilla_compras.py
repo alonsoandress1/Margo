@@ -70,19 +70,30 @@ def _obtener_items_y_resumen(anio: int, mes: int) -> PlanillaComprasOut:
     desde = f"{anio:04d}-{mes:02d}-01"
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
 
+    db = get_db()
+
     # invoice_origin != False -- solo facturas que vienen de una Orden de
     # Compra (el flujo OC -> recepcion -> factura). Sin eso, "Facturas de
     # proveedores" tambien trae bancos, seguros, arriendos (inmobiliarias),
     # telefonia, etc. -- gastos administrativos que nunca pasan por una OC
     # y que esta planilla NO debe mostrar (solo compras de mercaderia).
+    # EXCEPCION -- planilla_compras_factura_manual: facturas ingresadas a
+    # mano directo en Odoo (boton "Ingresada Manualmente" en Facturas SII)
+    # que por eso mismo no tienen invoice_origin, pero SI son una compra
+    # real y deben aparecer igual (ver marcar_ingresada_manual en
+    # facturas_dte.py).
+    ids_manual = [f["factura_id"] for f in (db.table("planilla_compras_factura_manual").select("factura_id").execute().data or [])]
+    # Dominio de Odoo (notacion Polaca) -- el operador '|' va SUELTO en la
+    # lista plana, aplicando a los dos terminos que le siguen; no se puede
+    # anidar como un elemento normal o Odoo lo interpreta mal.
+    condiciones_base = [['move_type', '=', 'in_invoice'], ['company_id', '=', COMPANY_ID_DONA_DELFINA],
+                         ['invoice_date', '>=', desde], ['invoice_date', '<=', hasta], ['state', '!=', 'cancel']]
+    condiciones_origen = (['|', ['invoice_origin', '!=', False], ['id', 'in', ids_manual]]
+                           if ids_manual else [['invoice_origin', '!=', False]])
     moves = cliente._call('account.move', 'search_read',
-        [[['move_type', '=', 'in_invoice'], ['company_id', '=', COMPANY_ID_DONA_DELFINA],
-          ['invoice_date', '>=', desde], ['invoice_date', '<=', hasta], ['state', '!=', 'cancel'],
-          ['invoice_origin', '!=', False]]],
+        [condiciones_base + condiciones_origen],
         {'fields': ['id', 'partner_id', 'l10n_latam_document_number', 'invoice_date', 'amount_untaxed', 'amount_total'],
          'order': 'invoice_date'})
-
-    db = get_db()
     mapeos = db.table("planilla_compras_proveedor_tipo").select("odoo_partner_id,tipo").execute().data or []
     tipo_por_partner = {m["odoo_partner_id"]: m["tipo"] for m in mapeos}
 
