@@ -318,7 +318,7 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     cliente = _odoo()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
-        {'fields': ['id', 'invoice_id', 'amount_untaxed', 'iva', 'amount_total']})
+        {'fields': ['id', 'invoice_id', 'amount_untaxed', 'amount_total']})
     if not docs:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
     doc = docs[0]
@@ -366,10 +366,15 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
             impuestos_odoo=[tax_nombres.get(t, '?') for t in (ml.get('tax_ids') or [])] if ml else [],
         ))
 
+    neto_dte = _monto(doc.get('amount_untaxed'))
+    total_dte = _monto(doc.get('amount_total'))
     return CompararOut(
         invoice_name=move['name'],
-        neto_dte=_monto(doc.get('amount_untaxed')), iva_dte=_monto(doc.get('iva')), total_dte=_monto(doc.get('amount_total')),
-        neto_odoo=move.get('amount_untaxed') or 0, iva_odoo=move.get('amount_tax') or 0, total_odoo=move.get('amount_total') or 0,
+        # impuestos_dte = Total - Neto (TODOS los impuestos declarados, no
+        # solo 'iva') -- ver el comentario en _verificar_montos: el campo
+        # 'iva' del DTE no incluye otros impuestos reales como el ILA.
+        neto_dte=neto_dte, impuestos_dte=round(total_dte - neto_dte, 2), total_dte=total_dte,
+        neto_odoo=move.get('amount_untaxed') or 0, impuestos_odoo=move.get('amount_tax') or 0, total_odoo=move.get('amount_total') or 0,
         lineas=lineas_out,
     )
 
@@ -387,7 +392,7 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     cliente = _odoo()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
-        {'fields': ['id', 'company_id', 'amount_untaxed', 'iva', 'amount_total']})
+        {'fields': ['id', 'company_id', 'amount_untaxed', 'amount_total']})
     if not docs:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
     doc = docs[0]
@@ -450,12 +455,16 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
             impuestos_acumulados[nombre] = impuestos_acumulados.get(nombre, 0) + subtotal * tasa / 100
 
     total = neto + sum(impuestos_acumulados.values())
+    neto_dte = _monto(doc.get('amount_untaxed'))
+    total_dte = _monto(doc.get('amount_total'))
     return SimularOut(
         neto=round(neto, 2),
         impuestos=[SimularImpuestoOut(nombre=n, monto=round(m, 2)) for n, m in impuestos_acumulados.items()],
         total=round(total, 2),
         lineas_sin_producto=lineas_sin_producto,
-        neto_dte=_monto(doc.get('amount_untaxed')), iva_dte=_monto(doc.get('iva')), total_dte=_monto(doc.get('amount_total')),
+        # impuestos_dte = Total - Neto (TODOS los impuestos declarados) --
+        # ver el comentario en _verificar_montos.
+        neto_dte=neto_dte, impuestos_dte=round(total_dte - neto_dte, 2), total_dte=total_dte,
     )
 
 
@@ -555,13 +564,26 @@ def _monto(valor) -> float:
 
 
 def _verificar_montos(doc: dict, odoo_datos: dict) -> list[str]:
-    """Compara Neto/IVA/Total del DTE contra los mismos montos ya calculados
-    en Odoo (la OC en borrador, antes de confirmar nada) -- deben coincidir
-    o tener maximo TOLERANCIA_MONTOS pesos de diferencia (redondeos).
-    Devuelve la lista de desajustes encontrados (vacia si todo calza)."""
+    """Compara Neto/Impuestos/Total del DTE contra los mismos montos ya
+    calculados en Odoo (la OC en borrador, antes de confirmar nada) -- deben
+    coincidir o tener maximo TOLERANCIA_MONTOS pesos de diferencia
+    (redondeos). Devuelve la lista de desajustes encontrados (vacia si todo
+    calza).
+
+    Ojo: el campo 'iva' del DTE trae SOLO el IVA (19%) -- si el proveedor
+    declara ademas otro impuesto (ej. ILA 31.5% en bebidas alcoholicas), ese
+    monto no queda incluido ahi. odoo_datos['amount_tax'], en cambio, es la
+    suma de TODOS los impuestos de la orden. Comparar 'iva' contra
+    'amount_tax' directo marcaba diferencia SIEMPRE que hubiera un impuesto
+    adicional real y bien configurado (confirmado con un caso real: ILA
+    31.5%, $26.234 de "diferencia" que en realidad era el ILA, no un error).
+    Por eso el lado del DTE se calcula como Total - Neto (todos los
+    impuestos que declara el documento, sin importar el tipo), que es la
+    base correcta para comparar contra el amount_tax de Odoo."""
+    impuestos_dte = _monto(doc.get('amount_total')) - _monto(doc.get('amount_untaxed'))
     comparaciones = (
         ("Neto", doc.get('amount_untaxed'), odoo_datos.get('amount_untaxed')),
-        ("IVA", doc.get('iva'), odoo_datos.get('amount_tax')),
+        ("Impuestos", impuestos_dte, odoo_datos.get('amount_tax')),
         ("Total", doc.get('amount_total'), odoo_datos.get('amount_total')),
     )
     desajustes = []
@@ -961,7 +983,7 @@ def _procesar_item_cola(cola_id: str, dte_id: int):
         cliente = _odoo_sin_http()
         docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
             {'fields': ['id', 'issuer_rut', 'date', 'invoice_id', 'company_id', 'l10n_latam_document_number',
-                        'amount_untaxed', 'iva', 'amount_total']})
+                        'amount_untaxed', 'amount_total']})
         if not docs:
             raise RuntimeError("El DTE ya no existe")
         doc = docs[0]

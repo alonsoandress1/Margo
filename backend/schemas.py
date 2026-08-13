@@ -487,10 +487,10 @@ class CompararLineaOut(BaseModel):
 class CompararOut(BaseModel):
     invoice_name: str
     neto_dte: float
-    iva_dte: float
+    impuestos_dte: float  # TODOS los impuestos declarados (Total - Neto) -- el DTE trae 'iva' como el IVA puro, pero si hay otro impuesto (ej. ILA) no queda incluido ahi, asi que se deriva del total real para poder comparar contra Odoo (que si suma todos los impuestos de la linea)
     total_dte: float
     neto_odoo: float
-    iva_odoo: float
+    impuestos_odoo: float
     total_odoo: float
     lineas: list[CompararLineaOut]
 
@@ -506,7 +506,7 @@ class SimularOut(BaseModel):
     total: float
     lineas_sin_producto: int  # no se pudieron incluir en el calculo -- no se sabe que impuesto usan
     neto_dte: float
-    iva_dte: float
+    impuestos_dte: float  # TODOS los impuestos declarados (Total - Neto), no solo el campo 'iva' -- ver CompararOut
     total_dte: float
 
 

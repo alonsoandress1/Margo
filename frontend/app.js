@@ -2160,9 +2160,10 @@ async function showDteModal(dteId) {
       try {
         const r = await api(`/facturas-dte/${dteId}/simular`);
         const diff = (a, b) => Math.abs(a - b) > 9;
-        // El DTE solo trae un IVA combinado, sin desglose por tipo de
-        // impuesto -- si hay mas de un impuesto distinto no hay con que
-        // comparar cada uno por separado, se muestra "—" en esa fila.
+        // r.impuestos_dte = TODOS los impuestos que declara el DTE (Total -
+        // Neto), no solo el IVA -- si hay mas de un impuesto distinto (ej.
+        // IVA + ILA) no hay como saber del lado del DTE cuanto es de cada
+        // uno, se muestra "—" en esa fila.
         const unSoloImpuesto = r.impuestos.length === 1;
         resumenEl.innerHTML = `
           <table>
@@ -2178,13 +2179,13 @@ async function showDteModal(dteId) {
                 <td>Declarado en el DTE</td>
                 <td class="${diff(r.neto, r.neto_dte) ? 'error-msg' : ''}">${_fmtMonto(r.neto_dte)}</td>
                 ${r.impuestos.map(i => unSoloImpuesto
-                  ? `<td class="${diff(i.monto, r.iva_dte) ? 'error-msg' : ''}">${_fmtMonto(r.iva_dte)}</td>`
+                  ? `<td class="${diff(i.monto, r.impuestos_dte) ? 'error-msg' : ''}">${_fmtMonto(r.impuestos_dte)}</td>`
                   : `<td><span class="placeholder">—</span></td>`).join('')}
                 <td class="${diff(r.total, r.total_dte) ? 'error-msg' : ''}">${_fmtMonto(r.total_dte)}</td>
               </tr>
             </tbody>
           </table>
-          ${!unSoloImpuesto && r.impuestos.length ? `<p class="placeholder" style="margin-top:.4rem">El DTE declara ${_fmtMonto(r.iva_dte)} de impuestos en total, sin desglose por tipo -- no se puede comparar cada uno por separado.</p>` : ''}
+          ${!unSoloImpuesto && r.impuestos.length ? `<p class="placeholder" style="margin-top:.4rem">El DTE declara ${_fmtMonto(r.impuestos_dte)} de impuestos en total, sin desglose por tipo -- no se puede comparar cada uno por separado.</p>` : ''}
           ${r.lineas_sin_producto ? `<p class="placeholder" style="margin-top:.4rem">${r.lineas_sin_producto} línea(s) sin producto asignado no se incluyen en este cálculo.</p>` : ''}`;
       } catch (err) {
         resumenEl.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -2465,13 +2466,13 @@ async function showCompararModal(dteId) {
       <h3>Comparación — ${c.invoice_name}</h3>
       <p class="placeholder" style="margin-bottom:1rem">Lo que declaró el proveedor en su factura electrónica (DTE) vs. lo que quedó realmente creado en Odoo.</p>
       <table style="margin-bottom:1rem">
-        <thead><tr><th></th><th>Neto</th><th>IVA</th><th>Total</th></tr></thead>
+        <thead><tr><th></th><th>Neto</th><th>Impuestos</th><th>Total</th></tr></thead>
         <tbody>
-          <tr><td>DTE del proveedor</td><td>${_fmtMonto(c.neto_dte)}</td><td>${_fmtMonto(c.iva_dte)}</td><td>${_fmtMonto(c.total_dte)}</td></tr>
+          <tr><td>DTE del proveedor</td><td>${_fmtMonto(c.neto_dte)}</td><td>${_fmtMonto(c.impuestos_dte)}</td><td>${_fmtMonto(c.total_dte)}</td></tr>
           <tr>
             <td>Creado en Odoo</td>
             <td class="${diffMonto(c.neto_dte, c.neto_odoo) ? 'error-msg' : ''}">${_fmtMonto(c.neto_odoo)}</td>
-            <td class="${diffMonto(c.iva_dte, c.iva_odoo) ? 'error-msg' : ''}">${_fmtMonto(c.iva_odoo)}</td>
+            <td class="${diffMonto(c.impuestos_dte, c.impuestos_odoo) ? 'error-msg' : ''}">${_fmtMonto(c.impuestos_odoo)}</td>
             <td class="${diffMonto(c.total_dte, c.total_odoo) ? 'error-msg' : ''}">${_fmtMonto(c.total_odoo)}</td>
           </tr>
         </tbody>
