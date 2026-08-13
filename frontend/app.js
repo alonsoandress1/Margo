@@ -27,6 +27,7 @@ let state = {
   facturasPendientes: null,
   planillaItems: null,
   planillaResumen: null,
+  planillaFiltroFolio: '',
   dteCola: [],
   dteColaTimer: null,
   dteFiltroFolio: '',
@@ -2608,7 +2609,12 @@ async function renderPlanillaCompras(el, s) {
   if (!state.planillaMes) state.planillaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
   const items = state.planillaItems || [];
   const resumen = state.planillaResumen || {};
+  const filtro = (state.planillaFiltroFolio || '').trim().toLowerCase();
+  const itemsFiltrados = filtro ? items.filter(it => (it.num_factura || '').toLowerCase().includes(filtro)) : items;
 
+  // Los totales (por Tipo y % Costo Venta) siempre son del mes completo --
+  // el filtro es solo para ubicar una factura puntual mas rapido en la
+  // tabla, no para recalcular el resumen.
   const totalesPorTipo = TIPOS_PLANILLA_COMPRAS.reduce((acc, t) => { acc[t.id] = 0; return acc; }, {});
   let totalGeneral = 0;
   let sinTipo = 0;
@@ -2668,33 +2674,11 @@ async function renderPlanillaCompras(el, s) {
     ${state.planillaItems === null ? '<div class="card"><p class="placeholder">Buscá para ver las facturas del mes.</p></div>' : ''}
     ${state.planillaItems && !items.length ? '<div class="card"><p class="placeholder">No hay facturas ingresadas en Odoo para ese mes.</p></div>' : ''}
     ${items.length ? `
-      <div class="card">
-        ${sinTipo ? `<p class="error-msg" style="margin-bottom:.75rem">${sinTipo} factura(s) de proveedores sin Tipo asignado -- clasifícalos en "Categorías de proveedores".</p>` : ''}
-        <table>
-          <thead><tr><th>Fecha</th><th>Proveedor</th><th>N° Factura</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Tipo</th></tr></thead>
-          <tbody>
-            ${items.map(it => `
-              <tr>
-                <td>${it.fecha || '—'}</td>
-                <td>${it.proveedor_nombre}</td>
-                <td>${it.num_factura || '—'}</td>
-                <td>$${Math.round(it.subtotal).toLocaleString('es-CL')}</td>
-                <td>$${Math.round(it.iva).toLocaleString('es-CL')}</td>
-                <td>$${Math.round(it.total).toLocaleString('es-CL')}</td>
-                <td>
-                  <select class="field" data-tipo-proveedor="${it.proveedor_id}" data-nombre-proveedor="${(it.proveedor_nombre || '').replace(/"/g, '&quot;')}">
-                    <option value="">— Sin asignar —</option>
-                    ${TIPOS_PLANILLA_COMPRAS.map(t => `<option value="${t.id}" ${it.tipo === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
-                  </select>
-                </td>
-              </tr>`).join('')}
-          </tbody>
-          <tfoot>
-            ${TIPOS_PLANILLA_COMPRAS.map(t => `<tr><td colspan="5" style="text-align:right">${t.label}</td><td colspan="2">$${Math.round(totalesPorTipo[t.id]).toLocaleString('es-CL')}</td></tr>`).join('')}
-            <tr><td colspan="5" style="text-align:right"><strong>Total</strong></td><td colspan="2"><strong>$${Math.round(totalGeneral).toLocaleString('es-CL')}</strong></td></tr>
-          </tfoot>
-        </table>
-      </div>` : ''}`;
+      <div style="max-width:280px;margin-bottom:1rem">
+        <label class="field-label">Buscar por N° de factura</label>
+        <input type="text" id="pc-filtro-folio" class="field" style="width:100%" placeholder="Ej. 10199" value="${state.planillaFiltroFolio || ''}">
+      </div>
+      <div id="pc-tabla-card">${_renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, state.planillaFiltroFolio)}</div>` : ''}`;
 
   document.getElementById('pc-mes').addEventListener('change', (e) => { state.planillaMes = e.target.value; });
 
@@ -2761,7 +2745,22 @@ async function renderPlanillaCompras(el, s) {
     }
   });
 
-  el.querySelectorAll('[data-tipo-proveedor]').forEach(sel => {
+  document.getElementById('pc-filtro-folio')?.addEventListener('input', (e) => {
+    state.planillaFiltroFolio = e.target.value;
+    const nuevoFiltro = state.planillaFiltroFolio.trim().toLowerCase();
+    const nuevosItemsFiltrados = nuevoFiltro
+      ? items.filter(it => (it.num_factura || '').toLowerCase().includes(nuevoFiltro))
+      : items;
+    document.getElementById('pc-tabla-card').innerHTML =
+      _renderPlanillaTablaCard(nuevosItemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, nuevoFiltro, state.planillaFiltroFolio);
+    bindPlanillaTipoSelects();
+  });
+
+  bindPlanillaTipoSelects();
+}
+
+function bindPlanillaTipoSelects() {
+  document.querySelectorAll('[data-tipo-proveedor]').forEach(sel => {
     sel.addEventListener('change', async () => {
       const errorEl = document.getElementById('pc-error');
       errorEl.textContent = '';
@@ -2779,6 +2778,38 @@ async function renderPlanillaCompras(el, s) {
       }
     });
   });
+}
+
+function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, filtroTexto) {
+  return `
+    <div class="card">
+      ${sinTipo ? `<p class="error-msg" style="margin-bottom:.75rem">${sinTipo} factura(s) de proveedores sin Tipo asignado -- clasifícalos en "Categorías de proveedores".</p>` : ''}
+      ${filtro && !itemsFiltrados.length ? `<p class="placeholder" style="margin-bottom:.75rem">Ningún N° de factura coincide con "${filtroTexto}".</p>` : ''}
+      <table>
+        <thead><tr><th>Fecha</th><th>Proveedor</th><th>N° Factura</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Tipo</th></tr></thead>
+        <tbody>
+          ${itemsFiltrados.map(it => `
+            <tr>
+              <td>${it.fecha || '—'}</td>
+              <td>${it.proveedor_nombre}</td>
+              <td>${it.num_factura || '—'}</td>
+              <td>$${Math.round(it.subtotal).toLocaleString('es-CL')}</td>
+              <td>$${Math.round(it.iva).toLocaleString('es-CL')}</td>
+              <td>$${Math.round(it.total).toLocaleString('es-CL')}</td>
+              <td>
+                <select class="field" data-tipo-proveedor="${it.proveedor_id}" data-nombre-proveedor="${(it.proveedor_nombre || '').replace(/"/g, '&quot;')}">
+                  <option value="">— Sin asignar —</option>
+                  ${TIPOS_PLANILLA_COMPRAS.map(t => `<option value="${t.id}" ${it.tipo === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
+                </select>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          ${TIPOS_PLANILLA_COMPRAS.map(t => `<tr><td colspan="5" style="text-align:right">${t.label}</td><td colspan="2">$${Math.round(totalesPorTipo[t.id]).toLocaleString('es-CL')}</td></tr>`).join('')}
+          <tr><td colspan="5" style="text-align:right"><strong>Total</strong></td><td colspan="2"><strong>$${Math.round(totalGeneral).toLocaleString('es-CL')}</strong></td></tr>
+        </tfoot>
+      </table>
+    </div>`;
 }
 
 async function showCatalogoProveedoresTipo() {
