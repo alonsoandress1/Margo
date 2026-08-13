@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 
 from ..db import get_db
 from ..deps import get_current_claims
@@ -99,3 +100,30 @@ def actualizar(usuario_id: str, body: UsuarioUpdateIn, claims: dict = Depends(ge
 
     usuario = db.table("usuarios").select("id,email,nombre,rol,activo").eq("id", usuario_id).execute().data[0]
     return _con_locales(db, [usuario])[0]
+
+
+@router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar(usuario_id: str, claims: dict = Depends(get_current_claims)):
+    _require_admin(claims)
+    if usuario_id == claims["sub"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No puedes eliminar tu propia cuenta")
+    db = get_db()
+
+    existente = db.table("usuarios").select("id").eq("id", usuario_id).execute()
+    if not existente.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    db.table("usuario_locales").delete().eq("usuario_id", usuario_id).execute()
+    try:
+        db.table("usuarios").delete().eq("id", usuario_id).execute()
+    except APIError as e:
+        # 23503 = foreign_key_violation -- el usuario tiene historial real
+        # (pedidos creados, facturas procesadas, etc.) referenciado sin cascada
+        # a proposito, para no perder auditoria. En ese caso no se puede
+        # borrar de verdad -- la salida correcta es Desactivar.
+        if e.code == "23503":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "No se puede eliminar: este usuario tiene historial asociado (pedidos, facturas, etc.). Usa \"Desactivar\" en su lugar.",
+            ) from e
+        raise

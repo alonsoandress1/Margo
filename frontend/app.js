@@ -973,7 +973,10 @@ async function renderUsuarios(el, s) {
               <td><span class="badge ${badgeClass[u.rol] || ''}">${u.rol}</span></td>
               <td>${u.locales.map(nombreLocal).join(', ') || '—'}</td>
               <td>${u.activo ? 'Activo' : 'Inactivo'}</td>
-              ${editable ? `<td><button class="btn" data-toggle-activo="${u.id}" data-val="${!u.activo}">${u.activo ? 'Desactivar' : 'Activar'}</button></td>` : ''}
+              ${editable ? `<td>
+                <button class="btn" data-toggle-activo="${u.id}" data-val="${!u.activo}">${u.activo ? 'Desactivar' : 'Activar'}</button>
+                ${u.id !== state.usuario.id ? `<button class="btn btn-reject" data-eliminar="${u.id}" data-nombre="${u.nombre}">Eliminar</button>` : ''}
+              </td>` : ''}
             </tr>`).join('')}
         </tbody>
       </table>
@@ -1008,6 +1011,18 @@ async function renderUsuarios(el, s) {
             method: 'PATCH',
             body: JSON.stringify({ activo: btn.dataset.val === 'true' }),
           });
+          renderView();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+
+    el.querySelectorAll('button[data-eliminar]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm(`¿Eliminar a ${btn.dataset.nombre}? Esta acción no se puede deshacer.`)) return;
+        try {
+          await api(`/usuarios/${btn.dataset.eliminar}`, { method: 'DELETE' });
           renderView();
         } catch (err) {
           alert(err.message);
