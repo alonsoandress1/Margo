@@ -45,28 +45,6 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
-@router.get("/_debug/tipos-dte")
-def _debug_tipos_dte(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL, solo lectura -- contar los DTE pendientes por tipo de
-    documento SII, para ver cuantas Notas de Credito (61) u otros tipos
-    estan mezclados en la lista de Facturas SII."""
-    import traceback
-    from collections import Counter
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        cliente = _odoo()
-        docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
-            [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
-            {'fields': ['id', 'issuer_name', 'l10n_latam_document_number', 'date',
-                        'l10n_latam_document_type_id_code', 'amount_total']})
-        conteo = Counter(d.get('l10n_latam_document_type_id_code') for d in docs)
-        no_33 = [d for d in docs if d.get('l10n_latam_document_type_id_code') != '33']
-        return {'total_pendientes': len(docs), 'conteo_por_tipo': dict(conteo), 'ejemplos_no_33': no_33[:20]}
-    except Exception:
-        return {'error': traceback.format_exc()}
-
-
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
@@ -131,9 +109,13 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
-    una factura borrador creada en Odoo (invoice_id vacio). No incluye
-    proveedores marcados como ocultos (facturas_proveedor_oculto) ni DTE
-    marcados como ingresados a mano (facturas_dte_ingresado_manual --
+    una factura borrador creada en Odoo (invoice_id vacio). Solo Factura
+    Electrónica (tipo SII 33) -- otros tipos (Notas de Crédito, Guías de
+    Despacho, Facturas Exentas, etc.) nunca se pueden procesar en esta
+    pantalla y solo generaban confusión mezclados en la lista (confirmado
+    revisando datos reales: 94 de 704 pendientes eran de otro tipo). No
+    incluye proveedores marcados como ocultos (facturas_proveedor_oculto)
+    ni DTE marcados como ingresados a mano (facturas_dte_ingresado_manual --
     alguien ya creo la factura real en Odoo por fuera de esta pantalla,
     sin que el DTE quedara vinculado a ella)."""
     _require_admin(claims)
@@ -143,14 +125,16 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     cliente = _odoo()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
         [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
-        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'amount_total'],
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'amount_total',
+                    'l10n_latam_document_type_id_code'],
          'order': 'issuer_name, date'})
     return [
         DteOut(id=d['id'], proveedor_rut=d.get('issuer_rut') or '', proveedor_nombre=d.get('issuer_name') or '',
                folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'),
                monto_total=_monto(d.get('amount_total')), tiene_factura=False)
         for d in docs
-        if (d.get('issuer_rut') or '') not in ocultos and d['id'] not in marcados_manual
+        if d.get('l10n_latam_document_type_id_code') == '33'
+        and (d.get('issuer_rut') or '') not in ocultos and d['id'] not in marcados_manual
     ]
 
 
