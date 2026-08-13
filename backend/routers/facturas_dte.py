@@ -45,205 +45,6 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
-@router.get("/_debug/auditoria")
-def _debug_auditoria(claims: dict = Depends(get_current_claims)):
-    """TEMPORAL -- auditoria exhaustiva de los DTE creados hoy en esta
-    sesion: para cada uno, el estado real del DTE, de la factura (account.move)
-    y de la OC que uso -- y si esa OC tiene mas de una factura asociada."""
-    import traceback
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        cliente = _odoo()
-        dte_ids = [81421, 78369, 80875, 81396, 80924, 77293]
-        docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', 'in', dte_ids]]],
-            {'fields': ['id', 'l10n_latam_document_number', 'date', 'invoice_id', 'issuer_name', 'amount_total']})
-        resultado = []
-        for d in docs:
-            item = {'dte_id': d['id'], 'folio': d['l10n_latam_document_number'], 'fecha': d['date'],
-                     'proveedor': d['issuer_name'], 'monto_dte': d['amount_total']}
-            if d.get('invoice_id'):
-                move_id = d['invoice_id'][0]
-                move = cliente._call('account.move', 'read', [[move_id]],
-                    {'fields': ['name', 'invoice_origin', 'amount_total', 'state', 'invoice_date']})[0]
-                item['factura'] = move
-                if move.get('invoice_origin'):
-                    otras_facturas_misma_oc = cliente._call('account.move', 'search_read',
-                        [[['invoice_origin', '=', move['invoice_origin']], ['move_type', '=', 'in_invoice'],
-                          ['state', '!=', 'cancel']]],
-                        {'fields': ['id', 'name', 'amount_total', 'invoice_date']})
-                    item['otras_facturas_misma_oc'] = otras_facturas_misma_oc
-                    po = cliente._call('purchase.order', 'search_read',
-                        [[['name', '=', move['invoice_origin']]]],
-                        {'fields': ['id', 'name', 'amount_total', 'invoice_status', 'state']})
-                    item['oc'] = po[0] if po else None
-            else:
-                item['factura'] = None
-            resultado.append(item)
-
-        # Chequeo directo, independiente del campo invoice_id del DTE (que
-        # para 80924 aparecio en False despues de haberse creado la factura
-        # con exito) -- buscar las facturas conocidas por NOMBRE, para saber
-        # si siguen existiendo de verdad en Odoo aunque el DTE ya no apunte.
-        nombres_conocidos = ['FAC 010036', 'FAC 010210', 'FAC 010271', 'FAC 010274', 'FAC 9666624']
-        moves_directos = cliente._call('account.move', 'search_read',
-            [[['name', 'in', nombres_conocidos], ['move_type', '=', 'in_invoice']]],
-            {'fields': ['id', 'name', 'invoice_origin', 'amount_total', 'state', 'invoice_date', 'partner_id']})
-
-        # Chequeo por ID exacto -- las facturas que sabemos con certeza que
-        # se crearon esta sesion, leidas directo por su id de Odoo (no por
-        # nombre, que puede haber cambiado o no ser unico).
-        moves_por_id = []
-        for mid in [1330803, 1330878, 1330876, 1330983]:
-            try:
-                m = cliente._call('account.move', 'read', [[mid]],
-                    {'fields': ['name', 'invoice_origin', 'amount_total', 'state', 'invoice_date', 'partner_id', 'move_type']})
-                moves_por_id.append(m[0] if m else {'id': mid, 'existe': False})
-            except Exception as e:
-                moves_por_id.append({'id': mid, 'error': str(e)})
-
-        # Reconstruir la linea de tiempo: la factura vieja (1322131, PO
-        # P19741) -- cuando se creo -- y si la OC P19867 (la que cree yo,
-        # cuya factura 1330983 ya no existe) sigue dando vueltas huerfana.
-        try:
-            m_vieja = cliente._call('account.move', 'read', [[1322131]],
-                {'fields': ['name', 'invoice_origin', 'create_date', 'amount_total', 'state']})[0]
-        except Exception as e:
-            m_vieja = {'error': str(e)}
-        try:
-            po_p19741 = cliente._call('purchase.order', 'search_read', [[['name', '=', 'P19741']]],
-                {'fields': ['id', 'name', 'create_date', 'amount_total', 'state', 'invoice_status']})
-        except Exception as e:
-            po_p19741 = {'error': str(e)}
-        try:
-            po_p19867 = cliente._call('purchase.order', 'search_read', [[['name', '=', 'P19867']]],
-                {'fields': ['id', 'name', 'create_date', 'amount_total', 'state', 'invoice_status']})
-        except Exception as e:
-            po_p19867 = {'error': str(e)}
-
-        # OC P19867 (la que cree yo por duplicado) -- ver si su recepcion de
-        # mercaderia (picking) ya quedo validada (done). Si es asi, no se
-        # puede cancelar/eliminar la OC directo -- primero habria que
-        # devolver el stock (stock.return.picking), como ya paso una vez
-        # antes en este proyecto con otro bug de duplicados.
-        po_p19867_pickings = None
-        if po_p19867 and not isinstance(po_p19867, dict):
-            po_full = cliente._call('purchase.order', 'read', [[po_p19867[0]['id']]], {'fields': ['picking_ids']})[0]
-            po_p19867_pickings = cliente._call('stock.picking', 'read', [po_full['picking_ids']],
-                {'fields': ['name', 'state', 'move_ids']}) if po_full['picking_ids'] else []
-
-        return {
-            'por_dte': resultado, 'busqueda_directa_por_nombre': moves_directos, 'por_id_exacto': moves_por_id,
-            'factura_vieja_1322131': m_vieja, 'po_p19741': po_p19741, 'po_p19867_huerfana': po_p19867,
-            'po_p19867_pickings': po_p19867_pickings,
-        }
-    except Exception:
-        return {'error': traceback.format_exc()}
-
-
-@router.get("/_debug/movimientos-p19867")
-def _debug_movimientos_p19867(claims: dict = Depends(get_current_claims)):
-    """TEMPORAL, solo lectura -- detalle de los movimientos de stock de la
-    OC huerfana P19867, para saber que hay que revertir."""
-    import traceback
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        cliente = _odoo()
-        moves = cliente._call('stock.move', 'read', [[5355878, 5355879]],
-            {'fields': ['product_id', 'product_uom_qty', 'quantity', 'state', 'location_id', 'location_dest_id']})
-        return {'moves': moves}
-    except Exception:
-        return {'error': traceback.format_exc()}
-
-
-@router.get("/_debug/pickings-po")
-def _debug_pickings_po(po_id: int, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL, solo lectura -- todos los pickings de una OC, para ver el
-    estado de una devolucion que quedo a medio hacer."""
-    import traceback
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        cliente = _odoo()
-        po = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['picking_ids']})[0]
-        pickings = cliente._call('stock.picking', 'read', [po['picking_ids']],
-            {'fields': ['name', 'state', 'move_line_ids', 'origin', 'picking_type_id']})
-        return {'pickings': pickings}
-    except Exception:
-        return {'error': traceback.format_exc()}
-
-
-@router.post("/_fix/vincular-dte-80924")
-def _fix_vincular_dte_80924(claims: dict = Depends(get_current_claims)):
-    """TEMPORAL, UN SOLO USO -- autorizado explicitamente por el usuario.
-    Vincula el DTE 80924 a la factura real que ya existia (1322131, PO
-    P19741) -- no crea ni borra nada, solo escribe invoice_id en el DTE
-    (mismo campo que ya escribe _ejecutar_creacion al terminar normalmente).
-    Corrige el caso real encontrado: el DTE habia quedado sin vinculo
-    despues de que se borrara a mano la factura duplicada que este sistema
-    creo por error (1330983, antes de la validacion contra facturas
-    preexistentes)."""
-    if claims["rol"] != "administrador":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-    cliente = _odoo()
-    cliente._call('l10n_cl.supplier.xml', 'write', [[80924], {'invoice_id': 1322131}])
-    return {"ok": True, "dte_id": 80924, "invoice_id": 1322131}
-
-
-@router.post("/_fix/eliminar-oc-huerfana-p19867")
-def _fix_eliminar_oc_huerfana_p19867(claims: dict = Depends(get_current_claims)):
-    """TEMPORAL, UN SOLO USO -- autorizado explicitamente por el usuario
-    ("elimina todo su interior"). Limpia la OC duplicada P19867 (id 132813)
-    que quedo huerfana (sin factura) despues de que se borrara a mano la
-    factura duplicada -- su recepcion de mercaderia ya estaba validada
-    (done), asi que primero hay que devolver el stock (stock.return.picking,
-    16 Choclo Minuto Verde + 16 Arandanos, Delfi/Stock -> Vendors) antes de
-    poder cancelar y eliminar la OC."""
-    import traceback
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        cliente = _odoo()
-        po_id = 132813
-
-        # La devolucion real (879957) ya quedo 'done' en un intento anterior
-        # -- se cancela cualquier devolucion redundante que haya quedado sin
-        # terminar (879961, estado 'assigned', nunca llego a mover stock),
-        # sin crear una devolucion nueva.
-        po_pickings = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['picking_ids']})[0]
-        pickings_actuales = cliente._call('stock.picking', 'read', [po_pickings['picking_ids']],
-            {'fields': ['name', 'state', 'picking_type_id']})
-        for p in pickings_actuales:
-            if p['picking_type_id'][1] == 'Doña Delfina: Órdenes de entrega' and p['state'] not in ('done', 'cancel'):
-                cliente._call('stock.picking', 'action_cancel', [[p['id']]])
-
-        error_cancel = None
-        try:
-            cliente._call('purchase.order', 'button_cancel', [[po_id]])
-        except Exception as e:
-            error_cancel = str(e)
-
-        po_estado = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['state']})[0]
-
-        limpio = True
-        error_unlink = None
-        try:
-            cliente._call('purchase.order', 'unlink', [[po_id]])
-        except Exception as e:
-            limpio = False
-            error_unlink = str(e)
-
-        return {
-            'error_cancel_capturado': error_cancel,
-            'estado_oc_despues_de_cancelar': po_estado,
-            'oc_eliminada': limpio,
-            'error_unlink': error_unlink,
-        }
-    except Exception:
-        return {'error': traceback.format_exc()}
-
-
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
 # de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
 # creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
@@ -733,6 +534,29 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
                 f"sin uno claramente mas usado como proveedor -- hay que resolverlo a mano en Odoo"
             )
         partner_id = ranking[0]['id']
+
+    # Verificar que no exista YA una factura real para este mismo documento
+    # (mismo proveedor + mismo folio), aunque el DTE nunca haya quedado
+    # vinculado a ella -- esto puede pasar si alguien crea la factura por
+    # otro camino (a mano en Odoo, u otro proceso de compras) sin pasar por
+    # esta pantalla. Encontrado con un caso real: una factura de Alimentos y
+    # Frutos S.A. ya existia (creada por otro proceso, nunca vinculada al
+    # DTE) y este sistema creo una segunda factura duplicada para el mismo
+    # folio antes de tener esta validacion. Aplica a CUALQUIER proveedor,
+    # no solo a Doña Sofía.
+    folio = str(doc.get('l10n_latam_document_number') or '').strip()
+    if folio:
+        ya_facturada = cliente._call('account.move', 'search_read',
+            [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'],
+              ['l10n_latam_document_number', '=', folio], ['state', '!=', 'cancel']]],
+            {'fields': ['id', 'name', 'amount_total']})
+        if ya_facturada:
+            nombres = ', '.join(m['name'] for m in ya_facturada)
+            raise RuntimeError(
+                f"Ya existe una factura en Odoo para este folio ({nombres}) aunque el DTE no estaba vinculado "
+                f"a ella -- no se creó nada nuevo. Si es la factura correcta, hay que vincularla a mano; "
+                f"si no, revisar con contabilidad"
+            )
 
     # Condicion de pago -- la que el proveedor ya tiene configurada por
     # defecto en Odoo. Al crear la OC por API (no por el formulario) Odoo NO
