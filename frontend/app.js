@@ -2069,7 +2069,10 @@ async function showDteModal(dteId) {
   document.body.appendChild(overlay);
 
   async function recargar() {
-    const dte = await api(`/facturas-dte/${dteId}`);
+    const [dte, descuento] = await Promise.all([
+      api(`/facturas-dte/${dteId}`),
+      api(`/facturas-dte/${dteId}/descuento`),
+    ]);
     // "sugerido" = todavia no se escribio en Odoo, solo es una propuesta de
     // nuestro mapeo -- hay que confirmarla (boton "Confirmar / cambiar")
     // antes de que cuente como matcheada de verdad.
@@ -2077,6 +2080,17 @@ async function showDteModal(dteId) {
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
+      <div class="item-row" style="max-width:360px;margin-bottom:1rem;align-items:flex-end">
+        <div style="flex:1">
+          <label class="field-label">Descuento (%) -- se aplica a todas las líneas</label>
+          <input type="number" id="dte-descuento-input" class="field" style="width:100%" min="0" max="100" step="any" value="${descuento.descuento_pct}">
+        </div>
+        <button type="button" class="btn" id="dte-descuento-guardar">Guardar</button>
+      </div>
+      <p class="placeholder" id="dte-descuento-nota" style="margin-bottom:1rem">${descuento.es_manual
+        ? 'Confirmado a mano.'
+        : 'Calculado automático (Neto declarado vs. suma de líneas sin descuento) -- revisa y confirma o corrige.'}</p>
+      <p id="dte-descuento-error" class="error-msg"></p>
       <table>
         <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
@@ -2128,6 +2142,23 @@ async function showDteModal(dteId) {
       </div>`;
 
     overlay.querySelector('#dte-modal-cerrar').onclick = () => overlay.remove();
+
+    overlay.querySelector('#dte-descuento-guardar').onclick = async () => {
+      const input = overlay.querySelector('#dte-descuento-input');
+      const errorEl = overlay.querySelector('#dte-descuento-error');
+      errorEl.textContent = '';
+      const valor = parseFloat(input.value);
+      if (isNaN(valor) || valor < 0 || valor > 100) {
+        errorEl.textContent = 'Ingresa un número entre 0 y 100.';
+        return;
+      }
+      try {
+        await api(`/facturas-dte/${dteId}/descuento`, { method: 'PUT', body: JSON.stringify({ descuento_pct: valor }) });
+        overlay.querySelector('#dte-descuento-nota').textContent = 'Confirmado a mano.';
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    };
 
     overlay.querySelectorAll('[data-buscar-linea]').forEach(btn => {
       btn.onclick = () => {

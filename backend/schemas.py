@@ -461,6 +461,15 @@ class FactorConversionIn(BaseModel):
     factor_conversion: float = Field(gt=0)
 
 
+class DescuentoDteOut(BaseModel):
+    descuento_pct: float
+    es_manual: bool  # False = calculado por defecto, todavia no lo confirmo un admin
+
+
+class DescuentoDteIn(BaseModel):
+    descuento_pct: float = Field(ge=0, le=100)
+
+
 class CompararLineaOut(BaseModel):
     item_name: str
     qty_dte: float
