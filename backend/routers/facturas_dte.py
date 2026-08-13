@@ -80,6 +80,30 @@ def _debug_marcado_manual(folio: str, claims: dict = Depends(get_current_claims)
     return resultado
 
 
+@router.get("/_debug/facturas-proveedor")
+def _debug_facturas_proveedor(rut: str, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- ver todas las facturas/OC recientes de un proveedor,
+    sin filtrar por folio exacto (para revisar formato real del folio).
+    Borrar despues."""
+    if claims["rol"] != "administrador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
+    cliente = _odoo()
+    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', rut]]], {'fields': ['id', 'name']})
+    partner_ids = [p['id'] for p in partners]
+    facturas = []
+    ocs = []
+    if partner_ids:
+        facturas = cliente._call('account.move', 'search_read',
+            [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice']]],
+            {'fields': ['id', 'name', 'l10n_latam_document_number', 'invoice_origin', 'state', 'invoice_date'],
+             'order': 'id desc', 'limit': 15})
+        ocs = cliente._call('purchase.order', 'search_read',
+            [[['partner_id', 'in', partner_ids]]],
+            {'fields': ['id', 'name', 'state', 'invoice_status', 'date_order', 'amount_total'],
+             'order': 'id desc', 'limit': 15})
+    return {'partners': partners, 'facturas_recientes': facturas, 'ocs_recientes': ocs}
+
+
 
 
 
