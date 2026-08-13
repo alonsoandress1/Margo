@@ -25,7 +25,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from postgrest.exceptions import APIError
 
 from ..db import get_db
@@ -116,7 +116,8 @@ def _mejor_codigo(codigos: list[dict], item_name: str | None = None) -> tuple[st
 
 @router.get("", response_model=list[DteOut])
 def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current_claims),
-                       odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+                       odoo_creds: tuple[str, str] = Depends(get_odoo_credentials),
+                       x_odoo_company_id: str | None = Header(default=None)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
     una factura borrador creada en Odoo (invoice_id vacio). Solo Factura
     Electrónica (tipo SII 33) -- otros tipos (Notas de Crédito, Guías de
@@ -126,14 +127,26 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     incluye proveedores marcados como ocultos (facturas_proveedor_oculto)
     ni DTE marcados como ingresados a mano (facturas_dte_ingresado_manual --
     alguien ya creo la factura real en Odoo por fuera de esta pantalla,
-    sin que el DTE quedara vinculado a ella)."""
+    sin que el DTE quedara vinculado a ella).
+
+    x_odoo_company_id es la empresa que la persona eligio en el frontend
+    (GET /odoo/empresas, solo se le pregunta si tiene acceso a 2 o mas) --
+    sin esto, un usuario con acceso a varias empresas en Odoo veria DTE de
+    TODAS mezclados en una sola lista, sin forma de saber a que local
+    pertenece cada uno."""
     _require_admin(claims)
     db = get_db()
     ocultos = {f["proveedor_rut"] for f in (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
     marcados_manual = {f["dte_id"] for f in (db.table("facturas_dte_ingresado_manual").select("dte_id").execute().data or [])}
     cliente = _odoo(odoo_creds)
+    domain = [['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]
+    if x_odoo_company_id:
+        try:
+            domain.append(['company_id', '=', int(x_odoo_company_id)])
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Odoo-Company-Id invalido")
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
-        [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
+        [domain],
         {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'amount_total',
                     'l10n_latam_document_type_id_code'],
          'order': 'issuer_name, date'})

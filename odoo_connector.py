@@ -300,6 +300,8 @@ class OdooWebSession:
         self.url     = url.rstrip('/')
         self.timeout = timeout
         self.uid: Optional[int] = None
+        self.companies: list[dict] = []
+        self.current_company_id: Optional[int] = None
         self._cookiejar = http.cookiejar.CookieJar()
         self._opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self._cookiejar))
@@ -340,6 +342,18 @@ class OdooWebSession:
             if not uid:
                 return False, "No se pudo confirmar la sesión tras el login."
             self.uid = int(uid)
+
+            # Las empresas a las que tiene acceso el usuario vienen gratis en
+            # esta misma respuesta (get_session_info) -- no hace falta una
+            # llamada aparte a Odoo para saber si tiene una sola o varias.
+            user_companies = (info or {}).get('user_companies') or {}
+            allowed = user_companies.get('allowed_companies') or {}
+            self.companies = [
+                {'id': int(cid), 'name': c.get('name') or f'Empresa {cid}'}
+                for cid, c in allowed.items()
+            ]
+            self.current_company_id = user_companies.get('current_company')
+
             return True, f"Conectado — usuario #{self.uid} (sesión web, sin db explícita)"
         except urllib.error.URLError as e:
             return False, f"Error de red: {e}"
@@ -433,6 +447,15 @@ class OdooWebSession:
              'invoice_origin': m.get('invoice_origin') or None, 'lineas': lineas_por_move.get(m['id'], [])}
             for m in moves
         ]
+
+    def listar_empresas(self) -> list[dict]:
+        """Empresas (res.company) a las que tiene acceso el usuario recien
+        conectado -- ya vino en la respuesta del login, no hace falta pedirla
+        aparte. Se usa para que, si tiene acceso a 2 o mas, la web le pida
+        elegir con cual va a trabajar en esta sesion (en vez de que Odoo
+        decida solo con la empresa "activa" que ese usuario tenga en su
+        propia sesion de Odoo, que puede no ser la que corresponde aca)."""
+        return self.companies
 
     def buscar_company_id_por_nombre(self, nombre: str) -> int | None:
         """Busca el id de res.company que corresponde a un local por nombre

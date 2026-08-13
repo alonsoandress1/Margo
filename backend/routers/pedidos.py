@@ -203,7 +203,8 @@ def eliminar_pedido(pedido_id: str, claims: dict = Depends(get_current_claims)):
 @router.post("/{pedido_id}/generar-oc", response_model=GenerarOCOut)
 def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
                 x_odoo_user: str | None = Header(default=None),
-                x_odoo_password: str | None = Header(default=None)):
+                x_odoo_password: str | None = Header(default=None),
+                x_odoo_company_id: str | None = Header(default=None)):
     """Genera la accion de compra de un pedido ya aprobado, insumo por
     insumo se elige el proveedor mas barato entre los registrados:
     - Si ese proveedor tiene integracion a Odoo (usa_odoo=true, hoy solo
@@ -211,6 +212,10 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
       Odoo de la persona conectada (nunca una cuenta compartida) -- por eso
       NO se usa Depends(get_odoo_credentials) aca: solo hace falta pedirlas
       si algun proveedor del pedido realmente usa Odoo, no siempre.
+      x_odoo_company_id es la empresa que la persona eligio en el frontend
+      (GET /odoo/empresas, solo se le pregunta si tiene acceso a 2 o mas) --
+      si no viene (usuario con una sola empresa), se cae al viejo mecanismo
+      de adivinarla por el nombre del local.
     - Si no, se envia un correo con el nombre del proveedor y las
       cantidades solicitadas, al destinatario configurado en Configuración."""
     if claims["rol"] == "observador":
@@ -277,18 +282,27 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
                         raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
                     raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
 
-                # Se fuerza la empresa del LOCAL del pedido (no la que el
-                # usuario de Odoo tenga activa en su sesion) -- un usuario con
-                # acceso a varias empresas en Odoo no necesariamente tiene
-                # activa la del local correcto, y sin forzarla la OC se crea
-                # bajo la empresa equivocada sin avisar.
-                odoo_company_id = odoo_session.buscar_company_id_por_nombre(local["nombre"])
-                if odoo_company_id is None:
-                    raise HTTPException(
-                        status.HTTP_502_BAD_GATEWAY,
-                        f"No se encontró en Odoo una empresa con nombre parecido a \"{local['nombre']}\" -- "
-                        "revisa que el nombre del local coincida con el de la empresa en Odoo (Ajustes > Empresas)",
-                    )
+                # Se fuerza la empresa correcta -- un usuario de Odoo con
+                # acceso a varias empresas no necesariamente tiene activa la
+                # del local correcto en su propia sesion de Odoo, y sin
+                # forzarla la OC se crea bajo la empresa equivocada sin
+                # avisar. Primero la que la persona eligio en el frontend
+                # (ve GET /odoo/empresas); si no vino (solo tiene una
+                # empresa, no se le pregunto), se cae a adivinarla por el
+                # nombre del local.
+                if x_odoo_company_id:
+                    try:
+                        odoo_company_id = int(x_odoo_company_id)
+                    except ValueError:
+                        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Odoo-Company-Id invalido")
+                else:
+                    odoo_company_id = odoo_session.buscar_company_id_por_nombre(local["nombre"])
+                    if odoo_company_id is None:
+                        raise HTTPException(
+                            status.HTTP_502_BAD_GATEWAY,
+                            f"No se encontró en Odoo una empresa con nombre parecido a \"{local['nombre']}\" -- "
+                            "revisa que el nombre del local coincida con el de la empresa en Odoo (Ajustes > Empresas)",
+                        )
 
             bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))
             total_bloques = len(bloques)

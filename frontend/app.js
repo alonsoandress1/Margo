@@ -27,6 +27,10 @@ let state = {
   // (ver asegurarCredencialesOdoo) y se pierden al cerrar o recargar.
   odooUsuario: null,
   odooPassword: null,
+  // Empresa de Odoo elegida para esta sesion -- solo se pregunta si el
+  // usuario de Odoo tiene acceso a 2 o mas (ver GET /odoo/empresas).
+  odooEmpresaId: null,
+  odooEmpresaNombre: null,
   section: 'resumen',
   locales: [],
   facturasPendientes: null,
@@ -118,9 +122,10 @@ function diasDeLaSemana(fechaISO) {
 let _odooCredsPromise = null;
 
 function _odooHeaders() {
-  return state.odooUsuario
-    ? { 'X-Odoo-User': state.odooUsuario, 'X-Odoo-Password': state.odooPassword }
-    : {};
+  if (!state.odooUsuario) return {};
+  const headers = { 'X-Odoo-User': state.odooUsuario, 'X-Odoo-Password': state.odooPassword };
+  if (state.odooEmpresaId) headers['X-Odoo-Company-Id'] = state.odooEmpresaId;
+  return headers;
 }
 
 function pedirCredencialesOdoo(mensaje) {
@@ -129,32 +134,96 @@ function pedirCredencialesOdoo(mensaje) {
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
       <div class="modal-box" style="width:380px">
-        <h3>Credenciales de Odoo</h3>
-        <p class="placeholder" style="margin-bottom:1rem">${mensaje || 'Ingresa tu usuario y contraseña de Odoo para continuar.'}</p>
+        <h3 id="odoo-creds-title">Credenciales de Odoo</h3>
+        <p class="placeholder" style="margin-bottom:1rem" id="odoo-creds-msg">${mensaje || 'Ingresa tu usuario y contraseña de Odoo para continuar.'}</p>
         <form id="odoo-creds-form">
-          <label class="field-label">Usuario Odoo</label>
-          <input type="text" id="odoo-creds-user" class="field" required autocomplete="username" style="width:100%;margin-bottom:0.75rem">
-          <label class="field-label">Contraseña Odoo</label>
-          <input type="password" id="odoo-creds-pass" class="field" required autocomplete="current-password" style="width:100%;margin-bottom:1rem">
-          <button type="submit" class="btn btn-primary">Entrar</button>
+          <div id="odoo-creds-login-fields">
+            <label class="field-label">Usuario Odoo</label>
+            <input type="text" id="odoo-creds-user" class="field" required autocomplete="username" style="width:100%;margin-bottom:0.75rem">
+            <label class="field-label">Contraseña Odoo</label>
+            <input type="password" id="odoo-creds-pass" class="field" required autocomplete="current-password" style="width:100%;margin-bottom:1rem">
+          </div>
+          <div id="odoo-creds-empresa-field" hidden>
+            <label class="field-label">Empresa</label>
+            <select id="odoo-creds-empresa" class="field" style="width:100%;margin-bottom:1rem"></select>
+          </div>
+          <button type="submit" class="btn btn-primary" id="odoo-creds-submit">Entrar</button>
           <button type="button" class="btn" id="odoo-creds-cancel">Cancelar</button>
         </form>
       </div>`;
     document.body.appendChild(overlay);
+
+    const loginFields = overlay.querySelector('#odoo-creds-login-fields');
+    const empresaField = overlay.querySelector('#odoo-creds-empresa-field');
+    const empresaSelect = overlay.querySelector('#odoo-creds-empresa');
+    const submitBtn = overlay.querySelector('#odoo-creds-submit');
+    let paso = 'login';
+
     overlay.querySelector('#odoo-creds-cancel').onclick = () => {
       overlay.remove();
       reject(new Error('Ingreso a Odoo cancelado'));
     };
-    overlay.querySelector('#odoo-creds-form').addEventListener('submit', (e) => {
+
+    overlay.querySelector('#odoo-creds-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const usuario = overlay.querySelector('#odoo-creds-user').value.trim();
-      const password = overlay.querySelector('#odoo-creds-pass').value;
-      if (!usuario || !password) return;
-      state.odooUsuario = usuario;
-      state.odooPassword = password;
+
+      if (paso === 'login') {
+        const usuario = overlay.querySelector('#odoo-creds-user').value.trim();
+        const password = overlay.querySelector('#odoo-creds-pass').value;
+        if (!usuario || !password) return;
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Conectando…';
+        let empresas = [];
+        try {
+          const res = await fetch('/odoo/empresas', {
+            headers: {
+              ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+              'X-Odoo-User': usuario, 'X-Odoo-Password': password,
+            },
+          });
+          if (res.ok) empresas = await res.json();
+        } catch (_) {
+          // Si esto falla (red, etc.) se sigue de largo igual -- el
+          // reintento de la llamada original ya valida las credenciales
+          // en serio y muestra su propio error si algo esta mal.
+        }
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Entrar';
+
+        state.odooUsuario = usuario;
+        state.odooPassword = password;
+
+        if (empresas.length > 1) {
+          loginFields.hidden = true;
+          empresaField.hidden = false;
+          empresaSelect.innerHTML = empresas.map(emp => `<option value="${emp.id}">${emp.name}</option>`).join('');
+          overlay.querySelector('#odoo-creds-title').textContent = 'Elige la empresa';
+          overlay.querySelector('#odoo-creds-msg').textContent =
+            'Tu usuario de Odoo tiene acceso a varias empresas -- elige con cuál vas a trabajar en esta sesión.';
+          paso = 'empresa';
+          empresaSelect.focus();
+          return;
+        }
+
+        if (empresas.length === 1) {
+          state.odooEmpresaId = String(empresas[0].id);
+          state.odooEmpresaNombre = empresas[0].name;
+          _actualizarUserInfo();
+        }
+        overlay.remove();
+        resolve();
+        return;
+      }
+
+      const elegida = empresaSelect.selectedOptions[0];
+      state.odooEmpresaId = elegida.value;
+      state.odooEmpresaNombre = elegida.textContent;
+      _actualizarUserInfo();
       overlay.remove();
       resolve();
     });
+
     overlay.querySelector('#odoo-creds-user').focus();
   });
 }
@@ -182,7 +251,7 @@ async function api(path, options = {}) {
     const body = await res.json().catch(() => ({}));
     await asegurarCredencialesOdoo(body.detail);
     res = await doFetch();
-    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; state.odooEmpresaId = null; state.odooEmpresaNombre = null; }
   }
   if (res.status === 401) {
     logout();
@@ -209,7 +278,7 @@ async function apiUpload(path, formData) {
     const body = await res.json().catch(() => ({}));
     await asegurarCredencialesOdoo(body.detail);
     res = await doFetch();
-    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; state.odooEmpresaId = null; state.odooEmpresaNombre = null; }
   }
   if (res.status === 401) {
     logout();
@@ -234,7 +303,7 @@ async function apiDownload(path, filename) {
     const body = await res.json().catch(() => ({}));
     await asegurarCredencialesOdoo(body.detail);
     res = await doFetch();
-    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; state.odooEmpresaId = null; state.odooEmpresaNombre = null; }
   }
   if (res.status === 401) {
     logout();
@@ -262,7 +331,7 @@ async function apiViewBlob(path) {
     const body = await res.json().catch(() => ({}));
     await asegurarCredencialesOdoo(body.detail);
     res = await doFetch();
-    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; }
+    if (res.status === 428) { state.odooUsuario = null; state.odooPassword = null; state.odooEmpresaId = null; state.odooEmpresaNombre = null; }
   }
   if (res.status === 401) {
     logout();
@@ -285,11 +354,18 @@ function showLogin() {
   document.getElementById('app-view').hidden = true;
 }
 
+function _actualizarUserInfo() {
+  const el = document.getElementById('user-info');
+  if (!el || !state.usuario) return;
+  el.textContent = state.odooEmpresaNombre
+    ? `${state.usuario.nombre} · ${state.usuario.rol} · Odoo: ${state.odooEmpresaNombre}`
+    : `${state.usuario.nombre} · ${state.usuario.rol}`;
+}
+
 function showApp() {
   document.getElementById('login-view').hidden = true;
   document.getElementById('app-view').hidden = false;
-  document.getElementById('user-info').textContent =
-    `${state.usuario.nombre} · ${state.usuario.rol}`;
+  _actualizarUserInfo();
   renderNav();
   renderView();
 }
@@ -301,6 +377,8 @@ function logout() {
   state.usuario = null;
   state.odooUsuario = null;
   state.odooPassword = null;
+  state.odooEmpresaId = null;
+  state.odooEmpresaNombre = null;
   showLogin();
 }
 
