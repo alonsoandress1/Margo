@@ -974,6 +974,7 @@ async function renderUsuarios(el, s) {
               <td>${u.locales.map(nombreLocal).join(', ') || '—'}</td>
               <td>${u.activo ? 'Activo' : 'Inactivo'}</td>
               ${editable ? `<td>
+                <button class="btn" data-editar="${u.id}">Editar</button>
                 <button class="btn" data-toggle-activo="${u.id}" data-val="${!u.activo}">${u.activo ? 'Desactivar' : 'Activar'}</button>
                 ${u.id !== state.usuario.id ? `<button class="btn btn-reject" data-eliminar="${u.id}" data-nombre="${u.nombre}">Eliminar</button>` : ''}
               </td>` : ''}
@@ -1004,6 +1005,10 @@ async function renderUsuarios(el, s) {
       }
     });
 
+    el.querySelectorAll('button[data-editar]').forEach(btn => {
+      btn.onclick = () => showEditarUsuarioModal(usuarios.find(u => u.id === btn.dataset.editar), locales);
+    });
+
     el.querySelectorAll('button[data-toggle-activo]').forEach(btn => {
       btn.onclick = async () => {
         try {
@@ -1030,6 +1035,57 @@ async function renderUsuarios(el, s) {
       };
     });
   }
+}
+
+function showEditarUsuarioModal(usuario, locales) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box" style="width:420px">
+      <h3>Editar usuario</h3>
+      <form id="edit-usr-form">
+        <label class="field-label">Nombre</label>
+        <input class="field" id="edit-usr-nombre" style="width:100%;margin-bottom:.75rem" required value="${usuario.nombre}">
+        <label class="field-label">Rol</label>
+        <select id="edit-usr-rol" class="field" style="width:100%;margin-bottom:.75rem">
+          <option value="solicitante" ${usuario.rol === 'solicitante' ? 'selected' : ''}>Solicitante</option>
+          <option value="administrador" ${usuario.rol === 'administrador' ? 'selected' : ''}>Administrador</option>
+          <option value="observador" ${usuario.rol === 'observador' ? 'selected' : ''}>Observador</option>
+        </select>
+        <div style="margin-bottom:.75rem">
+          <label class="field-label">Locales asignados (solo aplica a Solicitante)</label>
+          ${locales.map(l => `
+            <label style="font-size:.8rem;color:var(--t2);margin-right:1rem">
+              <input type="checkbox" class="edit-usr-local-chk" value="${l.id}" ${usuario.locales.includes(l.id) ? 'checked' : ''}> ${l.nombre}
+            </label>`).join('')}
+        </div>
+        <label class="field-label">Nueva contraseña</label>
+        <input class="field" id="edit-usr-password" type="password" placeholder="Dejar en blanco para no cambiarla" style="width:100%;margin-bottom:1rem">
+        <button type="submit" class="btn btn-primary">Guardar</button>
+        <button type="button" class="btn" id="edit-usr-cancel">Cancelar</button>
+        <p id="edit-usr-error" class="error-msg"></p>
+      </form>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#edit-usr-cancel').onclick = () => overlay.remove();
+  overlay.querySelector('#edit-usr-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = overlay.querySelector('#edit-usr-error');
+    const password = overlay.querySelector('#edit-usr-password').value;
+    const body = {
+      nombre: overlay.querySelector('#edit-usr-nombre').value.trim(),
+      rol: overlay.querySelector('#edit-usr-rol').value,
+      locales: Array.from(overlay.querySelectorAll('.edit-usr-local-chk:checked')).map(c => c.value),
+    };
+    if (password) body.password = password;
+    try {
+      await api(`/usuarios/${usuario.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      overlay.remove();
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
 }
 
 async function renderParStock(el, s) {
