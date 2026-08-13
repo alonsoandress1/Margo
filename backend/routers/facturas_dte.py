@@ -38,7 +38,7 @@ from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
-                       FactorConversionOut, ImpuestoOut, LineaManualIn, ProductoImpuestosIn, ProductoImpuestosOut,
+                       ImpuestoOut, LineaManualIn, ProductoImpuestosIn, ProductoImpuestosOut,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
@@ -346,19 +346,6 @@ def fijar_impuestos_producto(producto_id: int, body: ProductoImpuestosIn, claims
              "impuesto_nombre": nombre, "actualizado_por": claims["sub"]}
             for nombre in body.impuesto_nombres
         ]).execute()
-
-
-@router.get("/mapeo/factor", response_model=FactorConversionOut)
-def obtener_factor_conversion(proveedor_rut: str, codigo_tipo: str, codigo_valor: str,
-                               claims: dict = Depends(get_current_claims)):
-    """Factor de conversion guardado para este mapeo (proveedor + codigo de
-    producto) -- 1 = sin conversion (el caso normal, el qty del DTE ya es la
-    cantidad real)."""
-    _require_admin(claims)
-    db = get_db()
-    fila = db.table("facturas_producto_mapa").select("factor_conversion") \
-        .eq("proveedor_rut", proveedor_rut).eq("codigo_tipo", codigo_tipo).eq("codigo_valor", codigo_valor).execute().data
-    return FactorConversionOut(factor_conversion=(fila[0]["factor_conversion"] if fila else 1) or 1)
 
 
 @router.put("/mapeo/factor", status_code=status.HTTP_204_NO_CONTENT)
@@ -717,6 +704,9 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
                 "actualizado_en": datetime.now(timezone.utc).isoformat(),
             }, on_conflict="dte_linea_id").execute()
 
+        factor_conversion = (mapa[(codigo_tipo, codigo_valor)].get('factor_conversion') or 1) \
+            if codigo_tipo and (codigo_tipo, codigo_valor) in mapa else 1
+
         lineas.append(DteLineaOut(
             id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
             item_price=float(l.get('item_price') or 0),
@@ -724,6 +714,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
             product_id=product_id, product_name=product_name, sugerido=sugerido,
             descuento_pct=descuento_pct or 0, descuento_sugerido=descuento_sugerido,
             impuesto_nombres=nombres_por_producto.get(product_id, []) if product_id else [],
+            factor_conversion=factor_conversion,
         ))
 
     # Lineas agregadas a mano (facturas_dte_linea_manual) -- id NEGATIVO a

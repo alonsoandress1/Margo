@@ -2120,12 +2120,16 @@ async function showDteModal(dteId) {
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
       <div style="overflow-x:auto">
       <table>
-        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Impuestos</th><th>Producto en Odoo</th><th></th></tr></thead>
+        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Cant. real</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Impuestos</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
           ${dte.lineas.map(l => `
             <tr data-linea="${l.id}">
               <td>${l.item_name}${l.es_manual ? ' <span class="placeholder" title="Agregada a mano -- no vino como línea propia en el DTE">(manual)</span>' : ''}</td>
               <td>${l.qty}</td>
+              <td>${l.product_id && l.codigo_tipo ? `
+                <input type="number" class="field dte-factor-inline" data-linea-factor-inline="${l.id}" min="0.0001" step="any" style="width:70px" value="${l.factor_conversion || 1}" title="¿Cuántas unidades reales vienen en cada una declarada? (ej. si '1 azúcar' son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código, se aplica solo en toda factura futura igual.">
+                <span class="placeholder" data-factor-estado="${l.id}" style="font-size:.7rem"></span>`
+                : '<span class="placeholder">—</span>'}</td>
               <td>${_fmtMonto(l.qty * l.item_price)}</td>
               <td>${l.product_id ? `
                 <input type="number" class="field dte-descuento-inline" data-linea-descuento-inline="${l.id}" min="0" max="100" step="any" style="width:70px" value="${l.descuento_pct || 0}">
@@ -2152,27 +2156,17 @@ async function showDteModal(dteId) {
                   : l.sugerido
                     ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
                     : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
-                ${l.product_id ? ` <button type="button" class="btn" data-otros-impuestos-linea="${l.id}" title="Buscar un impuesto que no esté entre los de uso frecuente">Otros impuestos</button>` : ''}
-                ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}</td>
+                ${l.product_id ? ` <button type="button" class="btn" data-otros-impuestos-linea="${l.id}" title="Buscar un impuesto que no esté entre los de uso frecuente">Otros impuestos</button>` : ''}</td>
             </tr>
-            <tr data-buscador="${l.id}" style="display:none"><td colspan="8">
+            <tr data-buscador="${l.id}" style="display:none"><td colspan="9">
               <div class="item-row">
                 <input type="text" class="field dte-buscar-input" data-linea-buscar="${l.id}" placeholder="Buscar por nombre o código..." style="flex:1">
                 <button type="button" class="btn" data-ejecutar-busqueda="${l.id}">Buscar</button>
               </div>
               <div data-resultados="${l.id}" style="margin-top:.5rem"></div>
             </td></tr>
-            ${l.product_id && l.codigo_tipo ? `
-            <tr data-cantidad-fila="${l.id}" style="display:none"><td colspan="8">
-              <p class="placeholder" style="margin-bottom:.5rem">Esta factura declara <strong>${l.qty} ${l.item_name}</strong>. ¿Cuántas unidades reales vienen en cada una declarada? (ej. si "1 azúcar" son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código de producto, y se aplica en toda factura futura igual. 1 = sin cambios.</p>
-              <div class="item-row">
-                <input type="number" class="field dte-cantidad-input" data-linea-cantidad="${l.id}" min="0.0001" step="any" style="max-width:160px" value="1">
-                <button type="button" class="btn btn-primary" data-guardar-cantidad="${l.id}">Guardar</button>
-              </div>
-              <p class="placeholder" data-cantidad-error="${l.id}"></p>
-            </td></tr>` : ''}
             ${l.product_id ? `
-            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="8">
+            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="9">
               <p class="placeholder" style="margin-bottom:.5rem">Buscar un impuesto de <strong>${l.product_name}</strong> que no esté entre los de uso frecuente (máx. 3 en total, aplica y guarda al elegirlo).</p>
               <div class="item-row">
                 <input type="text" class="field dte-impuesto-buscar-otro" data-linea-buscar-impuesto="${l.id}" placeholder="Buscar otro impuesto..." style="flex:1;max-width:260px">
@@ -2361,44 +2355,21 @@ async function showDteModal(dteId) {
       };
     });
 
-    overlay.querySelectorAll('[data-cantidad-linea]').forEach(btn => {
-      btn.onclick = async () => {
-        const lineaId = btn.dataset.cantidadLinea;
-        const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
-        const fila = overlay.querySelector(`tr[data-cantidad-fila="${lineaId}"]`);
-        const visible = fila.style.display !== 'none';
-        overlay.querySelectorAll('[data-cantidad-fila]').forEach(f => { f.style.display = 'none'; });
-        if (visible) return;
-        fila.style.display = 'table-row';
-        const input = overlay.querySelector(`.dte-cantidad-input[data-linea-cantidad="${lineaId}"]`);
-        const errorEl = overlay.querySelector(`[data-cantidad-error="${lineaId}"]`);
-        errorEl.textContent = '';
-        input.value = '…';
-        try {
-          const params = new URLSearchParams({
-            proveedor_rut: dte.proveedor_rut, codigo_tipo: linea.codigo_tipo, codigo_valor: linea.codigo_valor,
-          });
-          const actual = await api(`/facturas-dte/mapeo/factor?${params}`);
-          input.value = actual.factor_conversion;
-        } catch (err) {
-          input.value = '1';
-          errorEl.textContent = err.message;
-        }
-      };
-    });
+    overlay.querySelectorAll('.dte-factor-inline').forEach(input => {
+      const lineaId = input.dataset.lineaFactorInline;
+      const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+      const estadoEl = overlay.querySelector(`[data-factor-estado="${lineaId}"]`);
 
-    overlay.querySelectorAll('[data-guardar-cantidad]').forEach(btn => {
-      btn.onclick = async () => {
-        const lineaId = btn.dataset.guardarCantidad;
-        const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
-        const input = overlay.querySelector(`.dte-cantidad-input[data-linea-cantidad="${lineaId}"]`);
-        const errorEl = overlay.querySelector(`[data-cantidad-error="${lineaId}"]`);
-        errorEl.textContent = '';
+      input.addEventListener('change', async () => {
         const factor = parseFloat(input.value);
         if (!factor || factor <= 0) {
-          errorEl.textContent = 'Ingresa un número mayor que 0.';
+          estadoEl.textContent = 'Debe ser mayor que 0.';
+          estadoEl.className = 'error-msg';
           return;
         }
+        if (factor === (linea.factor_conversion || 1)) return;  // sin cambios, no guardar de nuevo
+        estadoEl.textContent = 'Guardando…';
+        estadoEl.className = 'placeholder';
         try {
           await api('/facturas-dte/mapeo/factor', {
             method: 'PUT',
@@ -2407,11 +2378,15 @@ async function showDteModal(dteId) {
               factor_conversion: factor,
             }),
           });
-          overlay.querySelector(`tr[data-cantidad-fila="${lineaId}"]`).style.display = 'none';
+          linea.factor_conversion = factor;
+          estadoEl.textContent = '✓ guardado';
+          estadoEl.className = 'placeholder';
+          setTimeout(() => { if (estadoEl.textContent === '✓ guardado') estadoEl.textContent = ''; }, 1500);
         } catch (err) {
-          errorEl.textContent = err.message;
+          estadoEl.textContent = err.message;
+          estadoEl.className = 'error-msg';
         }
-      };
+      });
     });
 
     function renderImpuestoChips(lineaId) {

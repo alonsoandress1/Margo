@@ -410,6 +410,7 @@ class DteLineaOut(BaseModel):
     descuento_sugerido: bool = False  # True si el % vino solo del historial (mismo proveedor+producto), no confirmado a mano para ESTA factura
     es_manual: bool = False  # True si la agrego un admin a mano -- no existe como linea propia en el DTE
     impuesto_nombres: list[str] = []  # override guardado o el default del producto en Odoo -- para mostrar chips ya marcados sin tener que abrir nada
+    factor_conversion: float = 1  # guardado en facturas_producto_mapa (proveedor+codigo) -- 1 = sin conversion
 
 
 class DteOut(BaseModel):
@@ -458,10 +459,6 @@ class ProductoImpuestosIn(BaseModel):
 class ProductoImpuestosOut(BaseModel):
     impuesto_nombres: list[str]
     es_default: bool  # True = no hay override guardado, esto es el impuesto de compra por defecto de Odoo (informativo, no persistido)
-
-
-class FactorConversionOut(BaseModel):
-    factor_conversion: float = 1
 
 
 class FactorConversionIn(BaseModel):
