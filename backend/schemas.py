@@ -471,6 +471,12 @@ class FactorConversionIn(BaseModel):
 
 class DescuentoLineaIn(BaseModel):
     descuento_pct: float = Field(ge=0, le=100)
+    # Opcionales -- si vienen, quedan guardados en la misma fila para poder
+    # despues buscar "el ultimo % usado para este producto + este
+    # proveedor" (ver descuento_referencia). Sin autocompletar nada -- solo
+    # referencia.
+    proveedor_rut: str | None = None
+    odoo_product_id: int | None = None
 
 
 class LineaManualIn(BaseModel):
@@ -479,6 +485,12 @@ class LineaManualIn(BaseModel):
     qty: float = Field(gt=0)
     precio_unitario: float = Field(ge=0)
     descuento_pct: float = Field(ge=0, le=100, default=0)
+    proveedor_rut: str | None = None
+
+
+class DescuentoReferenciaOut(BaseModel):
+    descuento_pct: float | None = None
+    fecha: str | None = None
 
 
 class CompararLineaOut(BaseModel):

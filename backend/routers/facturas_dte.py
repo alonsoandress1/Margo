@@ -22,7 +22,7 @@ codigo-de-proveedor -> product_id se aprende una vez (confirmada por un
 admin) y se reusa siempre despues -- tabla facturas_producto_mapa."""
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -36,7 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
+from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn, DescuentoReferenciaOut,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
                        FactorConversionOut, ImpuestoOut, LineaManualIn, ProductoImpuestosIn, ProductoImpuestosOut,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
@@ -306,7 +306,45 @@ def fijar_descuento_linea(linea_id: int, body: DescuentoLineaIn, claims: dict = 
     db = get_db()
     db.table("facturas_dte_linea_descuento").upsert({
         "dte_linea_id": linea_id, "descuento_pct": body.descuento_pct, "actualizado_por": claims["sub"],
+        "proveedor_rut": body.proveedor_rut, "odoo_product_id": body.odoo_product_id,
+        # actualizado_en tiene default now() en la fila NUEVA, pero un upsert
+        # sobre una fila existente no lo toca solo -- se fija a mano para
+        # que descuento_referencia pueda ordenar por "el mas reciente" de
+        # verdad, no por la fecha del primer guardado de esa linea.
+        "actualizado_en": datetime.now(timezone.utc).isoformat(),
     }, on_conflict="dte_linea_id").execute()
+
+
+@router.get("/productos/{producto_id}/descuento-referencia", response_model=DescuentoReferenciaOut)
+def descuento_referencia(producto_id: int, proveedor_rut: str, claims: dict = Depends(get_current_claims)):
+    """El ultimo % de descuento confirmado a mano para este producto +
+    proveedor puntual (buscando tanto en lineas reales del DTE como en
+    lineas agregadas a mano) -- SOLO de referencia para revisar mas rapido,
+    no se autocompleta nunca: el descuento real varia de una factura a otra
+    para el mismo producto (confirmado con datos reales de CCU/Andina), asi
+    que reaplicar el ultimo valor a ciegas podria quedar mal sin que nadie
+    lo note."""
+    _require_admin(claims)
+    db = get_db()
+    candidatos: list[tuple[float, str]] = []
+
+    fila = db.table("facturas_dte_linea_descuento").select("descuento_pct,actualizado_en") \
+        .eq("proveedor_rut", proveedor_rut).eq("odoo_product_id", producto_id) \
+        .order("actualizado_en", desc=True).limit(1).execute().data
+    if fila:
+        candidatos.append((fila[0]["descuento_pct"], fila[0]["actualizado_en"]))
+
+    fila_manual = db.table("facturas_dte_linea_manual").select("descuento_pct,agregado_en") \
+        .eq("proveedor_rut", proveedor_rut).eq("odoo_product_id", producto_id) \
+        .order("agregado_en", desc=True).limit(1).execute().data
+    if fila_manual:
+        candidatos.append((fila_manual[0]["descuento_pct"], fila_manual[0]["agregado_en"]))
+
+    if not candidatos:
+        return DescuentoReferenciaOut()
+    candidatos.sort(key=lambda c: c[1], reverse=True)
+    descuento_pct, fecha = candidatos[0]
+    return DescuentoReferenciaOut(descuento_pct=descuento_pct, fecha=fecha)
 
 
 @router.post("/{dte_id}/lineas-manuales", status_code=status.HTTP_204_NO_CONTENT)
@@ -323,7 +361,7 @@ def agregar_linea_manual(dte_id: int, body: LineaManualIn, claims: dict = Depend
     db.table("facturas_dte_linea_manual").insert({
         "dte_id": dte_id, "odoo_product_id": body.odoo_product_id, "odoo_product_name": body.odoo_product_name,
         "qty": body.qty, "precio_unitario": body.precio_unitario, "descuento_pct": body.descuento_pct,
-        "agregado_por": claims["sub"],
+        "proveedor_rut": body.proveedor_rut, "agregado_por": claims["sub"],
     }).execute()
 
 

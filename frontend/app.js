@@ -2106,7 +2106,8 @@ async function showDteModal(dteId) {
               <td>${_fmtMonto(l.qty * l.item_price)}</td>
               <td>${l.product_id ? `
                 <input type="number" class="field dte-descuento-inline" data-linea-descuento-inline="${l.id}" min="0" max="100" step="any" style="width:70px" value="${l.descuento_pct || 0}">
-                <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem"></span>`
+                <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem"></span>
+                <div class="placeholder" data-descuento-ref="${l.id}" style="font-size:.7rem"></div>`
                 : '<span class="placeholder">—</span>'}</td>
               <td data-precio-desc="${l.id}">${_fmtMonto(l.qty * l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
               <td>${l.product_id
@@ -2216,7 +2217,7 @@ async function showDteModal(dteId) {
           method: 'POST',
           body: JSON.stringify({
             odoo_product_id: manualProductoElegido.id, odoo_product_name: manualProductoElegido.nombre,
-            qty, precio_unitario: precio, descuento_pct: 0,
+            qty, precio_unitario: precio, descuento_pct: 0, proveedor_rut: dte.proveedor_rut,
           }),
         });
         recargar();
@@ -2277,6 +2278,25 @@ async function showDteModal(dteId) {
     }
     cargarResumen();
 
+    // Referencia (no autocompleta) del ultimo % de descuento usado para
+    // cada producto con ESTE proveedor puntual -- una consulta por linea
+    // con producto asignado, en paralelo, para no bloquear el resto del
+    // modal.
+    dte.lineas.filter(l => l.product_id).forEach(async (l) => {
+      const refEl = overlay.querySelector(`[data-descuento-ref="${l.id}"]`);
+      if (!refEl) return;
+      try {
+        const params = new URLSearchParams({ proveedor_rut: dte.proveedor_rut });
+        const ref = await api(`/facturas-dte/productos/${l.product_id}/descuento-referencia?${params}`);
+        if (ref.descuento_pct != null) {
+          const fecha = ref.fecha ? new Date(ref.fecha).toLocaleDateString('es-CL') : '';
+          refEl.textContent = `ref: ${ref.descuento_pct}%${fecha ? ` (${fecha})` : ''}`;
+        }
+      } catch (err) {
+        // referencia opcional -- si falla, simplemente no se muestra
+      }
+    });
+
     overlay.querySelectorAll('.dte-descuento-inline').forEach(input => {
       const lineaId = input.dataset.lineaDescuentoInline;
       const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
@@ -2302,8 +2322,11 @@ async function showDteModal(dteId) {
         const endpoint = linea.es_manual
           ? `/facturas-dte/lineas-manuales/${Math.abs(linea.id)}/descuento`
           : `/facturas-dte/lineas/${lineaId}/descuento`;
+        const cuerpo = linea.es_manual
+          ? { descuento_pct: valor }
+          : { descuento_pct: valor, proveedor_rut: dte.proveedor_rut, odoo_product_id: linea.product_id };
         try {
-          await api(endpoint, { method: 'PUT', body: JSON.stringify({ descuento_pct: valor }) });
+          await api(endpoint, { method: 'PUT', body: JSON.stringify(cuerpo) });
           linea.descuento_pct = valor;
           estadoEl.textContent = '✓ guardado';
           estadoEl.className = 'placeholder';
