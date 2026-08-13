@@ -45,6 +45,42 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug/descuento")
+def _debug_descuento(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL, solo lectura -- confirmar si purchase.order.line tiene un
+    campo discount real en este Odoo, y como lo usa el proceso real
+    (OC de Doña Sofia P19741, y una OC vieja cualquiera con mas historia)."""
+    import traceback
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        fields_info = cliente._call('purchase.order.line', 'fields_get', [],
+            {'attributes': ['string', 'type']})
+        tiene_discount = 'discount' in fields_info
+        campo_discount = fields_info.get('discount')
+
+        lineas_p19741 = cliente._call('purchase.order.line', 'search_read',
+            [[['order_id.name', '=', 'P19741']]],
+            {'fields': ['product_id', 'product_qty', 'price_unit', 'discount', 'price_subtotal']}) if tiene_discount else None
+
+        # buscar alguna OC vieja (no de Doña Sofia) con descuento real > 0, para
+        # ver si el proceso real alguna vez lo usa
+        con_descuento = None
+        if tiene_discount:
+            con_descuento = cliente._call('purchase.order.line', 'search_read',
+                [[['discount', '>', 0]]], {'fields': ['order_id', 'product_id', 'price_unit', 'discount'], 'limit': 10})
+
+        return {
+            'tiene_campo_discount': tiene_discount,
+            'campo_discount_info': campo_discount,
+            'lineas_p19741': lineas_p19741,
+            'lineas_con_descuento_real_encontradas': con_descuento,
+        }
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
 # de cualquier otro proveedor, casi siempre ya tiene una Orden de Compra real
 # creada en Odoo ANTES de que llegue su DTE -- por un proceso de compras
