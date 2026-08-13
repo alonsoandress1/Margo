@@ -45,6 +45,28 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug/tipos-dte")
+def _debug_tipos_dte(desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL, solo lectura -- contar los DTE pendientes por tipo de
+    documento SII, para ver cuantas Notas de Credito (61) u otros tipos
+    estan mezclados en la lista de Facturas SII."""
+    import traceback
+    from collections import Counter
+    try:
+        if claims["rol"] != "administrador":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
+        cliente = _odoo()
+        docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
+            [[['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]],
+            {'fields': ['id', 'issuer_name', 'l10n_latam_document_number', 'date',
+                        'l10n_latam_document_type_id_code', 'amount_total']})
+        conteo = Counter(d.get('l10n_latam_document_type_id_code') for d in docs)
+        no_33 = [d for d in docs if d.get('l10n_latam_document_type_id_code') != '33']
+        return {'total_pendientes': len(docs), 'conteo_por_tipo': dict(conteo), 'ejemplos_no_33': no_33[:20]}
+    except Exception:
+        return {'error': traceback.format_exc()}
+
+
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
