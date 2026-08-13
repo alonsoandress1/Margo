@@ -2263,10 +2263,12 @@ async function showDteModal(dteId) {
             api('/facturas-dte/impuestos/buscar'),
             api(`/facturas-dte/productos/${productoId}/impuestos`),
           ]);
+          fila.dataset.impuestosEsDefault = actuales.es_default ? '1' : '0';
+          fila.dataset.impuestosDefaultActual = JSON.stringify(actuales.impuesto_nombres);
           listaEl.innerHTML = todos.length
             ? todos.map(t => `
                 <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;padding:.2rem 0">
-                  <input type="checkbox" class="dte-impuesto-check" data-linea-impuesto="${lineaId}" value="${t.name.replace(/"/g, '&quot;')}" ${actuales.includes(t.name) ? 'checked' : ''}>
+                  <input type="checkbox" class="dte-impuesto-check" data-linea-impuesto="${lineaId}" value="${t.name.replace(/"/g, '&quot;')}" ${actuales.impuesto_nombres.includes(t.name) ? 'checked' : ''}>
                   ${t.name} (${t.amount}%)
                 </label>`).join('')
             : '<span class="placeholder">Sin impuestos de compra configurados en Odoo.</span>';
@@ -2294,12 +2296,24 @@ async function showDteModal(dteId) {
         const seleccionados = Array.from(
           overlay.querySelectorAll(`.dte-impuesto-check[data-linea-impuesto="${lineaId}"]:checked`)
         ).map(c => c.value);
+        const fila = overlay.querySelector(`tr[data-impuestos-fila="${lineaId}"]`);
+        const esDefault = fila.dataset.impuestosEsDefault === '1';
+        const defaultActual = JSON.parse(fila.dataset.impuestosDefaultActual || '[]');
+        const sinCambios = esDefault
+          && seleccionados.length === defaultActual.length
+          && [...seleccionados].sort().every((v, i) => v === [...defaultActual].sort()[i]);
+        if (sinCambios) {
+          // Nada que guardar -- es el impuesto por defecto de Odoo tal cual se mostró,
+          // no crear un override fijo que después pueda quedar desactualizado.
+          fila.style.display = 'none';
+          return;
+        }
         try {
           await api(`/facturas-dte/productos/${linea.product_id}/impuestos`, {
             method: 'PUT',
             body: JSON.stringify({ odoo_product_name: linea.product_name, impuesto_nombres: seleccionados }),
           });
-          overlay.querySelector(`tr[data-impuestos-fila="${lineaId}"]`).style.display = 'none';
+          fila.style.display = 'none';
         } catch (err) {
           errorEl.textContent = err.message;
         }

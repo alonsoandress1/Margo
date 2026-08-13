@@ -38,7 +38,8 @@ from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
-                       FactorConversionOut, ImpuestoOut, ProductoImpuestosIn, ProveedorOcultarIn, ProveedorOcultoOut)
+                       FactorConversionOut, ImpuestoOut, ProductoImpuestosIn, ProductoImpuestosOut,
+                       ProveedorOcultarIn, ProveedorOcultoOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 
@@ -223,25 +224,28 @@ def buscar_impuesto(q: str = '', claims: dict = Depends(get_current_claims)):
     return [ImpuestoOut(id=i['id'], name=i['name'], amount=i.get('amount') or 0) for i in impuestos]
 
 
-@router.get("/productos/{producto_id}/impuestos", response_model=list[str])
+@router.get("/productos/{producto_id}/impuestos", response_model=ProductoImpuestosOut)
 def listar_impuestos_producto(producto_id: int, claims: dict = Depends(get_current_claims)):
     """Impuestos que aplican hoy a este producto (hasta 3): si hay un override
-    guardado, ese; si no, el impuesto de compra que el producto YA TIENE por
-    defecto en Odoo (supplier_taxes_id) -- para que el selector salga
-    alineado con lo que se factura hoy y no se pierda (ej. el IVA 19%) al
-    marcar solo un impuesto especial nuevo."""
+    guardado, ese (es_default=False); si no, el impuesto de compra que el
+    producto YA TIENE por defecto en Odoo (supplier_taxes_id, es_default=True)
+    -- para que el selector salga alineado con lo que se factura hoy y no se
+    pierda (ej. el IVA 19%) al marcar solo un impuesto especial nuevo. El
+    flag es_default es solo informativo (para que el frontend no guarde un
+    override innecesario si nadie cambio nada) -- este endpoint nunca
+    escribe en facturas_producto_impuesto."""
     _require_admin(claims)
     db = get_db()
     filas = db.table("facturas_producto_impuesto").select("impuesto_nombre").eq("odoo_product_id", producto_id).execute().data or []
     if filas:
-        return [f["impuesto_nombre"] for f in filas]
+        return ProductoImpuestosOut(impuesto_nombres=[f["impuesto_nombre"] for f in filas], es_default=False)
     cliente = _odoo()
     prod = cliente._call('product.product', 'read', [[producto_id]], {'fields': ['supplier_taxes_id']})
     tax_ids = prod[0]['supplier_taxes_id'] if prod else []
     if not tax_ids:
-        return []
+        return ProductoImpuestosOut(impuesto_nombres=[], es_default=True)
     taxes = cliente._call('account.tax', 'read', [tax_ids], {'fields': ['name']})
-    return [t['name'] for t in taxes]
+    return ProductoImpuestosOut(impuesto_nombres=[t['name'] for t in taxes], es_default=True)
 
 
 @router.put("/productos/{producto_id}/impuestos", status_code=status.HTTP_204_NO_CONTENT)
