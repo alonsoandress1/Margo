@@ -13,7 +13,7 @@ const SECCIONES = [
   { id: 'oc',        label: 'Órdenes de Compra',     grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'proveedores', label: 'Proveedores',         grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas',  label: 'Recepción en Bodega',    grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'facturas-dte', label: 'Facturas SII',         grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'facturas-dte', label: 'Facturas Odoo',         grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
   { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
   { id: 'locales',   label: 'Locales',                grupo: 'Configuración', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'usuarios',  label: 'Usuarios',               grupo: 'Configuración', roles: ['administrador'], editRoles: ['administrador'] },
@@ -444,7 +444,7 @@ async function renderResumen(el, s) {
       </div>
       ${esAdmin ? `
       <div class="resumen-card" data-ir="facturas-dte" tabindex="0" role="button">
-        <div class="resumen-card-label">Facturas SII pendientes (30 días)</div>
+        <div class="resumen-card-label">Facturas Odoo pendientes (30 días)</div>
         <div class="resumen-card-valor ${facturasPendientesCount === null ? '' : claseCantidad(facturasPendientesCount)}">
           ${facturasPendientesCount === null ? '—' : facturasPendientesCount}
         </div>
@@ -1837,7 +1837,7 @@ async function renderFacturasDte(el, s) {
   state.dteHasta = hasta;
 
   el.innerHTML = `
-    <h2>Ingreso de Facturas</h2>
+    <h2>Facturas Odoo</h2>
     <p class="placeholder" style="margin-bottom:1.25rem">Documentos que Odoo ya recibió del SII pero todavía no tienen una factura borrador creada. Revisa los productos de cada línea y crea la factura -- nunca se crea un producto nuevo, solo se conecta con uno que ya existe.</p>
     <div class="item-row" style="max-width:520px;margin-bottom:1rem">
       <div style="flex:1">
@@ -1974,7 +1974,7 @@ async function showProveedoresOcultosModal() {
     const ocultos = await api('/facturas-dte/proveedores/ocultos');
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>Proveedores ocultos</h3>
-      <p class="placeholder" style="margin-bottom:1rem">Sus facturas pendientes no aparecen en la lista de Ingreso de Facturas. No se toca nada en Odoo -- podés volver a mostrarlos cuando quieras.</p>
+      <p class="placeholder" style="margin-bottom:1rem">Sus facturas pendientes no aparecen en la lista de Facturas Odoo. No se toca nada en Odoo -- podés volver a mostrarlos cuando quieras.</p>
       ${ocultos.length ? `
         <table>
           <thead><tr><th>Proveedor</th><th></th></tr></thead>
@@ -2657,7 +2657,7 @@ async function renderPlanillaCompras(el, s) {
         <button type="button" id="pc-exportar" class="btn">Exportar Excel</button>
       </div>
       <div style="display:flex;align-items:flex-end">
-        <button type="button" id="pc-faltantes" class="btn" title="Compara contra las facturas de Facturas SII que ya tienen factura real en Odoo, para encontrar las que quedan omitidas de esta planilla">Verificar facturas faltantes</button>
+        <button type="button" id="pc-faltantes" class="btn" title="Compara contra las facturas de Facturas Odoo que ya tienen factura real en Odoo, para encontrar las que quedan omitidas de esta planilla">Verificar facturas faltantes</button>
       </div>` : ''}
     </div>
     <p id="pc-error" class="error-msg"></p>
@@ -2841,7 +2841,7 @@ async function showPlanillaFaltantesModal(anio, mes) {
       const faltantes = await api(`/planilla-compras/faltantes?anio=${anio}&mes=${mes}`);
       overlay.querySelector('.modal-box').innerHTML = `
         <h3>Facturas faltantes en Planilla de Compras</h3>
-        <p class="placeholder" style="margin-bottom:1rem">Facturas de Facturas SII que ya tienen una factura real en Odoo pero no aparecen en esta planilla (normalmente porque no tienen Orden de Compra detrás, ej. ingresadas a mano). Solo informativo -- no se agrega nada hasta que apretás "Agregar".</p>
+        <p class="placeholder" style="margin-bottom:1rem">Facturas de Facturas Odoo que ya tienen una factura real en Odoo pero no aparecen en esta planilla (normalmente porque no tienen Orden de Compra detrás, ej. ingresadas a mano). Solo informativo -- no se agrega nada hasta que apretás "Agregar".</p>
         ${faltantes.length ? `
           <table>
             <thead><tr><th>Proveedor</th><th>Folio</th><th>Fecha</th><th>Total</th><th></th></tr></thead>
@@ -2855,7 +2855,7 @@ async function showPlanillaFaltantesModal(anio, mes) {
                   <td><button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button></td>
                 </tr>`).join('')}
             </tbody>
-          </table>` : '<p class="placeholder">No hay ninguna -- Planilla de Compras ya incluye todas las facturas de Facturas SII de este mes.</p>'}
+          </table>` : '<p class="placeholder">No hay ninguna -- Planilla de Compras ya incluye todas las facturas de Facturas Odoo de este mes.</p>'}
         <p id="pc-faltantes-error" class="error-msg"></p>
         <div style="margin-top:1.25rem"><button type="button" class="btn" id="pc-faltantes-cerrar">Cerrar</button></div>`;
       overlay.querySelector('#pc-faltantes-cerrar').onclick = () => overlay.remove();
