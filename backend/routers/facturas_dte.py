@@ -45,23 +45,6 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
-@router.get("/_debug/dup-check")
-def _debug_dup_check(partner_id: int, folio: str, claims: dict = Depends(get_current_claims)):
-    """TEMPORAL, solo lectura -- investigar por que el chequeo de factura
-    preexistente por folio devolvio muchas facturas de golpe para CCU."""
-    import traceback
-    try:
-        if claims["rol"] != "administrador":
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
-        cliente = _odoo()
-        resultado = cliente._call('account.move', 'search_read',
-            [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'],
-              ['l10n_latam_document_number', '=', folio], ['state', '!=', 'cancel']]],
-            {'fields': ['id', 'name', 'partner_id', 'l10n_latam_document_number', 'amount_total'], 'limit': 40})
-        return {'domain_usado': ['partner_id', '=', partner_id, 'l10n_latam_document_number', '=', folio],
-                'total': len(resultado), 'resultado': resultado}
-    except Exception:
-        return {'error': traceback.format_exc()}
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
@@ -563,12 +546,19 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     # DTE) y este sistema creo una segunda factura duplicada para el mismo
     # folio antes de tener esta validacion. Aplica a CUALQUIER proveedor,
     # no solo a Doña Sofía.
+    # Ojo: 'l10n_latam_document_number' no se puede filtrar de forma
+    # confiable en el dominio de busqueda de Odoo -- se ignora en silencio
+    # y devuelve TODAS las facturas del proveedor (confirmado con un caso
+    # real: CCU, filtrando por folio "179225651" devolvio 40 facturas con
+    # folios completamente distintos). Por eso se trae el universo acotado
+    # (proveedor + tipo factura + no cancelada) y se compara el folio en
+    # Python, igual que ya se hizo en el escaneo de duplicados anterior.
     folio = str(doc.get('l10n_latam_document_number') or '').strip()
     if folio:
-        ya_facturada = cliente._call('account.move', 'search_read',
-            [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'],
-              ['l10n_latam_document_number', '=', folio], ['state', '!=', 'cancel']]],
-            {'fields': ['id', 'name', 'amount_total']})
+        facturas_proveedor = cliente._call('account.move', 'search_read',
+            [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+            {'fields': ['id', 'name', 'amount_total', 'l10n_latam_document_number']})
+        ya_facturada = [m for m in facturas_proveedor if str(m.get('l10n_latam_document_number') or '').strip() == folio]
         if ya_facturada:
             nombres = ', '.join(m['name'] for m in ya_facturada)
             raise RuntimeError(
