@@ -2159,27 +2159,32 @@ async function showDteModal(dteId) {
       const resumenEl = overlay.querySelector('#dte-resumen');
       try {
         const r = await api(`/facturas-dte/${dteId}/simular`);
-        const sumaImpuestos = r.impuestos.reduce((acc, i) => acc + i.monto, 0);
         const diff = (a, b) => Math.abs(a - b) > 9;
+        // El DTE solo trae un IVA combinado, sin desglose por tipo de
+        // impuesto -- si hay mas de un impuesto distinto no hay con que
+        // comparar cada uno por separado, se muestra "—" en esa fila.
+        const unSoloImpuesto = r.impuestos.length === 1;
         resumenEl.innerHTML = `
           <table>
-            <thead><tr><th></th><th>Neto</th><th>IVA / Impuestos</th><th>Total</th></tr></thead>
+            <thead><tr><th></th><th>Neto</th>${r.impuestos.map(i => `<th>${i.nombre}</th>`).join('')}<th>Total</th></tr></thead>
             <tbody>
               <tr>
                 <td>Calculado (con lo confirmado hoy)</td>
                 <td>${_fmtMonto(r.neto)}</td>
-                <td>${_fmtMonto(sumaImpuestos)}</td>
+                ${r.impuestos.map(i => `<td>${_fmtMonto(i.monto)}</td>`).join('')}
                 <td>${_fmtMonto(r.total)}</td>
               </tr>
               <tr>
                 <td>Declarado en el DTE</td>
                 <td class="${diff(r.neto, r.neto_dte) ? 'error-msg' : ''}">${_fmtMonto(r.neto_dte)}</td>
-                <td>${_fmtMonto(r.iva_dte)}</td>
+                ${r.impuestos.map(i => unSoloImpuesto
+                  ? `<td class="${diff(i.monto, r.iva_dte) ? 'error-msg' : ''}">${_fmtMonto(r.iva_dte)}</td>`
+                  : `<td><span class="placeholder">—</span></td>`).join('')}
                 <td class="${diff(r.total, r.total_dte) ? 'error-msg' : ''}">${_fmtMonto(r.total_dte)}</td>
               </tr>
             </tbody>
           </table>
-          ${r.impuestos.length ? `<p class="placeholder" style="margin-top:.4rem">${r.impuestos.map(i => `${i.nombre}: ${_fmtMonto(i.monto)}`).join(' · ')}</p>` : ''}
+          ${!unSoloImpuesto && r.impuestos.length ? `<p class="placeholder" style="margin-top:.4rem">El DTE declara ${_fmtMonto(r.iva_dte)} de impuestos en total, sin desglose por tipo -- no se puede comparar cada uno por separado.</p>` : ''}
           ${r.lineas_sin_producto ? `<p class="placeholder" style="margin-top:.4rem">${r.lineas_sin_producto} línea(s) sin producto asignado no se incluyen en este cálculo.</p>` : ''}`;
       } catch (err) {
         resumenEl.innerHTML = `<p class="error-msg">${err.message}</p>`;
