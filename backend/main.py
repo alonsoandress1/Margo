@@ -42,5 +42,16 @@ def health():
     return {"status": "ok"}
 
 
+class _NoCacheStaticFiles(StaticFiles):
+    """Fuerza al navegador a revalidar (If-None-Match/If-Modified-Since) en
+    vez de servir su copia en cache de golpe -- sin esto, tras cada deploy
+    algunos usuarios seguian viendo un app.js viejo (faltaban pantallas o
+    botones nuevos) hasta que limpiaban cache a mano."""
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 _frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
-app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
+app.mount("/", _NoCacheStaticFiles(directory=_frontend_dir, html=True), name="frontend")
