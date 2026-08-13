@@ -38,7 +38,7 @@ from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
-                       ImpuestoOut, LineaManualIn, ProductoImpuestosIn, ProductoImpuestosOut,
+                       ImpuestoOut, LineaManualIn, ProductoImpuestosIn,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
@@ -199,19 +199,20 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
     db = get_db()
 
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
-        {'fields': ['id', 'issuer_rut', 'l10n_latam_document_number']})
+        {'fields': ['id', 'issuer_rut', 'l10n_latam_document_number', 'company_id']})
     if not docs:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
     doc = docs[0]
 
     factura_id_vinculada = None
     folio = _normalizar_folio(doc.get('l10n_latam_document_number'))
-    if folio and doc.get('issuer_rut'):
+    if folio and doc.get('issuer_rut') and doc.get('company_id'):
         partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
         partner_ids = [p['id'] for p in partners]
         if partner_ids:
             facturas = cliente._call('account.move', 'search_read',
-                [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+                [[['partner_id', 'in', partner_ids], ['company_id', '=', doc['company_id'][0]],
+                  ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
                 {'fields': ['id', 'l10n_latam_document_number', 'invoice_origin']})
             candidatas = [f for f in facturas if _normalizar_folio(f.get('l10n_latam_document_number')) == folio]
             if len(candidatas) == 1:
@@ -306,30 +307,6 @@ def buscar_impuesto(q: str = '', claims: dict = Depends(get_current_claims)):
     impuestos = cliente._call('account.tax', 'search_read', [dominio],
         {'fields': ['id', 'name', 'amount'], 'limit': 30, 'order': 'name'})
     return [ImpuestoOut(id=i['id'], name=i['name'], amount=i.get('amount') or 0) for i in impuestos]
-
-
-@router.get("/productos/{producto_id}/impuestos", response_model=ProductoImpuestosOut)
-def listar_impuestos_producto(producto_id: int, claims: dict = Depends(get_current_claims)):
-    """Impuestos que aplican hoy a este producto (hasta 3): si hay un override
-    guardado, ese (es_default=False); si no, el impuesto de compra que el
-    producto YA TIENE por defecto en Odoo (supplier_taxes_id, es_default=True)
-    -- para que el selector salga alineado con lo que se factura hoy y no se
-    pierda (ej. el IVA 19%) al marcar solo un impuesto especial nuevo. El
-    flag es_default es solo informativo (para que el frontend no guarde un
-    override innecesario si nadie cambio nada) -- este endpoint nunca
-    escribe en facturas_producto_impuesto."""
-    _require_admin(claims)
-    db = get_db()
-    filas = db.table("facturas_producto_impuesto").select("impuesto_nombre").eq("odoo_product_id", producto_id).execute().data or []
-    if filas:
-        return ProductoImpuestosOut(impuesto_nombres=[f["impuesto_nombre"] for f in filas], es_default=False)
-    cliente = _odoo()
-    prod = cliente._call('product.product', 'read', [[producto_id]], {'fields': ['supplier_taxes_id']})
-    tax_ids = prod[0]['supplier_taxes_id'] if prod else []
-    if not tax_ids:
-        return ProductoImpuestosOut(impuesto_nombres=[], es_default=True)
-    taxes = cliente._call('account.tax', 'read', [tax_ids], {'fields': ['name']})
-    return ProductoImpuestosOut(impuesto_nombres=[t['name'] for t in taxes], es_default=True)
 
 
 @router.put("/productos/{producto_id}/impuestos", status_code=status.HTTP_204_NO_CONTENT)
@@ -456,18 +433,21 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims)):
         taxes = cliente._call('account.tax', 'read', [tax_ids], {'fields': ['name']})
         tax_nombres = {t['id']: t['name'] for t in taxes}
 
-    # Empareja por product_id -- el flujo de creacion arma como maximo una
-    # linea de OC/factura por producto (ver _ejecutar_creacion), asi que
-    # alcanza para emparejar de vuelta con las lineas del DTE.
-    odoo_por_producto: dict[int, dict] = {}
+    # Empareja por product_id -- normalmente una sola linea de OC/factura
+    # por producto (ver _ejecutar_creacion), pero puede haber DOS para el
+    # mismo producto si ademas se agrego una linea manual con ese mismo
+    # product_id (ver facturas_dte_linea_manual) -- se guardan en una cola
+    # por producto y se consumen de a una para no pisar la comparacion de
+    # una linea con la de otra.
+    odoo_por_producto: dict[int, list[dict]] = {}
     for ml in move_lineas:
         if ml.get('product_id'):
-            odoo_por_producto[ml['product_id'][0]] = ml
+            odoo_por_producto.setdefault(ml['product_id'][0], []).append(ml)
 
     lineas_out = []
     for l in lineas_dte:
         pid = l['product_id'][0] if l.get('product_id') else None
-        ml = odoo_por_producto.get(pid) if pid else None
+        ml = odoo_por_producto[pid].pop(0) if pid and odoo_por_producto.get(pid) else None
         lineas_out.append(CompararLineaOut(
             item_name=l.get('item_name') or '',
             qty_dte=l.get('qty') or 0,
@@ -523,30 +503,11 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims)):
 
     lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).execute().data or []
 
-    # Impuestos por producto -- mismo fallback de dos niveles que
-    # listar_impuestos_producto (override guardado, si no el default que el
-    # producto ya tiene en Odoo), resuelto aca de una vez para todos los
-    # productos de la factura en vez de uno por uno.
+    # Impuestos por producto -- resuelto batcheado para todos los productos
+    # de la factura de una vez (ver _impuestos_actuales_por_producto).
     product_ids = list({l['product_id'][0] for l in lineas if l.get('product_id')}
                         | {lm['odoo_product_id'] for lm in lineas_manuales})
-    nombres_por_producto: dict[int, list[str]] = {}
-    if product_ids:
-        filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
-            .in_("odoo_product_id", product_ids).execute().data or []
-        for f in filas_impuestos:
-            nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
-
-        sin_override = [pid for pid in product_ids if pid not in nombres_por_producto]
-        if sin_override:
-            productos = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
-            tax_ids_defecto = list({t for p in productos for t in (p.get('supplier_taxes_id') or [])})
-            nombre_por_tax_id: dict[int, str] = {}
-            if tax_ids_defecto:
-                taxes = cliente._call('account.tax', 'read', [tax_ids_defecto], {'fields': ['name']})
-                nombre_por_tax_id = {t['id']: t['name'] for t in taxes}
-            for p in productos:
-                nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in (p.get('supplier_taxes_id') or [])
-                                                  if t in nombre_por_tax_id]
+    nombres_por_producto = _impuestos_actuales_por_producto(cliente, db, product_ids)
 
     nombres_unicos = list({n for ns in nombres_por_producto.values() for n in ns})
     tasa_por_nombre: dict[str, float] = {}
@@ -665,31 +626,13 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
 
     lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).order("id").execute().data or []
 
-    # Impuestos ACTUALES por producto (override guardado, o el default que
-    # el producto ya tiene en Odoo) -- mismo fallback de dos niveles que
-    # listar_impuestos_producto/simular(), resuelto batcheado para todos los
-    # productos de la factura de una vez. Pedido explicito del usuario: que
-    # se vean directo en la fila de cada linea, sin tener que abrir nada
-    # para saber que impuesto tiene aplicado hoy.
+    # Impuestos ACTUALES por producto -- resuelto batcheado para todos los
+    # productos de la factura de una vez (ver _impuestos_actuales_por_producto).
+    # Pedido explicito del usuario: que se vean directo en la fila de cada
+    # linea, sin tener que abrir nada para saber que impuesto tiene aplicado hoy.
     product_ids_impuestos = list({pid for _, pid, *_ in lineas_procesadas if pid}
                                   | {lm['odoo_product_id'] for lm in lineas_manuales})
-    nombres_por_producto: dict[int, list[str]] = {}
-    if product_ids_impuestos:
-        filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
-            .in_("odoo_product_id", product_ids_impuestos).execute().data or []
-        for f in filas_impuestos:
-            nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
-        sin_override = [pid for pid in product_ids_impuestos if pid not in nombres_por_producto]
-        if sin_override:
-            productos_tax = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
-            tax_ids_defecto = list({t for p in productos_tax for t in (p.get('supplier_taxes_id') or [])})
-            nombre_por_tax_id: dict[int, str] = {}
-            if tax_ids_defecto:
-                taxes = cliente._call('account.tax', 'read', [tax_ids_defecto], {'fields': ['name']})
-                nombre_por_tax_id = {t['id']: t['name'] for t in taxes}
-            for p in productos_tax:
-                nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in (p.get('supplier_taxes_id') or [])
-                                                  if t in nombre_por_tax_id]
+    nombres_por_producto = _impuestos_actuales_por_producto(cliente, db, product_ids_impuestos)
 
     lineas: list[DteLineaOut] = []
     for l, product_id, product_name, sugerido, codigo_tipo, codigo_valor in lineas_procesadas:
@@ -786,6 +729,34 @@ def _normalizar_folio(valor) -> str:
         return str(int(texto))
     except ValueError:
         return texto
+
+
+def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[int]) -> dict[int, list[str]]:
+    """Impuestos que aplican HOY a cada producto: el override guardado en
+    facturas_producto_impuesto si existe, si no el default que el producto
+    ya tiene en Odoo (supplier_taxes_id) -- mismo fallback de dos niveles
+    usado por simular() y detalle(), resuelto batcheado (una consulta a
+    Supabase + como maximo dos a Odoo) para cualquier cantidad de
+    productos, nunca N+1."""
+    nombres_por_producto: dict[int, list[str]] = {}
+    if not product_ids:
+        return nombres_por_producto
+    filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
+        .in_("odoo_product_id", product_ids).execute().data or []
+    for f in filas_impuestos:
+        nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
+    sin_override = [pid for pid in product_ids if pid not in nombres_por_producto]
+    if sin_override:
+        productos_tax = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
+        tax_ids_defecto = list({t for p in productos_tax for t in (p.get('supplier_taxes_id') or [])})
+        nombre_por_tax_id: dict[int, str] = {}
+        if tax_ids_defecto:
+            taxes = cliente._call('account.tax', 'read', [tax_ids_defecto], {'fields': ['name']})
+            nombre_por_tax_id = {t['id']: t['name'] for t in taxes}
+        for p in productos_tax:
+            nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in (p.get('supplier_taxes_id') or [])
+                                              if t in nombre_por_tax_id]
+    return nombres_por_producto
 
 
 def _verificar_montos(doc: dict, odoo_datos: dict) -> list[str]:
@@ -944,7 +915,8 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     folio = _normalizar_folio(doc.get('l10n_latam_document_number'))
     if folio:
         facturas_proveedor = cliente._call('account.move', 'search_read',
-            [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+            [[['partner_id', '=', partner_id], ['company_id', '=', company_id],
+              ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
             {'fields': ['id', 'name', 'amount_total', 'l10n_latam_document_number']})
         ya_facturada = [m for m in facturas_proveedor if _normalizar_folio(m.get('l10n_latam_document_number')) == folio]
         if ya_facturada:
@@ -1164,14 +1136,20 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             # precios (y cantidades, si se llegaron a tocar) que se acaban
             # de escribir, dejando la OC exactamente como se encontró --
             # "no tocar nada si no calza".
+            fallos_revert = []
             for linea_id, valores in valores_originales.items():
                 try:
                     cliente._call('purchase.order.line', 'write', [[linea_id], valores])
                 except Exception:
-                    pass
+                    fallos_revert.append(linea_id)
+            detalle_revert = (
+                "se revirtió todo lo que se acababa de escribir, no se tocó nada más" if not fallos_revert
+                else f"OJO -- no se pudo revertir la línea {fallos_revert} de vuelta a su valor original, "
+                     f"esa Orden de Compra puede haber quedado con datos mezclados, revisar a mano en Odoo"
+            )
             raise RuntimeError(
-                f"No coinciden los valores con la Orden de Compra {oc_name} de Doña Sofía -- se revirtió "
-                f"todo lo que se acababa de escribir, no se tocó nada más: " + "; ".join(desajustes)
+                f"No coinciden los valores con la Orden de Compra {oc_name} de Doña Sofía -- {detalle_revert}: "
+                + "; ".join(desajustes)
             )
         # Un borrador no se puede eliminar directo en esta instancia -- Odoo
         # exige cancelarlo primero (button_cancel) y recien ahi el unlink

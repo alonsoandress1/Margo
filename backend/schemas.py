@@ -456,11 +456,6 @@ class ProductoImpuestosIn(BaseModel):
     impuesto_nombres: list[str] = Field(default_factory=list, max_length=3)
 
 
-class ProductoImpuestosOut(BaseModel):
-    impuesto_nombres: list[str]
-    es_default: bool  # True = no hay override guardado, esto es el impuesto de compra por defecto de Odoo (informativo, no persistido)
-
-
 class FactorConversionIn(BaseModel):
     proveedor_rut: str
     codigo_tipo: str

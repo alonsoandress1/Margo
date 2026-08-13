@@ -175,7 +175,15 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
 
     ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes).items}
 
-    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['invoice_id', '!=', False]]],
+    # Acotado por la fecha del DTE (con margen de 15 dias a cada lado, por si
+    # difiere un poco de la invoice_date real que usa Planilla) -- sin esto,
+    # la busqueda trae CADA DTE con invoice_id de toda la historia del
+    # sistema, cada vez que se abre "Verificar facturas faltantes" para
+    # cualquier mes, cada vez mas pesado a medida que crece el historial.
+    desde_margen = (date.fromisoformat(desde) - timedelta(days=15)).isoformat()
+    hasta_margen = (date.fromisoformat(hasta) + timedelta(days=15)).isoformat()
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
+        [[['invoice_id', '!=', False], ['date', '>=', desde_margen], ['date', '<=', hasta_margen]]],
         {'fields': ['id', 'issuer_name', 'l10n_latam_document_number', 'invoice_id']})
     move_ids = list({d['invoice_id'][0] for d in docs if d['invoice_id'][0] not in ids_en_planilla})
     if not move_ids:
