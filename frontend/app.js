@@ -2088,10 +2088,7 @@ async function showDteModal(dteId) {
   document.body.appendChild(overlay);
 
   async function recargar() {
-    const [dte, descuento] = await Promise.all([
-      api(`/facturas-dte/${dteId}`),
-      api(`/facturas-dte/${dteId}/descuento`),
-    ]);
+    const dte = await api(`/facturas-dte/${dteId}`);
     // "sugerido" = todavia no se escribio en Odoo, solo es una propuesta de
     // nuestro mapeo -- hay que confirmarla (boton "Confirmar / cambiar")
     // antes de que cuente como matcheada de verdad.
@@ -2099,17 +2096,6 @@ async function showDteModal(dteId) {
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
-      <div class="item-row" style="max-width:360px;margin-bottom:1rem;align-items:flex-end">
-        <div style="flex:1">
-          <label class="field-label">Descuento (%) -- se aplica a todas las líneas</label>
-          <input type="number" id="dte-descuento-input" class="field" style="width:100%" min="0" max="100" step="any" value="${descuento.descuento_pct}">
-        </div>
-        <button type="button" class="btn" id="dte-descuento-guardar">Guardar</button>
-      </div>
-      <p class="placeholder" id="dte-descuento-nota" style="margin-bottom:1rem">${descuento.es_manual
-        ? 'Confirmado a mano.'
-        : 'Calculado automático (Neto declarado vs. suma de líneas sin descuento) -- revisa y confirma o corrige.'}</p>
-      <p id="dte-descuento-error" class="error-msg"></p>
       <table>
         <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
@@ -2126,7 +2112,8 @@ async function showDteModal(dteId) {
                   ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
                   : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
                 ${l.product_id ? ` <button type="button" class="btn" data-impuestos-linea="${l.id}" data-impuestos-producto="${l.product_id}" title="Impuestos de este producto (máx. 3) -- si no se tocan, se usa el impuesto por defecto del producto en Odoo">Impuestos</button>` : ''}
-                ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}</td>
+                ${l.product_id && l.codigo_tipo ? ` <button type="button" class="btn" data-cantidad-linea="${l.id}" title="Corrige la cantidad cuando el proveedor declara un bulto en vez de la cantidad real (ej. '1 azúcar' = 10 kg)">Cantidad real</button>` : ''}
+                ${l.product_id ? ` <button type="button" class="btn" data-descuento-linea="${l.id}" title="% de descuento de este producto en esta factura -- el DTE no lo trae, revisa la factura real y complétalo${l.descuento_pct ? ` (actual: ${l.descuento_pct}%)` : ''}">Descuento</button>` : ''}</td>
             </tr>
             <tr data-buscador="${l.id}" style="display:none"><td colspan="4">
               <div class="item-row">
@@ -2151,6 +2138,15 @@ async function showDteModal(dteId) {
               <div class="item-row" style="margin-top:.5rem">
                 <button type="button" class="btn btn-primary" data-guardar-impuestos="${l.id}">Guardar impuestos</button>
               </div>
+            </td></tr>` : ''}
+            ${l.product_id ? `
+            <tr data-descuento-fila="${l.id}" style="display:none"><td colspan="4">
+              <p class="placeholder" style="margin-bottom:.5rem">% de descuento de <strong>${l.product_name}</strong> en esta factura -- el DTE no lo trae, se completa a mano (revisa la factura real). El precio unitario queda en su valor de lista, el descuento va aparte. 0 = sin descuento.</p>
+              <div class="item-row">
+                <input type="number" class="field dte-descuento-input" data-linea-descuento="${l.id}" min="0" max="100" step="any" style="max-width:160px" value="${l.descuento_pct || 0}">
+                <button type="button" class="btn btn-primary" data-guardar-descuento="${l.id}">Guardar</button>
+              </div>
+              <p class="placeholder" data-descuento-error="${l.id}"></p>
             </td></tr>` : ''}`).join('')}
         </tbody>
       </table>
@@ -2162,22 +2158,34 @@ async function showDteModal(dteId) {
 
     overlay.querySelector('#dte-modal-cerrar').onclick = () => overlay.remove();
 
-    overlay.querySelector('#dte-descuento-guardar').onclick = async () => {
-      const input = overlay.querySelector('#dte-descuento-input');
-      const errorEl = overlay.querySelector('#dte-descuento-error');
-      errorEl.textContent = '';
-      const valor = parseFloat(input.value);
-      if (isNaN(valor) || valor < 0 || valor > 100) {
-        errorEl.textContent = 'Ingresa un número entre 0 y 100.';
-        return;
-      }
-      try {
-        await api(`/facturas-dte/${dteId}/descuento`, { method: 'PUT', body: JSON.stringify({ descuento_pct: valor }) });
-        overlay.querySelector('#dte-descuento-nota').textContent = 'Confirmado a mano.';
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    };
+    overlay.querySelectorAll('[data-descuento-linea]').forEach(btn => {
+      btn.onclick = () => {
+        const fila = overlay.querySelector(`tr[data-descuento-fila="${btn.dataset.descuentoLinea}"]`);
+        const visible = fila.style.display !== 'none';
+        overlay.querySelectorAll('[data-descuento-fila]').forEach(f => { f.style.display = 'none'; });
+        fila.style.display = visible ? 'none' : 'table-row';
+      };
+    });
+
+    overlay.querySelectorAll('[data-guardar-descuento]').forEach(btn => {
+      btn.onclick = async () => {
+        const lineaId = btn.dataset.guardarDescuento;
+        const input = overlay.querySelector(`.dte-descuento-input[data-linea-descuento="${lineaId}"]`);
+        const errorEl = overlay.querySelector(`[data-descuento-error="${lineaId}"]`);
+        errorEl.textContent = '';
+        const valor = parseFloat(input.value);
+        if (isNaN(valor) || valor < 0 || valor > 100) {
+          errorEl.textContent = 'Ingresa un número entre 0 y 100.';
+          return;
+        }
+        try {
+          await api(`/facturas-dte/lineas/${lineaId}/descuento`, { method: 'PUT', body: JSON.stringify({ descuento_pct: valor }) });
+          overlay.querySelector(`tr[data-descuento-fila="${lineaId}"]`).style.display = 'none';
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      };
+    });
 
     overlay.querySelectorAll('[data-buscar-linea]').forEach(btn => {
       btn.onclick = () => {

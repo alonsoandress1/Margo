@@ -36,7 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoDteIn, DescuentoDteOut,
+from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
                        FactorConversionOut, ImpuestoOut, ProductoImpuestosIn, ProveedorOcultarIn, ProveedorOcultoOut)
 
@@ -290,37 +290,19 @@ def fijar_factor_conversion(body: FactorConversionIn, claims: dict = Depends(get
             "No hay un producto confirmado todavía para este código -- confírmalo primero")
 
 
-@router.get("/{dte_id}/descuento", response_model=DescuentoDteOut)
-def obtener_descuento(dte_id: int, claims: dict = Depends(get_current_claims)):
-    """% de descuento efectivo para este DTE -- el que el admin ya
-    confirmó/corrigió a mano si existe (es_manual=True), si no el calculado
-    por defecto comparando el Neto declarado en la cabecera del DTE contra
-    la suma sin descuento de las lineas (es_manual=False)."""
+@router.put("/lineas/{linea_id}/descuento", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_descuento_linea(linea_id: int, body: DescuentoLineaIn, claims: dict = Depends(get_current_claims)):
+    """Guarda el % de descuento de ESTA linea puntual -- el descuento real
+    varia linea por linea (no es un % parejo para toda la factura, ver
+    _ejecutar_creacion), asi que se confirma producto por producto, no una
+    vez por factura. El valor por defecto es 0 (sin descuento) -- el DTE
+    nunca trae el descuento poblado por linea, el admin lo ve en la factura
+    real y lo escribe a mano."""
     _require_admin(claims)
     db = get_db()
-    fila = db.table("facturas_dte_descuento").select("descuento_pct").eq("dte_id", dte_id).execute().data
-    if fila:
-        return DescuentoDteOut(descuento_pct=fila[0]["descuento_pct"], es_manual=True)
-    cliente = _odoo()
-    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
-        {'fields': ['id', 'amount_untaxed']})
-    if not docs:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
-    lineas = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
-        {'fields': ['qty', 'item_price']})
-    return DescuentoDteOut(descuento_pct=_descuento_pct_por_defecto(docs[0], lineas), es_manual=False)
-
-
-@router.put("/{dte_id}/descuento", status_code=status.HTTP_204_NO_CONTENT)
-def fijar_descuento(dte_id: int, body: DescuentoDteIn, claims: dict = Depends(get_current_claims)):
-    """Confirma o corrige a mano el % de descuento que se va a aplicar a
-    TODAS las lineas de este DTE al crear la factura -- reemplaza el valor
-    calculado por defecto."""
-    _require_admin(claims)
-    db = get_db()
-    db.table("facturas_dte_descuento").upsert({
-        "dte_id": dte_id, "descuento_pct": body.descuento_pct, "actualizado_por": claims["sub"],
-    }, on_conflict="dte_id").execute()
+    db.table("facturas_dte_linea_descuento").upsert({
+        "dte_linea_id": linea_id, "descuento_pct": body.descuento_pct, "actualizado_por": claims["sub"],
+    }, on_conflict="dte_linea_id").execute()
 
 
 @router.get("/{dte_id}/comparar", response_model=CompararOut)
@@ -419,6 +401,10 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
     db = get_db()
     mapeos = db.table("facturas_producto_mapa").select("*").eq("proveedor_rut", doc.get("issuer_rut") or "").execute().data or []
     mapa = {(m["codigo_tipo"], m["codigo_valor"]): m for m in mapeos}
+    linea_ids = [l['id'] for l in lineas_raw]
+    descuentos = db.table("facturas_dte_linea_descuento").select("dte_linea_id,descuento_pct") \
+        .in_("dte_linea_id", linea_ids).execute().data or [] if linea_ids else []
+    descuento_por_linea = {d["dte_linea_id"]: d["descuento_pct"] for d in descuentos}
 
     lineas: list[DteLineaOut] = []
     for l in lineas_raw:
@@ -438,6 +424,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
             id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
             codigo_tipo=codigo_tipo, codigo_valor=codigo_valor,
             product_id=product_id, product_name=product_name, sugerido=sugerido,
+            descuento_pct=descuento_por_linea.get(l['id'], 0),
         ))
 
     return DteDetalleOut(
@@ -475,19 +462,6 @@ def _monto(valor) -> float:
         return float(valor)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _descuento_pct_por_defecto(doc: dict, lineas: list[dict]) -> float:
-    """% de descuento por defecto -- comparando el Neto declarado en la
-    cabecera del DTE contra la suma sin descuento de las lineas (el DTE
-    nunca trae el descuento poblado por linea, confirmado revisando 500 DTE
-    reales). Es solo el punto de partida que se muestra en la pantalla --
-    el admin puede confirmarlo o corregirlo a mano antes de crear la
-    factura (ver facturas_dte_descuento)."""
-    neto_dte = _monto(doc.get('amount_untaxed'))
-    neto_sin_descuento = sum((l.get('qty') or 0) * float(l.get('item_price') or 0) for l in lineas)
-    factor_descuento = (neto_dte / neto_sin_descuento) if neto_dte and neto_sin_descuento else 1.0
-    return round((1 - factor_descuento) * 100, 4) if factor_descuento != 1.0 else 0.0
 
 
 def _verificar_montos(doc: dict, odoo_datos: dict) -> list[str]:
@@ -708,20 +682,24 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         codigo_tipo, codigo_valor = _mejor_codigo(codigos_linea, l.get('item_name'))
         return factor_por_codigo.get((codigo_tipo, codigo_valor), 1) or 1
 
-    # % de descuento -- el que el admin haya confirmado/corregido a mano en
-    # la pantalla (facturas_dte_descuento) si existe, si no el calculado por
-    # defecto comparando el Neto declarado en la cabecera del DTE contra la
-    # suma sin descuento de las lineas (el DTE nunca trae el descuento
-    # poblado por linea). El precio unitario de la linea queda SIEMPRE en su
-    # valor de lista (sin descontar) -- el % va en el campo real de Odoo
-    # (purchase.order.line.discount, "Discount (%)"), igual que cuando se
-    # completa la OC a mano (confirmado con OC reales de CCU/Andina: mismo
-    # patron, price_subtotal = qty * price_unit * (1 - discount/100)).
+    # % de descuento POR LINEA -- confirmado a mano por el admin desde la
+    # pantalla (facturas_dte_linea_descuento). El descuento real varia linea
+    # por linea (confirmado con OC reales de CCU/Andina: distintos % en la
+    # misma factura) -- no es un valor parejo para toda la factura. El DTE
+    # nunca trae el descuento poblado por linea, asi que el default es 0
+    # (sin descuento) para cualquier linea que no se haya tocado a mano.
+    #
+    # El precio unitario de la linea queda SIEMPRE en su valor de lista (sin
+    # descontar) -- el % va en el campo real de Odoo (purchase.order.line.discount,
+    # "Discount (%)"), igual que cuando se completa la OC a mano (mismo
+    # patron real: price_subtotal = qty * price_unit * (1 - discount/100)).
     # Pedido explicito del usuario -- si el precio unitario quedara ya
     # descontado, el seguimiento de precio del producto a futuro quedaria
     # adulterado.
-    fila_descuento = db.table("facturas_dte_descuento").select("descuento_pct").eq("dte_id", dte_id).execute().data
-    descuento_pct = fila_descuento[0]["descuento_pct"] if fila_descuento else _descuento_pct_por_defecto(doc, lineas)
+    linea_ids = [l['id'] for l in lineas]
+    filas_descuento = db.table("facturas_dte_linea_descuento").select("dte_linea_id,descuento_pct") \
+        .in_("dte_linea_id", linea_ids).execute().data or []
+    descuento_por_linea = {f["dte_linea_id"]: f["descuento_pct"] for f in filas_descuento}
 
     fecha_dte = f"{doc['date']} 12:00:00"
     order_lines = []
@@ -735,7 +713,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             'name': prod['display_name'],
             'product_qty': (l.get('qty') or 0) * factor_conversion,
             'price_unit': round(precio_real, 2),
-            'discount': descuento_pct,
+            'discount': descuento_por_linea.get(l['id'], 0),
             'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
         }
         nombres_impuestos = nombres_por_producto.get(pid)

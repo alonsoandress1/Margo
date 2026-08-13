@@ -405,6 +405,7 @@ class DteLineaOut(BaseModel):
     product_id: int | None = None
     product_name: str | None = None
     sugerido: bool = False  # True si el product_id vino de nuestro mapeo aprendido, no de Odoo
+    descuento_pct: float = 0  # confirmado a mano por linea -- el DTE nunca trae descuento por linea
 
 
 class DteOut(BaseModel):
@@ -461,12 +462,7 @@ class FactorConversionIn(BaseModel):
     factor_conversion: float = Field(gt=0)
 
 
-class DescuentoDteOut(BaseModel):
-    descuento_pct: float
-    es_manual: bool  # False = calculado por defecto, todavia no lo confirmo un admin
-
-
-class DescuentoDteIn(BaseModel):
+class DescuentoLineaIn(BaseModel):
     descuento_pct: float = Field(ge=0, le=100)
 
 
