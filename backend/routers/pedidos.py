@@ -257,6 +257,7 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
 
     acciones: list[AccionCompra] = []
     odoo_session: OdooWebSession | None = None
+    odoo_company_id: int | None = None
 
     for proveedor_id, entradas in grupos.items():
         proveedor = proveedores.get(proveedor_id)
@@ -275,6 +276,19 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
                     if "login rechazado" in msg.lower():
                         raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
                     raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
+
+                # Se fuerza la empresa del LOCAL del pedido (no la que el
+                # usuario de Odoo tenga activa en su sesion) -- un usuario con
+                # acceso a varias empresas en Odoo no necesariamente tiene
+                # activa la del local correcto, y sin forzarla la OC se crea
+                # bajo la empresa equivocada sin avisar.
+                odoo_company_id = odoo_session.buscar_company_id_por_nombre(local["nombre"])
+                if odoo_company_id is None:
+                    raise HTTPException(
+                        status.HTTP_502_BAD_GATEWAY,
+                        f"No se encontró en Odoo una empresa con nombre parecido a \"{local['nombre']}\" -- "
+                        "revisa que el nombre del local coincida con el de la empresa en Odoo (Ajustes > Empresas)",
+                    )
 
             bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))
             total_bloques = len(bloques)
@@ -296,7 +310,7 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
                     notas += f" (parte {idx}/{total_bloques} -- max {MAX_ITEMS_POR_OC} lineas por OC)"
 
                 po_id, po_name = odoo_session.create_purchase_order(
-                    proveedor["odoo_supplier_id"], po_lines, notes=notas)
+                    proveedor["odoo_supplier_id"], po_lines, notes=notas, company_id=odoo_company_id)
 
                 db.table("po_tracking").insert({
                     "tipo": "odoo", "po_id": po_id, "po_name": po_name, "local_id": pedido["local_id"],

@@ -434,9 +434,26 @@ class OdooWebSession:
             for m in moves
         ]
 
+    def buscar_company_id_por_nombre(self, nombre: str) -> int | None:
+        """Busca el id de res.company que corresponde a un local por nombre
+        (ilike, no exacto -- para tolerar sufijos/mayusculas distintas entre
+        el nombre del local en esta app y el nombre real en Odoo). Se usa
+        para FORZAR la empresa correcta al crear una OC: un usuario de Odoo
+        con acceso a varias empresas no tiene por que tener la del local
+        correcto como "activa" en su sesion, y sin forzarla Odoo la crea
+        bajo la que sea que tenga activa en ese momento."""
+        recs = self.call_kw('res.company', 'search_read',
+            [[['name', 'ilike', nombre]]], {'fields': ['id'], 'limit': 1})
+        return int(recs[0]['id']) if recs else None
+
     def create_purchase_order(self, partner_id: int, lines: list[dict],
-                               notes: str = '') -> tuple[int, str]:
-        """Igual que OdooClient.create_purchase_order pero sobre la sesión web."""
+                               notes: str = '', company_id: int | None = None) -> tuple[int, str]:
+        """Igual que OdooClient.create_purchase_order pero sobre la sesión web.
+        Si se pasa company_id, se fuerza esa empresa tanto en el registro
+        creado como en el contexto de la llamada (allowed_company_ids) --
+        sin esto, un usuario de Odoo con acceso a varias empresas crea la OC
+        bajo la que tenga activa en su sesion, no necesariamente la del
+        local correcto (ver buscar_company_id_por_nombre)."""
         from datetime import datetime, timedelta
         default_planned = (datetime.now() + timedelta(days=2)).strftime('%Y-%m-%d %H:%M:%S')
         order_lines = []
@@ -454,7 +471,11 @@ class OdooWebSession:
         vals: dict = {'partner_id': int(partner_id), 'order_line': order_lines}
         if notes:
             vals['notes'] = notes
-        po_id = self.call_kw('purchase.order', 'create', [vals])
+        kwargs = {}
+        if company_id is not None:
+            vals['company_id'] = int(company_id)
+            kwargs['context'] = {'allowed_company_ids': [int(company_id)]}
+        po_id = self.call_kw('purchase.order', 'create', [vals], kwargs)
         try:
             rec  = self.call_kw('purchase.order', 'read', [[int(po_id)]], {'fields': ['name']})
             name = rec[0]['name'] if rec else f'PO#{po_id}'
