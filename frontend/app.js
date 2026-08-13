@@ -2655,6 +2655,9 @@ async function renderPlanillaCompras(el, s) {
       ${state.planillaItems !== null ? `
       <div style="display:flex;align-items:flex-end">
         <button type="button" id="pc-exportar" class="btn">Exportar Excel</button>
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button type="button" id="pc-faltantes" class="btn" title="Compara contra las facturas de Facturas SII que ya tienen factura real en Odoo, para encontrar las que quedan omitidas de esta planilla">Verificar facturas faltantes</button>
       </div>` : ''}
     </div>
     <p id="pc-error" class="error-msg"></p>
@@ -2717,6 +2720,11 @@ async function renderPlanillaCompras(el, s) {
     } catch (err) {
       errorEl.textContent = err.message;
     }
+  });
+
+  document.getElementById('pc-faltantes')?.addEventListener('click', () => {
+    const [anio, mes] = state.planillaMes.split('-').map(Number);
+    showPlanillaFaltantesModal(anio, mes);
   });
 
   document.getElementById('pc-traer-tcpos')?.addEventListener('click', async () => {
@@ -2820,6 +2828,61 @@ function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, 
         </tfoot>
       </table>
     </div>`;
+}
+
+async function showPlanillaFaltantesModal(anio, mes) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:760px"><p class="placeholder">Buscando…</p></div>';
+  document.body.appendChild(overlay);
+
+  async function cargar() {
+    try {
+      const faltantes = await api(`/planilla-compras/faltantes?anio=${anio}&mes=${mes}`);
+      overlay.querySelector('.modal-box').innerHTML = `
+        <h3>Facturas faltantes en Planilla de Compras</h3>
+        <p class="placeholder" style="margin-bottom:1rem">Facturas de Facturas SII que ya tienen una factura real en Odoo pero no aparecen en esta planilla (normalmente porque no tienen Orden de Compra detrás, ej. ingresadas a mano). Solo informativo -- no se agrega nada hasta que apretás "Agregar".</p>
+        ${faltantes.length ? `
+          <table>
+            <thead><tr><th>Proveedor</th><th>Folio</th><th>Fecha</th><th>Total</th><th></th></tr></thead>
+            <tbody>
+              ${faltantes.map(f => `
+                <tr>
+                  <td>${f.proveedor_nombre}</td>
+                  <td>${f.folio}</td>
+                  <td>${f.fecha || '—'}</td>
+                  <td>${_fmtMonto(f.total)}</td>
+                  <td><button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>` : '<p class="placeholder">No hay ninguna -- Planilla de Compras ya incluye todas las facturas de Facturas SII de este mes.</p>'}
+        <p id="pc-faltantes-error" class="error-msg"></p>
+        <div style="margin-top:1.25rem"><button type="button" class="btn" id="pc-faltantes-cerrar">Cerrar</button></div>`;
+      overlay.querySelector('#pc-faltantes-cerrar').onclick = () => overlay.remove();
+      overlay.querySelectorAll('[data-agregar-faltante]').forEach(btn => {
+        btn.onclick = async () => {
+          const errorEl = overlay.querySelector('#pc-faltantes-error');
+          errorEl.textContent = '';
+          try {
+            await api(`/planilla-compras/faltantes/${btn.dataset.agregarFaltante}/agregar`, { method: 'POST' });
+            if (state.planillaMes === `${anio}-${String(mes).padStart(2, '0')}`) {
+              const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
+              state.planillaItems = res.items;
+              state.planillaResumen = res.resumen;
+            }
+            await cargar();
+            renderView();
+          } catch (err) {
+            errorEl.textContent = err.message;
+          }
+        };
+      });
+    } catch (err) {
+      overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="pc-faltantes-cerrar-error">Cerrar</button>`;
+      overlay.querySelector('#pc-faltantes-cerrar-error').onclick = () => overlay.remove();
+    }
+  }
+  await cargar();
 }
 
 async function showCatalogoProveedoresTipo() {

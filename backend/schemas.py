@@ -577,6 +577,16 @@ class PlanillaComprasOut(BaseModel):
     resumen: PlanillaComprasResumen
 
 
+class PlanillaFaltanteOut(BaseModel):
+    factura_id: int  # id real de account.move en Odoo
+    dte_id: int
+    proveedor_nombre: str
+    folio: str
+    fecha: str | None = None
+    subtotal: float
+    total: float
+
+
 class VentaPeriodoIn(BaseModel):
     anio: int
     mes: int

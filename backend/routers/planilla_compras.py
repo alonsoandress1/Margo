@@ -26,8 +26,8 @@ if str(_REPO_ROOT) not in sys.path:
 from odoo_connector import OdooClient  # noqa: E402
 from tcpos_connector import TcposWebReportSession, construir_parametros  # noqa: E402
 
-from ..schemas import (PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen, ProveedorTipoIn,
-                       ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoTcposOut)
+from ..schemas import (PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen, PlanillaFaltanteOut,
+                       ProveedorTipoIn, ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoTcposOut)
 from ..tcpos_report_parser import parsear_financial_overview_cash_to_deposit
 
 _MESES_ES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO",
@@ -154,6 +154,68 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="Planilla de Compras {nombre_mes} {anio}.xlsx"'},
     )
+
+
+@router.get("/faltantes", response_model=list[PlanillaFaltanteOut])
+def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """Compara las facturas de Facturas SII que YA tienen una factura real
+    creada en Odoo (invoice_id) contra lo que Planilla de Compras muestra
+    este mes -- solo para detectar facturas reales que quedan omitidas
+    porque no tienen Orden de Compra detras (invoice_origin vacio) y
+    todavia no estan en planilla_compras_factura_manual (mismo caso real
+    encontrado con Doña Sofía: la factura existia en Odoo pero Planilla la
+    excluia por parecer un gasto administrativo). NO agrega nada solo --
+    es puramente informativo, cada una se agrega a mano con POST
+    /faltantes/{factura_id}/agregar."""
+    _require_admin(claims)
+    cliente = _odoo()
+    ultimo_dia = monthrange(anio, mes)[1]
+    desde = f"{anio:04d}-{mes:02d}-01"
+    hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
+
+    ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes).items}
+
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['invoice_id', '!=', False]]],
+        {'fields': ['id', 'issuer_name', 'l10n_latam_document_number', 'invoice_id']})
+    move_ids = list({d['invoice_id'][0] for d in docs if d['invoice_id'][0] not in ids_en_planilla})
+    if not move_ids:
+        return []
+    moves = cliente._call('account.move', 'read', [move_ids],
+        {'fields': ['id', 'company_id', 'invoice_date', 'amount_untaxed', 'amount_total', 'state']})
+    moves_por_id = {m['id']: m for m in moves}
+
+    faltantes = []
+    for d in docs:
+        move_id = d['invoice_id'][0]
+        move = moves_por_id.get(move_id)
+        if not move or move.get('state') == 'cancel':
+            continue
+        if not move.get('company_id') or move['company_id'][0] != COMPANY_ID_DONA_DELFINA:
+            continue
+        fecha = move.get('invoice_date')
+        if not fecha or not (desde <= fecha <= hasta):
+            continue
+        faltantes.append(PlanillaFaltanteOut(
+            factura_id=move_id, dte_id=d['id'], proveedor_nombre=d.get('issuer_name') or '',
+            folio=d.get('l10n_latam_document_number') or '', fecha=fecha,
+            subtotal=move.get('amount_untaxed') or 0, total=move.get('amount_total') or 0,
+        ))
+    faltantes.sort(key=lambda f: f.fecha or '')
+    return faltantes
+
+
+@router.post("/faltantes/{factura_id}/agregar", status_code=status.HTTP_204_NO_CONTENT)
+def agregar_faltante(factura_id: int, claims: dict = Depends(get_current_claims)):
+    """Agrega esta factura real de Odoo a Planilla de Compras aunque no
+    tenga Orden de Compra detras -- mismo mecanismo que "Ingresada
+    Manualmente" en Facturas SII. Upsert sobre factura_id (clave primaria)
+    -- no puede quedar duplicada aunque se apriete mas de una vez."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("planilla_compras_factura_manual").upsert({
+        "factura_id": factura_id, "agregado_por": claims["sub"],
+    }).execute()
+
 
 @router.put("/venta-periodo", status_code=status.HTTP_204_NO_CONTENT)
 def fijar_venta_periodo(body: VentaPeriodoIn, claims: dict = Depends(get_current_claims)):
