@@ -21,7 +21,15 @@ def listar_empresas(claims: dict = Depends(get_current_claims),
     -- el frontend lo llama justo despues de pedir las credenciales de Odoo
     (una vez por sesion de pestaña) para saber si tiene que pedirle tambien
     que elija con cual empresa va a trabajar (si tiene acceso a 2 o mas) o
-    si puede seguir de largo (si solo tiene una, como la mayoria)."""
+    si puede seguir de largo (si solo tiene una, como la mayoria).
+
+    A proposito NO se restringe a administrador (a diferencia de la
+    mayoria de los endpoints que tocan Odoo): pedidos.py::generar_oc
+    permite a un solicitante generar una OC, y esta ruta es parte de ese
+    mismo flujo compartido (el modal de credenciales la llama sin saber
+    que pantalla la disparo). Ademas solo devuelve las empresas a las que
+    la PROPIA cuenta de Odoo de quien pregunta tiene acceso -- no expone
+    nada que esa persona no supiera ya de su propio usuario."""
     usuario, password = odoo_creds
     try:
         session = OdooWebSession(os.environ["ODOO_URL"])

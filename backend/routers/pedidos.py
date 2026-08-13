@@ -264,46 +264,54 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
     odoo_session: OdooWebSession | None = None
     odoo_company_id: int | None = None
 
+    # La conexion a Odoo (si hace falta) se resuelve ACA, antes de tocar
+    # correo o po_tracking para cualquier proveedor -- si esto se dejara
+    # para dentro del loop (como antes), un pedido con un proveedor por
+    # correo Y uno por Odoo podia mandar el correo, insertar su po_tracking,
+    # y solo AHI pedir credenciales de Odoo (428). El frontend reintenta
+    # automaticamente tras el modal, pero el reintento volvia a entrar a
+    # esta funcion, encontraba el po_tracking del correo ya insertado, y
+    # rechazaba TODO con "ya se generó una acción de compra" -- dejando la
+    # parte de Odoo sin crear para siempre, sin forma de reintentarla.
+    if any((proveedores.get(pid) or {}).get("usa_odoo") for pid in grupos):
+        if not x_odoo_user or not x_odoo_password:
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Faltan tus credenciales de Odoo")
+        try:
+            odoo_session = OdooWebSession(os.environ["ODOO_URL"])
+            ok, msg = odoo_session.connect(x_odoo_user, x_odoo_password)
+        except KeyError as e:
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
+        if not ok:
+            if "login rechazado" in msg.lower():
+                raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
+
+        # Se fuerza la empresa correcta -- un usuario de Odoo con acceso a
+        # varias empresas no necesariamente tiene activa la del local
+        # correcto en su propia sesion de Odoo, y sin forzarla la OC se crea
+        # bajo la empresa equivocada sin avisar. Primero la que la persona
+        # eligio en el frontend (ve GET /odoo/empresas); si no vino (solo
+        # tiene una empresa, no se le pregunto), se cae a adivinarla por el
+        # nombre del local.
+        if x_odoo_company_id:
+            try:
+                odoo_company_id = int(x_odoo_company_id)
+            except ValueError:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Odoo-Company-Id invalido")
+        else:
+            odoo_company_id = odoo_session.buscar_company_id_por_nombre(local["nombre"])
+            if odoo_company_id is None:
+                raise HTTPException(
+                    status.HTTP_502_BAD_GATEWAY,
+                    f"No se encontró una única empresa en Odoo con nombre parecido a \"{local['nombre']}\" -- "
+                    "revisa que el nombre del local coincida con el de la empresa en Odoo (Ajustes > Empresas)",
+                )
+
     for proveedor_id, entradas in grupos.items():
         proveedor = proveedores.get(proveedor_id)
         nombre_proveedor = proveedor["nombre"] if proveedor else "Proveedor desconocido"
 
         if proveedor and proveedor.get("usa_odoo"):
-            if odoo_session is None:
-                if not x_odoo_user or not x_odoo_password:
-                    raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Faltan tus credenciales de Odoo")
-                try:
-                    odoo_session = OdooWebSession(os.environ["ODOO_URL"])
-                    ok, msg = odoo_session.connect(x_odoo_user, x_odoo_password)
-                except KeyError as e:
-                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
-                if not ok:
-                    if "login rechazado" in msg.lower():
-                        raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
-                    raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
-
-                # Se fuerza la empresa correcta -- un usuario de Odoo con
-                # acceso a varias empresas no necesariamente tiene activa la
-                # del local correcto en su propia sesion de Odoo, y sin
-                # forzarla la OC se crea bajo la empresa equivocada sin
-                # avisar. Primero la que la persona eligio en el frontend
-                # (ve GET /odoo/empresas); si no vino (solo tiene una
-                # empresa, no se le pregunto), se cae a adivinarla por el
-                # nombre del local.
-                if x_odoo_company_id:
-                    try:
-                        odoo_company_id = int(x_odoo_company_id)
-                    except ValueError:
-                        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Odoo-Company-Id invalido")
-                else:
-                    odoo_company_id = odoo_session.buscar_company_id_por_nombre(local["nombre"])
-                    if odoo_company_id is None:
-                        raise HTTPException(
-                            status.HTTP_502_BAD_GATEWAY,
-                            f"No se encontró en Odoo una empresa con nombre parecido a \"{local['nombre']}\" -- "
-                            "revisa que el nombre del local coincida con el de la empresa en Odoo (Ajustes > Empresas)",
-                        )
-
             bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))
             total_bloques = len(bloques)
 

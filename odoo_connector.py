@@ -464,10 +464,16 @@ class OdooWebSession:
         para FORZAR la empresa correcta al crear una OC: un usuario de Odoo
         con acceso a varias empresas no tiene por que tener la del local
         correcto como "activa" en su sesion, y sin forzarla Odoo la crea
-        bajo la que sea que tenga activa en ese momento."""
+        bajo la que sea que tenga activa en ese momento.
+
+        Exige exactamente UN resultado -- si el nombre no matchea ninguna
+        empresa o matchea mas de una (ilike es impreciso, dos empresas
+        podrian compartir una palabra del nombre) se devuelve None en vez
+        de adivinar, para que el llamador falle con un error claro en lugar
+        de forzar la OC bajo una empresa que podria no ser la correcta."""
         recs = self.call_kw('res.company', 'search_read',
-            [[['name', 'ilike', nombre]]], {'fields': ['id'], 'limit': 1})
-        return int(recs[0]['id']) if recs else None
+            [[['name', 'ilike', nombre]]], {'fields': ['id'], 'limit': 2})
+        return int(recs[0]['id']) if len(recs) == 1 else None
 
     def create_purchase_order(self, partner_id: int, lines: list[dict],
                                notes: str = '', company_id: int | None = None) -> tuple[int, str]:

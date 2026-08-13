@@ -168,6 +168,7 @@ function pedirCredencialesOdoo(mensaje) {
             <label class="field-label">Empresa</label>
             <select id="odoo-creds-empresa" class="field" style="width:100%;margin-bottom:1rem"></select>
           </div>
+          <p class="error-msg" id="odoo-creds-error"></p>
           <button type="submit" class="btn btn-primary" id="odoo-creds-submit">Entrar</button>
           <button type="button" class="btn" id="odoo-creds-cancel">Cancelar</button>
         </form>
@@ -178,6 +179,7 @@ function pedirCredencialesOdoo(mensaje) {
     const empresaField = overlay.querySelector('#odoo-creds-empresa-field');
     const empresaSelect = overlay.querySelector('#odoo-creds-empresa');
     const submitBtn = overlay.querySelector('#odoo-creds-submit');
+    const errorEl = overlay.querySelector('#odoo-creds-error');
     let paso = 'login';
 
     overlay.querySelector('#odoo-creds-cancel').onclick = () => {
@@ -187,6 +189,7 @@ function pedirCredencialesOdoo(mensaje) {
 
     overlay.querySelector('#odoo-creds-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      errorEl.textContent = '';
 
       if (paso === 'login') {
         const usuario = overlay.querySelector('#odoo-creds-user').value.trim();
@@ -196,6 +199,7 @@ function pedirCredencialesOdoo(mensaje) {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Conectando…';
         let empresas = [];
+        let credencialesMalas = false;
         try {
           const res = await fetch('/odoo/empresas', {
             headers: {
@@ -203,14 +207,26 @@ function pedirCredencialesOdoo(mensaje) {
               'X-Odoo-User': usuario, 'X-Odoo-Password': password,
             },
           });
-          if (res.ok) empresas = await res.json();
+          if (res.ok) {
+            empresas = await res.json();
+          } else if (res.status === 428) {
+            // Credenciales de Odoo rechazadas -- se avisa aca mismo en vez
+            // de guardarlas igual y descubrirlo recien en el reintento de
+            // la accion original.
+            credencialesMalas = true;
+            const body = await res.json().catch(() => ({}));
+            errorEl.textContent = typeof body.detail === 'string' ? body.detail : 'Credenciales de Odoo incorrectas.';
+          }
+          // Otros codigos (500, etc.) se ignoran aca y se sigue de largo --
+          // el reintento de la accion original ya valida en serio y muestra
+          // su propio error si algo sigue mal.
         } catch (_) {
-          // Si esto falla (red, etc.) se sigue de largo igual -- el
-          // reintento de la llamada original ya valida las credenciales
-          // en serio y muestra su propio error si algo esta mal.
+          // Error de red -- igual, se sigue de largo.
         }
         submitBtn.disabled = false;
         submitBtn.textContent = 'Entrar';
+
+        if (credencialesMalas) return;
 
         state.odooUsuario = usuario;
         state.odooPassword = password;
