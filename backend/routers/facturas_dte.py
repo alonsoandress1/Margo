@@ -46,6 +46,26 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug/referencia-pago")
+def _debug_referencia_pago(claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- confirmar el campo real de "referencia de pago" en una
+    factura creada por este sistema antes de escribirlo. Borrar despues."""
+    if claims["rol"] != "administrador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
+    cliente = _odoo()
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
+        [[['invoice_id', '!=', False]]], {'fields': ['id', 'invoice_id'], 'order': 'id desc', 'limit': 3})
+    resultados = []
+    for d in docs:
+        move_id = d['invoice_id'][0]
+        move = cliente._call('account.move', 'read', [[move_id]],
+            {'fields': ['name', 'ref', 'payment_reference', 'invoice_origin', 'narration']})[0]
+        resultados.append({'dte_id': d['id'], 'move': move})
+    return resultados
+
+
+
+
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
