@@ -206,43 +206,17 @@ def _fix_eliminar_oc_huerfana_p19867(claims: dict = Depends(get_current_claims))
             raise HTTPException(status.HTTP_403_FORBIDDEN, "solo admin")
         cliente = _odoo()
         po_id = 132813
-        picking_id = 879953
 
-        # Idempotente -- si un intento anterior ya dejo creada la devolucion
-        # (confirmada pero no validada), reusarla en vez de crear otro
-        # wizard de nuevo (evita acumular devoluciones duplicadas).
+        # La devolucion real (879957) ya quedo 'done' en un intento anterior
+        # -- se cancela cualquier devolucion redundante que haya quedado sin
+        # terminar (879961, estado 'assigned', nunca llego a mover stock),
+        # sin crear una devolucion nueva.
         po_pickings = cliente._call('purchase.order', 'read', [[po_id]], {'fields': ['picking_ids']})[0]
-        otros_pickings = [p for p in po_pickings['picking_ids'] if p != picking_id]
-        return_picking_id = None
-        if otros_pickings:
-            existentes = cliente._call('stock.picking', 'read', [otros_pickings], {'fields': ['state']})
-            no_terminados = [p for p in existentes if p['state'] != 'done']
-            if no_terminados:
-                return_picking_id = no_terminados[0]['id']
-
-        if return_picking_id is None:
-            wizard_id = cliente._call('stock.return.picking', 'create', [{'picking_id': picking_id}])
-            wizard = cliente._call('stock.return.picking', 'read', [[wizard_id]], {'fields': ['product_return_moves']})[0]
-            if not wizard['product_return_moves']:
-                return {'error': 'el wizard de devolucion no genero lineas -- revisar a mano'}
-            lineas_wizard = cliente._call('stock.return.picking.line', 'read', [wizard['product_return_moves']],
-                {'fields': ['product_id', 'quantity']})
-            for l in lineas_wizard:
-                cliente._call('stock.return.picking.line', 'write', [[l['id']], {'quantity': 16}])
-            resultado = cliente._call('stock.return.picking', 'action_create_returns', [[wizard_id]])
-            return_picking_id = resultado.get('res_id') if isinstance(resultado, dict) else None
-
-        if return_picking_id:
-            devolucion = cliente._call('stock.picking', 'read', [[return_picking_id]], {'fields': ['move_line_ids', 'state']})[0]
-            if devolucion['state'] == 'draft':
-                cliente._call('stock.picking', 'action_confirm', [[return_picking_id]])
-                devolucion = cliente._call('stock.picking', 'read', [[return_picking_id]], {'fields': ['move_line_ids', 'state']})[0]
-            if devolucion['state'] not in ('done', 'cancel'):
-                if devolucion['move_line_ids']:
-                    move_lines = cliente._call('stock.move.line', 'read', [devolucion['move_line_ids']], {'fields': ['quantity']})
-                    for ml in move_lines:
-                        cliente._call('stock.move.line', 'write', [[ml['id']], {'qty_done': ml.get('quantity') or 0}])
-                cliente._call('stock.picking', 'button_validate', [[return_picking_id]])
+        pickings_actuales = cliente._call('stock.picking', 'read', [po_pickings['picking_ids']],
+            {'fields': ['name', 'state', 'picking_type_id']})
+        for p in pickings_actuales:
+            if p['picking_type_id'][1] == 'Doña Delfina: Órdenes de entrega' and p['state'] not in ('done', 'cancel'):
+                cliente._call('stock.picking', 'action_cancel', [[p['id']]])
 
         try:
             cliente._call('purchase.order', 'button_cancel', [[po_id]])
@@ -256,7 +230,7 @@ def _fix_eliminar_oc_huerfana_p19867(claims: dict = Depends(get_current_claims))
             error_unlink = str(e)
 
         return {
-            'devolucion_picking_id': return_picking_id,
+            'pickings_vistos': pickings_actuales,
             'oc_eliminada': limpio,
             'error_unlink': None if limpio else error_unlink,
         }
