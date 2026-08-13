@@ -46,6 +46,42 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug/marcado-manual")
+def _debug_marcado_manual(folio: str, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- diagnosticar por que un DTE marcado 'Ingresada
+    Manualmente' no aparece en Planilla de Compras. Borrar despues."""
+    if claims["rol"] != "administrador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
+    cliente = _odoo()
+    db = get_db()
+
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
+        [[['l10n_latam_document_number', '=', folio]]],
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'invoice_id', 'date']})
+
+    resultado = {'dtes_encontrados': docs, 'marcas_manual': [], 'candidatas_odoo': []}
+
+    for d in docs:
+        marca = db.table("facturas_dte_ingresado_manual").select("*").eq("dte_id", d['id']).execute().data
+        resultado['marcas_manual'].extend(marca)
+
+        partners = cliente._call('res.partner', 'search_read', [[['vat', '=', d['issuer_rut']]]], {'fields': ['id', 'name']})
+        partner_ids = [p['id'] for p in partners]
+        if partner_ids:
+            facturas = cliente._call('account.move', 'search_read',
+                [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+                {'fields': ['id', 'name', 'l10n_latam_document_number', 'invoice_origin', 'company_id',
+                            'invoice_date', 'state', 'partner_id']})
+            candidatas = [f for f in facturas if str(f.get('l10n_latam_document_number') or '').strip() == folio.strip()]
+            resultado['candidatas_odoo'].extend(candidatas)
+
+    ids_planilla = db.table("planilla_compras_factura_manual").select("*").execute().data or []
+    resultado['planilla_compras_factura_manual'] = ids_planilla
+    return resultado
+
+
+
+
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
