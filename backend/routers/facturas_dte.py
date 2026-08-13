@@ -36,7 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn, DescuentoReferenciaOut,
+from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
                        FactorConversionOut, ImpuestoOut, LineaManualIn, ProductoImpuestosIn, ProductoImpuestosOut,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
@@ -309,42 +309,10 @@ def fijar_descuento_linea(linea_id: int, body: DescuentoLineaIn, claims: dict = 
         "proveedor_rut": body.proveedor_rut, "odoo_product_id": body.odoo_product_id,
         # actualizado_en tiene default now() en la fila NUEVA, pero un upsert
         # sobre una fila existente no lo toca solo -- se fija a mano para
-        # que descuento_referencia pueda ordenar por "el mas reciente" de
+        # que detalle() pueda ordenar el historial por "el mas reciente" de
         # verdad, no por la fecha del primer guardado de esa linea.
         "actualizado_en": datetime.now(timezone.utc).isoformat(),
     }, on_conflict="dte_linea_id").execute()
-
-
-@router.get("/productos/{producto_id}/descuento-referencia", response_model=DescuentoReferenciaOut)
-def descuento_referencia(producto_id: int, proveedor_rut: str, claims: dict = Depends(get_current_claims)):
-    """El ultimo % de descuento confirmado a mano para este producto +
-    proveedor puntual (buscando tanto en lineas reales del DTE como en
-    lineas agregadas a mano) -- SOLO de referencia para revisar mas rapido,
-    no se autocompleta nunca: el descuento real varia de una factura a otra
-    para el mismo producto (confirmado con datos reales de CCU/Andina), asi
-    que reaplicar el ultimo valor a ciegas podria quedar mal sin que nadie
-    lo note."""
-    _require_admin(claims)
-    db = get_db()
-    candidatos: list[tuple[float, str]] = []
-
-    fila = db.table("facturas_dte_linea_descuento").select("descuento_pct,actualizado_en") \
-        .eq("proveedor_rut", proveedor_rut).eq("odoo_product_id", producto_id) \
-        .order("actualizado_en", desc=True).limit(1).execute().data
-    if fila:
-        candidatos.append((fila[0]["descuento_pct"], fila[0]["actualizado_en"]))
-
-    fila_manual = db.table("facturas_dte_linea_manual").select("descuento_pct,agregado_en") \
-        .eq("proveedor_rut", proveedor_rut).eq("odoo_product_id", producto_id) \
-        .order("agregado_en", desc=True).limit(1).execute().data
-    if fila_manual:
-        candidatos.append((fila_manual[0]["descuento_pct"], fila_manual[0]["agregado_en"]))
-
-    if not candidatos:
-        return DescuentoReferenciaOut()
-    candidatos.sort(key=lambda c: c[1], reverse=True)
-    descuento_pct, fecha = candidatos[0]
-    return DescuentoReferenciaOut(descuento_pct=descuento_pct, fecha=fecha)
 
 
 @router.post("/{dte_id}/lineas-manuales", status_code=status.HTTP_204_NO_CONTENT)
@@ -590,6 +558,24 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
         .in_("dte_linea_id", linea_ids).execute().data or [] if linea_ids else []
     descuento_por_linea = {d["dte_linea_id"]: d["descuento_pct"] for d in descuentos}
 
+    # Historial de descuento por producto para ESTE proveedor puntual -- una
+    # sola consulta (ordenada por mas reciente), se toma la primera
+    # ocurrencia por producto en Python. Se usa para PRE-COMPLETAR (y dejar
+    # guardado de una vez) el descuento de cualquier linea que todavia no
+    # se confirmo para ESTA factura -- pedido explicito del usuario: que el
+    # ultimo % usado para ese producto con ese proveedor salga solo, no
+    # solo como referencia. Sigue editable, y el chequeo de montos contra
+    # el DTE real (_verificar_montos) sigue siendo la red de seguridad si
+    # el valor copiado no calza en esta factura puntual.
+    historial_descuento_por_producto: dict[int, float] = {}
+    if doc.get("issuer_rut"):
+        filas_historial = db.table("facturas_dte_linea_descuento").select("odoo_product_id,descuento_pct,actualizado_en") \
+            .eq("proveedor_rut", doc["issuer_rut"]).order("actualizado_en", desc=True).execute().data or []
+        for f in filas_historial:
+            pid = f.get("odoo_product_id")
+            if pid is not None and pid not in historial_descuento_por_producto:
+                historial_descuento_por_producto[pid] = f["descuento_pct"]
+
     lineas: list[DteLineaOut] = []
     for l in lineas_raw:
         codigos = [codigos_por_id[c] for c in l.get('code_ids', []) if c in codigos_por_id]
@@ -604,12 +590,24 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims)):
                 cliente._call('l10n_cl.supplier.xml.line', 'write', [[l['id']], {'product_id': product_id}])
             except Exception:
                 sugerido = True  # no se pudo autoconfirmar -- que quede el clic manual como respaldo
+
+        descuento_pct = descuento_por_linea.get(l['id'])
+        descuento_sugerido = False
+        if descuento_pct is None and product_id in historial_descuento_por_producto:
+            descuento_pct = historial_descuento_por_producto[product_id]
+            descuento_sugerido = True
+            db.table("facturas_dte_linea_descuento").upsert({
+                "dte_linea_id": l['id'], "descuento_pct": descuento_pct,
+                "proveedor_rut": doc.get("issuer_rut") or "", "odoo_product_id": product_id,
+                "actualizado_en": datetime.now(timezone.utc).isoformat(),
+            }, on_conflict="dte_linea_id").execute()
+
         lineas.append(DteLineaOut(
             id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
             item_price=float(l.get('item_price') or 0),
             codigo_tipo=codigo_tipo, codigo_valor=codigo_valor,
             product_id=product_id, product_name=product_name, sugerido=sugerido,
-            descuento_pct=descuento_por_linea.get(l['id'], 0),
+            descuento_pct=descuento_pct or 0, descuento_sugerido=descuento_sugerido,
         ))
 
     # Lineas agregadas a mano (facturas_dte_linea_manual) -- id NEGATIVO a

@@ -407,6 +407,7 @@ class DteLineaOut(BaseModel):
     product_name: str | None = None
     sugerido: bool = False  # True si el product_id vino de nuestro mapeo aprendido, no de Odoo
     descuento_pct: float = 0  # confirmado a mano por linea -- el DTE nunca trae descuento por linea
+    descuento_sugerido: bool = False  # True si el % vino solo del historial (mismo proveedor+producto), no confirmado a mano para ESTA factura
     es_manual: bool = False  # True si la agrego un admin a mano -- no existe como linea propia en el DTE
 
 
@@ -473,8 +474,8 @@ class DescuentoLineaIn(BaseModel):
     descuento_pct: float = Field(ge=0, le=100)
     # Opcionales -- si vienen, quedan guardados en la misma fila para poder
     # despues buscar "el ultimo % usado para este producto + este
-    # proveedor" (ver descuento_referencia). Sin autocompletar nada -- solo
-    # referencia.
+    # proveedor" y precompletar la proxima factura (ver detalle() en
+    # facturas_dte.py).
     proveedor_rut: str | None = None
     odoo_product_id: int | None = None
 
@@ -486,11 +487,6 @@ class LineaManualIn(BaseModel):
     precio_unitario: float = Field(ge=0)
     descuento_pct: float = Field(ge=0, le=100, default=0)
     proveedor_rut: str | None = None
-
-
-class DescuentoReferenciaOut(BaseModel):
-    descuento_pct: float | None = None
-    fecha: str | None = None
 
 
 class CompararLineaOut(BaseModel):
