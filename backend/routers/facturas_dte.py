@@ -78,12 +78,25 @@ def _debug_descuento(claims: dict = Depends(get_current_claims)):
             {'attributes': ['string', 'type']})
         campos_descuento_dte = {k: v for k, v in dte_fields.items() if 'disc' in k.lower() or 'descuent' in k.lower()}
 
+        # el DTE si tiene el campo 'discount' -- pero viene poblado de
+        # verdad? buscar en DTE recientes (ultimos 30 dias) lineas con ese
+        # campo no vacio.
+        desde = (date.today() - timedelta(days=30)).isoformat()
+        dtes_recientes = cliente._call('l10n_cl.supplier.xml', 'search_read',
+            [[['date', '>=', desde]]], {'fields': ['id'], 'limit': 500})
+        dte_ids_recientes = [d['id'] for d in dtes_recientes]
+        lineas_con_discount_dte = cliente._call('l10n_cl.supplier.xml.line', 'search_read',
+            [[['invoice_id', 'in', dte_ids_recientes], ['discount', '!=', False]]],
+            {'fields': ['invoice_id', 'item_name', 'qty', 'item_price', 'discount'], 'limit': 15})
+
         return {
             'tiene_campo_discount': tiene_discount,
             'campo_discount_info': campo_discount,
             'lineas_p19741': lineas_p19741,
             'lineas_con_descuento_real_encontradas': con_descuento,
             'campos_descuento_en_dte_crudo': campos_descuento_dte,
+            'total_dtes_revisados': len(dte_ids_recientes),
+            'lineas_dte_con_discount_poblado': lineas_con_discount_dte,
         }
     except Exception:
         return {'error': traceback.format_exc()}
