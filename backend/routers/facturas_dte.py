@@ -46,6 +46,44 @@ router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
 TOLERANCIA_MONTOS = 9  # pesos -- diferencia maxima aceptada entre el DTE y la factura creada en Odoo
 
 
+@router.get("/_debug/diag-marcado/{dte_id}")
+def _debug_diag_marcado(dte_id: int, claims: dict = Depends(get_current_claims)):
+    """TEMPORAL -- diagnosticar por que un DTE marcado 'Ingresada
+    Manualmente' sigue sin vincularse. Borrar despues."""
+    if claims["rol"] != "administrador":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador")
+    cliente = _odoo()
+    db = get_db()
+
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'issuer_rut', 'l10n_latam_document_number', 'invoice_id']})
+    if not docs:
+        return {'error': 'DTE no encontrado'}
+    doc = docs[0]
+    folio_normalizado = _normalizar_folio(doc.get('l10n_latam_document_number'))
+
+    marca = db.table("facturas_dte_ingresado_manual").select("*").eq("dte_id", dte_id).execute().data
+
+    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id', 'name']})
+    partner_ids = [p['id'] for p in partners]
+    facturas = []
+    if partner_ids:
+        facturas = cliente._call('account.move', 'search_read',
+            [[['partner_id', 'in', partner_ids], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+            {'fields': ['id', 'name', 'l10n_latam_document_number', 'invoice_origin', 'state']})
+    for f in facturas:
+        f['folio_normalizado'] = _normalizar_folio(f.get('l10n_latam_document_number'))
+    candidatas = [f for f in facturas if f['folio_normalizado'] == folio_normalizado]
+
+    return {
+        'doc': doc, 'folio_normalizado': folio_normalizado, 'marca_actual': marca,
+        'partners': partners, 'total_facturas_proveedor': len(facturas),
+        'candidatas': candidatas,
+    }
+
+
+
+
 
 
 # Doña Sofía es proveedor de Doña Delfina (no un local aparte) y, a diferencia
