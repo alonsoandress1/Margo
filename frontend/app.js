@@ -2400,6 +2400,9 @@ async function actualizarColaPanel() {
               <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${c.invoice_name}` : ''}${c.estado === 'error' ? ` — ${c.error_mensaje}` : ''}</td>
               <td>
                 ${c.estado === 'completado' ? `<button type="button" class="btn" data-comparar-dte="${c.dte_id}">Comparar</button> ` : ''}
+                ${c.estado === 'error' && (c.error_mensaje || '').includes('Ya existe una factura en Odoo')
+                  ? `<button type="button" class="btn btn-primary" data-vincular-cola="${c.id}" data-vincular-dte="${c.dte_id}" title="Busca la factura que ya existe en Odoo para este folio+proveedor y la vincula -- si corresponde, tambien la agrega a Planilla de Compras">Vincular factura existente</button> `
+                  : ''}
                 <button type="button" class="btn" data-eliminar-cola="${c.id}" title="Solo quita esta fila de la lista -- no afecta la factura en Odoo">Limpiar</button>
               </td>
             </tr>`).join('')}
@@ -2420,6 +2423,30 @@ async function actualizarColaPanel() {
 
   panel.querySelectorAll('[data-comparar-dte]').forEach(btn => {
     btn.addEventListener('click', () => showCompararModal(parseInt(btn.dataset.compararDte, 10)));
+  });
+
+  panel.querySelectorAll('[data-vincular-cola]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dteId = parseInt(btn.dataset.vincularDte, 10);
+      if (!confirm('¿Vincular la factura que ya existe en Odoo para este folio? Si corresponde, también se agrega a Planilla de Compras.')) return;
+      btn.disabled = true;
+      try {
+        await api(`/facturas-dte/${dteId}/marcar-manual`, { method: 'POST' });
+        await api(`/facturas-dte/cola/${btn.dataset.vincularCola}`, { method: 'DELETE' });
+        if (state.dteLista) {
+          state.dteLista = state.dteLista.filter(d => d.id !== dteId);
+          const resultadosEl = document.getElementById('dte-resultados');
+          if (resultadosEl) {
+            resultadosEl.innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
+            bindDteResultadosBotones();
+          }
+        }
+        actualizarColaPanel();
+      } catch (err) {
+        btn.disabled = false;
+        alert(err.message);
+      }
+    });
   });
 
   document.getElementById('dte-cola-limpiar-todas').addEventListener('click', async () => {
