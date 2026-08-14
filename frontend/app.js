@@ -2170,6 +2170,17 @@ async function renderFacturas(el, s) {
   }
 }
 
+function _textoContadorDte() {
+  if (!state.dteLista) return '';
+  const n = state.dteLista.length;
+  return `(${n} pendiente${n === 1 ? '' : 's'})`;
+}
+
+function _actualizarContadorDte() {
+  const el = document.getElementById('dte-contador-pendientes');
+  if (el) el.textContent = _textoContadorDte();
+}
+
 async function renderFacturasDte(el, s) {
   const hoy = new Date().toISOString().slice(0, 10);
   const hace7dias = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); })();
@@ -2179,7 +2190,7 @@ async function renderFacturasDte(el, s) {
   state.dteHasta = hasta;
 
   el.innerHTML = `
-    <h2>Facturas Odoo</h2>
+    <h2>Facturas Odoo <span id="dte-contador-pendientes" class="placeholder" style="font-size:1rem">${_textoContadorDte()}</span></h2>
     <p class="placeholder" style="margin-bottom:1.25rem">Documentos que Odoo ya recibió del SII pero todavía no tienen una factura borrador creada. Revisa los productos de cada línea y crea la factura -- nunca se crea un producto nuevo, solo se conecta con uno que ya existe.</p>
     <div class="item-row" style="max-width:520px;margin-bottom:1rem">
       <div style="flex:1">
@@ -2283,6 +2294,7 @@ function bindDteResultadosBotones() {
         state.dteLista = state.dteLista.filter(d => d.proveedor_rut !== proveedorRut);
         document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
         bindDteResultadosBotones();
+        _actualizarContadorDte();
       } catch (err) {
         errorEl.textContent = err.message;
       }
@@ -2299,6 +2311,7 @@ function bindDteResultadosBotones() {
         state.dteLista = state.dteLista.filter(d => d.id !== dteId);
         document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
         bindDteResultadosBotones();
+        _actualizarContadorDte();
       } catch (err) {
         errorEl.textContent = err.message;
       }
@@ -2440,6 +2453,7 @@ async function actualizarColaPanel() {
             resultadosEl.innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
             bindDteResultadosBotones();
           }
+          _actualizarContadorDte();
         }
         actualizarColaPanel();
       } catch (err) {
