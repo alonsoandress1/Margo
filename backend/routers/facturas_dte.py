@@ -1306,12 +1306,34 @@ def crear_factura(dte_id: int, background_tasks: BackgroundTasks, claims: dict =
     return ColaFacturaOut(**fila)
 
 
+TIMEOUT_COLA_PROCESANDO_MINUTOS = 5
+
+
 @router.get("/cola/estado", response_model=list[ColaFacturaOut])
 def listar_cola(claims: dict = Depends(get_current_claims)):
     """Ultimos items de la cola de creacion -- para el panel que muestra el
-    progreso mientras se sigue trabajando en otros DTE."""
+    progreso mientras se sigue trabajando en otros DTE.
+
+    Antes de listar, cualquier item que lleve "procesando" mas de
+    TIMEOUT_COLA_PROCESANDO_MINUTOS se marca como error -- el estado
+    "procesando" se fija ANTES de hacer ninguna llamada a Odoo
+    (_procesar_item_cola), asi que si el servidor se reinicia a mitad de
+    camino (un deploy, o que Render lo duerma/reinicie en plan Free), el
+    hilo en segundo plano se pierde para siempre y esa fila queda huerfana
+    "procesando" sin que nada la vuelva a tocar. Procesar una factura real
+    tarda segundos, nunca minutos, asi que este timeout no deberia
+    disparar nunca en un caso normal. Reintentar despues es seguro: el
+    chequeo anti-duplicados de _ejecutar_creacion detecta si algo ya
+    alcanzo a crearse en Odoo antes del corte, en vez de duplicarlo."""
     _require_admin(claims)
     db = get_db()
+    limite = (datetime.now(timezone.utc) - timedelta(minutes=TIMEOUT_COLA_PROCESANDO_MINUTOS)).isoformat()
+    db.table("facturas_dte_cola").update({
+        "estado": "error",
+        "error_mensaje": "Se interrumpió mientras se creaba (probablemente un reinicio del servidor) -- "
+                          "puedes reintentar: si algo ya se alcanzó a crear en Odoo, el reintento lo va a "
+                          "detectar y avisar en vez de duplicarlo.",
+    }).eq("estado", "procesando").lt("creado_en", limite).execute()
     filas = db.table("facturas_dte_cola").select("*").order("creado_en", desc=True).limit(30).execute().data or []
     return [ColaFacturaOut(**f) for f in filas]
 
