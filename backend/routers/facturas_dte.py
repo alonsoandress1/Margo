@@ -927,8 +927,9 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
             nombres = ', '.join(m['name'] for m in ya_facturada)
             raise RuntimeError(
                 f"Ya existe una factura en Odoo para este folio ({nombres}) aunque el DTE no estaba vinculado "
-                f"a ella -- no se creó nada nuevo. Si es la factura correcta, hay que vincularla a mano; "
-                f"si no, revisar con contabilidad"
+                f"a ella -- no se creó nada nuevo. Si es la factura correcta, usa el botón \"Ingresada "
+                f"Manualmente\" en la lista de pendientes para vincularla (no \"Limpiar\" acá, eso solo saca "
+                f"esta fila de la vista, no vincula nada); si no, revisar con contabilidad"
             )
 
     # Condicion de pago -- la que el proveedor ya tiene configurada por
