@@ -268,7 +268,7 @@ def buscar_producto(q: str, claims: dict = Depends(get_current_claims),
     _require_admin(claims)
     cliente = _odoo(odoo_creds)
     productos = cliente._call('product.product', 'search_read',
-        [['|', ['name', 'ilike', q], ['default_code', 'ilike', q]]],
+        [[['purchase_ok', '=', True], '|', ['name', 'ilike', q], ['default_code', 'ilike', q]]],
         {'fields': ['id', 'name', 'default_code', 'uom_id'], 'limit': 30})
     return [
         DteProductoOut(id=p['id'], name=p['name'], default_code=p.get('default_code') or None,
@@ -598,20 +598,34 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
                 historial_descuento_por_producto[pid] = f["descuento_pct"]
 
     lineas_procesadas = []
+    por_producto_autoconfirmar: dict[int, list[int]] = {}
     for l in lineas_raw:
         codigos = [codigos_por_id[c] for c in l.get('code_ids', []) if c in codigos_por_id]
         codigo_tipo, codigo_valor = _mejor_codigo(codigos, l.get('item_name'))
         product_id = l['product_id'][0] if l.get('product_id') else None
         product_name = l['product_id'][1] if l.get('product_id') else None
-        sugerido = False
         if not product_id and codigo_tipo and (codigo_tipo, codigo_valor) in mapa:
             m = mapa[(codigo_tipo, codigo_valor)]
             product_id, product_name = m["odoo_product_id"], m["odoo_product_name"]
-            try:
-                cliente._call('l10n_cl.supplier.xml.line', 'write', [[l['id']], {'product_id': product_id}])
-            except Exception:
-                sugerido = True  # no se pudo autoconfirmar -- que quede el clic manual como respaldo
-        lineas_procesadas.append((l, product_id, product_name, sugerido, codigo_tipo, codigo_valor))
+            por_producto_autoconfirmar.setdefault(product_id, []).append(l['id'])
+        lineas_procesadas.append([l, product_id, product_name, False, codigo_tipo, codigo_valor])
+
+    # Autoconfirmar de a un PRODUCTO (todas sus lineas juntas en un solo
+    # write), no de a una linea -- una factura con muchas lineas nuevas
+    # significa muchos productos repetidos entre lineas, asi que agrupar
+    # ahorra la mayoria de las idas y vueltas a Odoo. Si el write de un
+    # grupo falla, esas lineas vuelven a quedar pendientes del clic manual
+    # (mismo respaldo de antes, solo que ahora el radio de una falla
+    # puntual es el grupo entero en vez de una sola linea).
+    lineas_fallidas = set()
+    for product_id, line_ids in por_producto_autoconfirmar.items():
+        try:
+            cliente._call('l10n_cl.supplier.xml.line', 'write', [line_ids, {'product_id': product_id}])
+        except Exception:
+            lineas_fallidas.update(line_ids)
+    for fila in lineas_procesadas:
+        if fila[0]['id'] in lineas_fallidas:
+            fila[3] = True  # sugerido
 
     lineas_manuales = db.table("facturas_dte_linea_manual").select("*").eq("dte_id", dte_id).order("id").execute().data or []
 
