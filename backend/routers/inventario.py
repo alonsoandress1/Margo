@@ -96,13 +96,32 @@ def reprocesar_stock_pendiente(claims: dict = Depends(get_current_claims)):
         ingrediente_key = ingrediente_por_producto.get(p["odoo_product_id"])
         if not local_id or not ingrediente_key:
             continue
-        db.table("bodega_movimientos").insert({
-            "local_id": local_id, "ingrediente_key": ingrediente_key, "tipo": "ingreso",
-            "cantidad": p["cantidad"], "origen": "factura_odoo", "ref": p.get("invoice_name"),
-            "nota": f"Factura Odoo {p.get('invoice_name')} ({p.get('proveedor_nombre')}) -- resuelto despues",
-            "fecha": ahora,
-        }).execute()
-        db.table("bodega_stock_pendiente").delete().eq("id", p["id"]).execute()
+        # Se borra la fila pendiente ANTES de sumar el movimiento, y solo se
+        # suma si el borrado de verdad se llevo puesto una fila -- si dos
+        # clics en "Actualizar" (dos pestañas, dos personas) llegan casi
+        # juntos, el segundo borrado no encuentra nada (ya lo borro el
+        # primero) y no llega a sumar el ingreso dos veces.
+        borrada = db.table("bodega_stock_pendiente").delete().eq("id", p["id"]).execute()
+        if not borrada.data:
+            continue
+        try:
+            db.table("bodega_movimientos").insert({
+                "local_id": local_id, "ingrediente_key": ingrediente_key, "tipo": "ingreso",
+                "cantidad": p["cantidad"], "origen": "factura_odoo", "ref": p.get("invoice_name"),
+                "nota": f"Factura Odoo {p.get('invoice_name')} ({p.get('proveedor_nombre')}) -- resuelto despues",
+                "fecha": ahora,
+            }).execute()
+        except Exception:
+            # Se ya borro la fila pendiente pero no se alcanzo a sumar el
+            # ingreso (ej. error de red) -- se reinserta para no perderla,
+            # en vez de quedar sin registro de que faltaba sumarse.
+            db.table("bodega_stock_pendiente").insert({
+                "dte_id": p["dte_id"], "invoice_id": p.get("invoice_id"), "invoice_name": p.get("invoice_name"),
+                "odoo_company_id": p.get("odoo_company_id"), "local_id": p.get("local_id"),
+                "odoo_product_id": p["odoo_product_id"], "producto_nombre": p["producto_nombre"],
+                "cantidad": p["cantidad"], "proveedor_nombre": p.get("proveedor_nombre"), "motivo": p["motivo"],
+            }).execute()
+            continue
         resueltos += 1
 
     return StockPendienteReprocesarOut(resueltos=resueltos, pendientes=len(pendientes) - resueltos)
