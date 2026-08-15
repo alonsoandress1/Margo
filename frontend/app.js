@@ -10,7 +10,6 @@ const SECCIONES = [
   { id: 'mermas',    label: 'Mermas',                grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'parstock',  label: 'Par Stock',             grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'recetas',   label: 'Recetas',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'oc',        label: 'Órdenes de Compra',     grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'proveedores', label: 'Proveedores',         grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas',  label: 'Recepción en Bodega',    grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas-dte', label: 'Facturas Odoo',         grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
