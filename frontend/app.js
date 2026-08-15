@@ -682,8 +682,8 @@ async function renderResumen(el, s) {
   let planillaResumen = null;
   if (esAdmin) {
     const hoy = new Date();
-    const hace30 = new Date(); hace30.setDate(hoy.getDate() - 30);
-    const desde = hace30.toISOString().slice(0, 10);
+    const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const desde = primerDiaMes.toISOString().slice(0, 10);
     const hasta = hoy.toISOString().slice(0, 10);
     const [dte, planilla] = await Promise.all([
       api(`/facturas-dte?desde=${desde}&hasta=${hasta}`).catch(() => null),
@@ -714,7 +714,7 @@ async function renderResumen(el, s) {
       </div>
       ${esAdmin ? `
       <div class="resumen-card" data-ir="facturas-dte" tabindex="0" role="button">
-        <div class="resumen-card-label">Facturas Odoo pendientes (30 días)</div>
+        <div class="resumen-card-label">Facturas Odoo pendientes (mes actual)</div>
         <div class="resumen-card-valor ${facturasPendientesCount === null ? '' : claseCantidad(facturasPendientesCount)}">
           ${facturasPendientesCount === null ? '—' : facturasPendientesCount}
         </div>
