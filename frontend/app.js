@@ -664,14 +664,10 @@ async function renderResumen(el, s) {
   const esAdmin = state.usuario.rol === 'administrador';
   const locales = await api('/locales');
 
-  const [pedidos, mermasPorLocal] = await Promise.all([
-    api('/pedidos'),
-    Promise.all(locales.map(l =>
-      api(`/mermas?local_id=${l.id}`).then(items => ({ local: l.nombre, items })).catch(() => ({ local: l.nombre, items: [] }))
-    )),
-  ]);
+  const mermasPorLocal = await Promise.all(locales.map(l =>
+    api(`/mermas?local_id=${l.id}`).then(items => ({ local: l.nombre, items })).catch(() => ({ local: l.nombre, items: [] }))
+  ));
 
-  const pedidosPendientes = pedidos.filter(p => p.estado === 'pendiente').length;
   const mermasResumen = mermasPorLocal
     .map(({ local, items }) => items.length
       ? { local, total: items.length, faltan: items.filter(i => i.cantidad_informada === null || i.cantidad_informada === undefined).length }
@@ -699,10 +695,6 @@ async function renderResumen(el, s) {
     <h2>Resumen</h2>
     <p class="placeholder" style="margin-bottom:1.25rem">Lo que conviene revisar hoy, de un vistazo.</p>
     <div class="resumen-grid">
-      <div class="resumen-card" data-ir="pedidos" tabindex="0" role="button">
-        <div class="resumen-card-label">Pedidos por aprobar</div>
-        <div class="resumen-card-valor ${claseCantidad(pedidosPendientes)}">${pedidosPendientes}</div>
-      </div>
       <div class="resumen-card" data-ir="mermas" tabindex="0" role="button">
         <div class="resumen-card-label">Mermas de ayer</div>
         ${mermasResumen.length
