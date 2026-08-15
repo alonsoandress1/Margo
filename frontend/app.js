@@ -1445,13 +1445,13 @@ async function renderInventario(el, s) {
     ${editable ? `
       <div class="card">
         <h3>Registrar movimiento</h3>
+        <p class="placeholder" style="margin-bottom:.75rem">Para egresos (mermas, pérdidas) y ajustes (corrección tras un conteo físico) -- los ingresos por factura ahora se suman solos desde Facturas Odoo.</p>
         <form id="mov-form">
           <div class="item-row">
             <select id="mov-insumo" class="field" style="flex:2" required>
               ${items.map(i => `<option value="${i.ingrediente_key}">${i.nombre} (${formatUnidad(i.unidad)})</option>`).join('')}
             </select>
             <select id="mov-tipo" class="field">
-              <option value="ingreso">Ingreso</option>
               <option value="egreso">Egreso</option>
               <option value="ajuste">Ajuste</option>
             </select>
