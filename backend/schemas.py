@@ -63,6 +63,24 @@ class InventarioItem(BaseModel):
     stock_bodega: float
 
 
+class StockPendienteOut(BaseModel):
+    id: str
+    dte_id: int
+    invoice_name: str | None = None
+    local_id: str | None = None
+    odoo_product_id: int
+    producto_nombre: str
+    cantidad: float
+    proveedor_nombre: str | None = None
+    motivo: str
+    creado_en: str
+
+
+class StockPendienteReprocesarOut(BaseModel):
+    resueltos: int
+    pendientes: int
+
+
 class StockCocinaIn(BaseModel):
     """Bloque 'Control de Stock' -- Stock Informado va junto al desglose de
     Mermas por causa, igual que en la planilla real (no son cosas separadas).

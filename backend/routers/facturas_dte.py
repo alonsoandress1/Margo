@@ -879,11 +879,12 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     actualiza el precio de cada linea al del DTE real."""
     company_id = doc['company_id'][0]
     partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]],
-        {'fields': ['id', 'supplier_rank']})
+        {'fields': ['id', 'supplier_rank', 'name']})
     if not partners:
         raise RuntimeError(f"No encontré el proveedor con RUT {doc['issuer_rut']} en Odoo")
     if len(partners) == 1:
         partner_id = partners[0]['id']
+        proveedor_nombre = partners[0]['name']
     else:
         # Es comun que el mismo RUT quede repetido en varios res.partner --
         # confirmado con datos reales en CCU (la empresa real + 2 contactos
@@ -899,6 +900,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
                 f"sin uno claramente mas usado como proveedor -- hay que resolverlo a mano en Odoo"
             )
         partner_id = ranking[0]['id']
+        proveedor_nombre = ranking[0]['name']
 
     # Verificar que no exista YA una factura real para este mismo documento
     # (mismo proveedor + mismo folio), aunque el DTE nunca haya quedado
@@ -1212,7 +1214,56 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     # permisos (un campo relacionado toca pos.payment, sin acceso para la
     # cuenta de servicio) -- por eso siempre hay que pedir campos explicitos.
     move = cliente._call('account.move', 'read', [[move_id]], {'fields': ['name']})[0]
+
+    # La factura ya quedo creada en Odoo (lo que importa) -- alimentar el
+    # stock de Bodega es un extra que nunca debe hacer fallar la creacion.
+    try:
+        _alimentar_stock_bodega(db, company_id, dte_id, move_id, move['name'], proveedor_nombre, order_lines)
+    except Exception:
+        pass
+
     return move_id, move['name']
+
+
+def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invoice_name: str,
+                             proveedor_nombre: str, order_lines: list) -> None:
+    """Suma automaticamente a bodega_movimientos el ingreso de cada linea de
+    la factura recien creada -- pedido explicito del usuario, para no tener
+    que cargar el stock a mano cada vez que se ingresa una factura.
+
+    La cantidad de cada linea (linea_oc['product_qty']) ya viene con el
+    factor de conversion aplicado (ver order_lines en _ejecutar_creacion),
+    asi que es directamente la cantidad real a sumar.
+
+    Si el local (por la empresa de Odoo) o el insumo (por el producto de
+    Odoo, via odoo_mapping) todavia no se pueden resolver, la linea queda
+    en bodega_stock_pendiente en vez de sumarse -- se resuelve despues con
+    el boton "Actualizar" en Inventario, una vez que exista el mapeo que
+    faltaba (ver inventario.py::reprocesar_stock_pendiente)."""
+    locales = db.table("locales").select("id").eq("odoo_company_id", company_id).execute().data
+    local_id = locales[0]["id"] if locales else None
+
+    product_ids = list({linea_oc["product_id"] for _, _, linea_oc in order_lines})
+    mapeos = db.table("odoo_mapping").select("odoo_id,ingrediente_key").in_("odoo_id", product_ids).execute().data or []
+    ingrediente_por_producto = {m["odoo_id"]: m["ingrediente_key"] for m in mapeos}
+
+    ahora = datetime.now(timezone.utc).isoformat()
+    for _, _, linea_oc in order_lines:
+        pid = linea_oc["product_id"]
+        ingrediente_key = ingrediente_por_producto.get(pid)
+        if not local_id or not ingrediente_key:
+            db.table("bodega_stock_pendiente").insert({
+                "dte_id": dte_id, "invoice_id": move_id, "invoice_name": invoice_name,
+                "odoo_company_id": company_id, "local_id": local_id, "odoo_product_id": pid,
+                "producto_nombre": linea_oc["name"], "cantidad": linea_oc["product_qty"],
+                "proveedor_nombre": proveedor_nombre, "motivo": "sin_local" if not local_id else "sin_insumo",
+            }).execute()
+            continue
+        db.table("bodega_movimientos").insert({
+            "local_id": local_id, "ingrediente_key": ingrediente_key, "tipo": "ingreso",
+            "cantidad": linea_oc["product_qty"], "origen": "factura_odoo", "ref": invoice_name,
+            "nota": f"Factura Odoo {invoice_name} ({proveedor_nombre})", "fecha": ahora,
+        }).execute()
 
 
 def _procesar_item_cola(cola_id: str, dte_id: int, odoo_creds: tuple[str, str]):

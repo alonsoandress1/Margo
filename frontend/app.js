@@ -1430,7 +1430,10 @@ async function renderInventario(el, s) {
   const localId = state.invLocal && locales.some(l => l.id === state.invLocal) ? state.invLocal : locales[0].id;
   state.invLocal = localId;
 
-  const items = await api(`/inventario?local_id=${localId}`);
+  const [items, stockPendiente] = await Promise.all([
+    api(`/inventario?local_id=${localId}`),
+    editable ? api('/inventario/stock-pendiente').catch(() => []) : Promise.resolve([]),
+  ]);
 
   el.innerHTML = `
     <h2>Inventario de Bodega</h2>
@@ -1461,7 +1464,27 @@ async function renderInventario(el, s) {
       </div>
       <div style="margin-bottom:1rem">
         <button type="button" class="btn" id="inv-stock-inicial-btn">Cargar stock inicial por proveedor</button>
-      </div>` : ''}
+      </div>
+      ${stockPendiente.length ? `
+      <div class="card" style="margin-bottom:1.25rem">
+        <h3>Stock pendiente de sumar (${stockPendiente.length})</h3>
+        <p class="placeholder" style="margin-bottom:.75rem">Productos de facturas de Facturas Odoo que todavía no tienen insumo asociado (o el local todavía no tiene mapeo a su empresa de Odoo) -- una vez que agregues el mapeo que falta, tocá "Actualizar" para sumarlos al stock.</p>
+        <table>
+          <thead><tr><th>Producto</th><th>Cantidad</th><th>Proveedor</th><th>Factura</th><th>Motivo</th></tr></thead>
+          <tbody>
+            ${stockPendiente.map(p => `
+              <tr>
+                <td>${p.producto_nombre}</td>
+                <td>${p.cantidad}</td>
+                <td>${p.proveedor_nombre || '—'}</td>
+                <td>${p.invoice_name || '—'}</td>
+                <td>${p.motivo === 'sin_local' ? 'Local sin mapeo a Odoo' : 'Producto sin insumo asociado'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        <button type="button" class="btn btn-primary" id="inv-stock-pendiente-actualizar" style="margin-top:.75rem">Actualizar</button>
+        <p id="inv-stock-pendiente-error" class="error-msg"></p>
+      </div>` : ''}` : ''}
     <div class="card">
       <table>
         <thead><tr><th>Insumo</th><th>Unidad</th><th>Par Stock</th><th>Stock Bodega actual</th></tr></thead>
@@ -1505,6 +1528,27 @@ async function renderInventario(el, s) {
 
     document.getElementById('inv-stock-inicial-btn').addEventListener('click', () => {
       showStockInicialModal(localId, items);
+    });
+
+    document.getElementById('inv-stock-pendiente-actualizar')?.addEventListener('click', async (e) => {
+      const btn = e.target;
+      const errorEl = document.getElementById('inv-stock-pendiente-error');
+      btn.disabled = true;
+      btn.textContent = 'Actualizando…';
+      try {
+        const res = await api('/inventario/stock-pendiente/reprocesar', { method: 'POST' });
+        if (res.resueltos === 0) {
+          errorEl.textContent = 'Todavía no hay ningún mapeo nuevo que resuelva lo pendiente.';
+          btn.disabled = false;
+          btn.textContent = 'Actualizar';
+        } else {
+          renderView();
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Actualizar';
+        errorEl.textContent = err.message;
+      }
     });
   }
 }
