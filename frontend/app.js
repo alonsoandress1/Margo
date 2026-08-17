@@ -1,6 +1,16 @@
 // Margo · Compras — frontend (vanilla JS, sin build step)
 // El backend sirve estos archivos estáticos, así que la API está en el mismo origen.
 
+// Texto libre que un usuario escribe (ej. nombre de insumo en Pedidos/Recetas)
+// se guarda tal cual y despues se interpola en innerHTML para otros roles --
+// sin esto, cualquiera podia meter HTML/JS ahi y robar el token de sesion
+// (localStorage) de quien abra esa pantalla despues.
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 const GRUPOS_NAV = ['Operación diaria', 'Compras', 'Configuración'];
 
 const SECCIONES = [
@@ -1039,7 +1049,7 @@ async function renderRecetas(el, s) {
           <tbody>
             ${p.lineas.map(l => `
               <tr>
-                <td>${l.ingrediente}</td><td>${l.cantidad}</td><td>${l.unidad}</td>
+                <td>${escapeHtml(l.ingrediente)}</td><td>${l.cantidad}</td><td>${escapeHtml(l.unidad)}</td>
                 ${editable ? `<td><button class="btn btn-reject" data-del-linea="${l.id}">Eliminar</button></td>` : ''}
               </tr>`).join('')}
           </tbody>
@@ -2045,7 +2055,7 @@ function showDetalleModal(pedido, nombreLocal) {
         <thead><tr><th>Insumo</th><th>Cantidad</th><th>Unidad</th></tr></thead>
         <tbody>
           ${(pedido.items || []).map(i => `
-            <tr><td>${i.ingrediente}</td><td>${i.cantidad}</td><td>${formatUnidad(i.unidad)}</td></tr>
+            <tr><td>${escapeHtml(i.ingrediente)}</td><td>${i.cantidad}</td><td>${formatUnidad(i.unidad)}</td></tr>
           `).join('')}
         </tbody>
       </table>
