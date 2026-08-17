@@ -312,17 +312,22 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
         nombre_proveedor = proveedor["nombre"] if proveedor else "Proveedor desconocido"
 
         if proveedor and proveedor.get("usa_odoo"):
-            # Se le pasa a Odoo la unidad de medida real de cada producto
-            # (product_uom) -- sin esto, Odoo asume la que ese producto tenga
-            # configurada por defecto ahi, que no necesariamente es la misma
-            # que la que usamos en Par Stock (ej. nosotros lo llevamos en
-            # "unidades" pero el producto en Odoo quedo configurado en "Kg"):
-            # el mismo numero terminaria pidiendo la cantidad equivocada, sin
-            # ningun error que lo avise.
-            product_ids_grupo = list({m["odoo_id"] for m, _ in entradas})
-            productos_odoo = odoo_session.call_kw('product.product', 'read',
-                [product_ids_grupo], {'fields': ['uom_id']})
-            uom_por_producto = {p['id']: p['uom_id'][0] for p in productos_odoo if p.get('uom_id')}
+            # La cantidad que mandamos siempre esta en una de dos unidades
+            # que decidimos NOSOTROS al calcularla (nunca la que ese
+            # producto tenga configurada por defecto en Odoo, que puede no
+            # coincidir): "Kg" si el insumo se pesa (unidad "kg"/"g", ya
+            # convertido a Kg mas abajo) o "Unidades" en cualquier otro
+            # caso. Se resuelven los IDs reales de esas dos unidades de
+            # medida estandar de Odoo por su external id (estable en
+            # cualquier base de Odoo) y se mandan explicitos en cada linea,
+            # para que Odoo nunca pueda interpretar el numero con una
+            # unidad distinta a la que ya asumimos nosotros.
+            ids_uom = odoo_session.call_kw('ir.model.data', 'search_read',
+                [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
+                {'fields': ['name', 'res_id']})
+            uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
+            uom_kg = uom_por_nombre.get('product_uom_kgm')
+            uom_unidad = uom_por_nombre.get('product_uom_unit')
 
             bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))
             total_bloques = len(bloques)
@@ -334,12 +339,13 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
                     unidad = (item.get("unidad") or "").lower()
                     cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
                     cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
+                    uom_linea = uom_kg if unidad in ("g", "kg") else uom_unidad
                     linea = {
                         "product_id": m["odoo_id"], "name": m["odoo_name"],
                         "product_qty": round(cantidad_kg, 2), "price_unit": m.get("price", 0) or 0,
                     }
-                    if m["odoo_id"] in uom_por_producto:
-                        linea["product_uom"] = uom_por_producto[m["odoo_id"]]
+                    if uom_linea:
+                        linea["product_uom"] = uom_linea
                     po_lines.append(linea)
 
                 notas = f"Generado automaticamente -- pedido {pedido_id}"
