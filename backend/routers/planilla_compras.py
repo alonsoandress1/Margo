@@ -52,6 +52,13 @@ def _require_admin(claims: dict):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador puede ver la Planilla de Compras")
 
 
+def _require_lectura(claims: dict):
+    """Observador puede ver todo (pedido explicito del usuario), nunca
+    cambiar nada -- se usa solo en los endpoints puramente de lectura."""
+    if claims["rol"] not in ("administrador", "observador"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes acceso a la Planilla de Compras")
+
+
 def _odoo(odoo_creds: tuple[str, str]) -> OdooClient:
     """Conecta con las credenciales de Odoo de la persona que esta usando el
     sistema en este momento -- nunca una cuenta compartida (ver
@@ -137,7 +144,7 @@ def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims),
     """Todas las facturas de proveedor del mes en Odoo (Doña Delfina), con
     el Tipo de cada una resuelto por su proveedor -- null si ese proveedor
     todavia no tiene Tipo asignado (hay que clasificarlo en /proveedores)."""
-    _require_admin(claims)
+    _require_lectura(claims)
     return _obtener_items_y_resumen(anio, mes, odoo_creds)
 
 
@@ -150,7 +157,7 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims),
     intentar matchear el nombre corto de las columnas de desglose por
     proveedor -- esas quedan en 0 hasta que se ajusten a mano, igual que
     cualquier fila nueva en el Excel real)."""
-    _require_admin(claims)
+    _require_lectura(claims)
     if not (1 <= mes <= 12):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mes inválido")
     datos = _obtener_items_y_resumen(anio, mes, odoo_creds)
@@ -175,7 +182,7 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     excluia por parecer un gasto administrativo). NO agrega nada solo --
     es puramente informativo, cada una se agrega a mano con POST
     /faltantes/{factura_id}/agregar."""
-    _require_admin(claims)
+    _require_lectura(claims)
     cliente = _odoo(odoo_creds)
     ultimo_dia = monthrange(anio, mes)[1]
     desde = f"{anio:04d}-{mes:02d}-01"
@@ -254,7 +261,7 @@ def obtener_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_
     maximo -- nunca hasta hoy, el dia en curso todavia no cierra (mismo
     criterio que el import diario de ventas en planilla.py). Solo trae el
     valor, no lo guarda -- el admin confirma con PUT /venta-periodo."""
-    _require_admin(claims)
+    _require_lectura(claims)
     ultimo_dia_mes = monthrange(anio, mes)[1]
     hasta = date(anio, mes, ultimo_dia_mes)
     ayer = date.today() - timedelta(days=1)
@@ -294,7 +301,7 @@ def obtener_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_
 @router.get("/proveedores", response_model=list[ProveedorTipoOut])
 def listar_proveedores(claims: dict = Depends(get_current_claims)):
     """Catalogo completo proveedor -> Tipo, visible y editable."""
-    _require_admin(claims)
+    _require_lectura(claims)
     db = get_db()
     rows = db.table("planilla_compras_proveedor_tipo").select("*").order("proveedor_nombre").execute().data or []
     return [ProveedorTipoOut(**r) for r in rows]

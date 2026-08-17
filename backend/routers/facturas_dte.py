@@ -76,6 +76,13 @@ def _require_admin(claims: dict):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador puede gestionar el ingreso de facturas")
 
 
+def _require_lectura(claims: dict):
+    """Observador puede ver todo (pedido explicito del usuario), nunca
+    cambiar nada -- se usa solo en los endpoints puramente de lectura."""
+    if claims["rol"] not in ("administrador", "observador"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes acceso a Facturas Odoo")
+
+
 def _odoo(odoo_creds: tuple[str, str]) -> OdooClient:
     """Conecta con las credenciales de Odoo de la persona que esta usando el
     sistema en este momento -- nunca una cuenta compartida (pedido explicito
@@ -134,7 +141,7 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     sin esto, un usuario con acceso a varias empresas en Odoo veria DTE de
     TODAS mezclados en una sola lista, sin forma de saber a que local
     pertenece cada uno."""
-    _require_admin(claims)
+    _require_lectura(claims)
     db = get_db()
     ocultos = {f["proveedor_rut"] for f in (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
     marcados_manual = {f["dte_id"] for f in (db.table("facturas_dte_ingresado_manual").select("dte_id").execute().data or [])}
@@ -232,7 +239,7 @@ def desmarcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_c
 @router.get("/proveedores/ocultos", response_model=list[ProveedorOcultoOut])
 def listar_proveedores_ocultos(claims: dict = Depends(get_current_claims)):
     """Proveedores actualmente ocultos de la lista de pendientes."""
-    _require_admin(claims)
+    _require_lectura(claims)
     db = get_db()
     filas = db.table("facturas_proveedor_oculto").select("proveedor_rut, proveedor_nombre") \
         .order("proveedor_nombre").execute().data or []
@@ -265,7 +272,7 @@ def buscar_producto(q: str, claims: dict = Depends(get_current_claims),
     """Busca productos YA EXISTENTES en Odoo por nombre o codigo interno --
     solo lectura, nunca crea nada. Para cuando una linea no tiene sugerencia
     y hay que buscar el producto correcto a mano."""
-    _require_admin(claims)
+    _require_lectura(claims)
     cliente = _odoo(odoo_creds)
     productos = cliente._call('product.product', 'search_read',
         [[['purchase_ok', '=', True], '|', ['name', 'ilike', q], ['default_code', 'ilike', q]]],
@@ -285,7 +292,7 @@ def buscar_impuesto(q: str = '', claims: dict = Depends(get_current_claims),
     empresa por defecto del usuario conectado; al crear la factura se
     resuelve el impuesto real de CADA empresa por el mismo nombre (los
     impuestos son por empresa en Odoo, ver _ejecutar_creacion)."""
-    _require_admin(claims)
+    _require_lectura(claims)
     cliente = _odoo(odoo_creds)
     dominio = [['type_tax_use', '=', 'purchase'], ['active', '=', True]]
     if q:
@@ -393,7 +400,7 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims),
     que realmente quedo creado en la factura de Odoo -- lee la factura REAL
     (no una simulacion), asi que solo funciona para DTE que ya tienen
     factura creada."""
-    _require_admin(claims)
+    _require_lectura(claims)
     cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
         {'fields': ['id', 'invoice_id', 'amount_untaxed', 'amount_total']})
@@ -471,7 +478,7 @@ def simular(dte_id: int, claims: dict = Depends(get_current_claims),
     este negocio). Las lineas sin producto asignado no se pueden incluir
     (no se sabe que impuesto usan) y se cuentan aparte en
     lineas_sin_producto."""
-    _require_admin(claims)
+    _require_lectura(claims)
     cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
         {'fields': ['id', 'company_id', 'amount_untaxed', 'amount_total']})
@@ -552,8 +559,11 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
     aprendio la primera vez que alguien lo confirmo a mano). Si la
     escritura falla por lo que sea, no se cae toda la pantalla -- la
     linea vuelve a quedar como sugerencia pendiente del clic manual
-    (fallback, mismo comportamiento de antes)."""
-    _require_admin(claims)
+    (fallback, mismo comportamiento de antes). Observador puede abrir esta
+    pantalla igual (ve el producto sugerido/conocido en cada linea), pero
+    nunca dispara el autoconfirm real (ver mas abajo) -- solo mira, nunca
+    cambia nada en Odoo."""
+    _require_lectura(claims)
     cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
         {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'invoice_id']})
@@ -617,8 +627,13 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
     # grupo falla, esas lineas vuelven a quedar pendientes del clic manual
     # (mismo respaldo de antes, solo que ahora el radio de una falla
     # puntual es el grupo entero en vez de una sola linea).
+    #
+    # Solo un administrador dispara el write real -- un observador puede
+    # abrir esta pantalla (pidio acceso a ver TODO), pero nunca debe cambiar
+    # nada en Odoo con solo mirar. El product_id/product_name ya quedo
+    # resuelto arriba para mostrarlo igual en pantalla.
     lineas_fallidas = set()
-    for product_id, line_ids in por_producto_autoconfirmar.items():
+    for product_id, line_ids in (por_producto_autoconfirmar.items() if claims["rol"] == "administrador" else []):
         try:
             cliente._call('l10n_cl.supplier.xml.line', 'write', [line_ids, {'product_id': product_id}])
         except Exception:
@@ -1384,7 +1399,7 @@ def listar_cola(claims: dict = Depends(get_current_claims)):
     disparar nunca en un caso normal. Reintentar despues es seguro: el
     chequeo anti-duplicados de _ejecutar_creacion detecta si algo ya
     alcanzo a crearse en Odoo antes del corte, en vez de duplicarlo."""
-    _require_admin(claims)
+    _require_lectura(claims)
     db = get_db()
     limite = (datetime.now(timezone.utc) - timedelta(minutes=TIMEOUT_COLA_PROCESANDO_MINUTOS)).isoformat()
     db.table("facturas_dte_cola").update({

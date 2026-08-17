@@ -22,8 +22,8 @@ const SECCIONES = [
   { id: 'recetas',   label: 'Recetas',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'proveedores', label: 'Proveedores',         grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas',  label: 'Recepción en Bodega',    grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'facturas-dte', label: 'Facturas Odoo',         grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
-  { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador'], editRoles: ['administrador'] },
+  { id: 'facturas-dte', label: 'Facturas Odoo',         grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
+  { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
   { id: 'locales',   label: 'Locales',                grupo: 'Configuración', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'usuarios',  label: 'Usuarios',               grupo: 'Configuración', roles: ['administrador'], editRoles: ['administrador'] },
 ];
@@ -73,6 +73,12 @@ function confirmarSalirMermas() {
 function seccion(id) { return SECCIONES.find(s => s.id === id); }
 function puedeVer(s) { return state.usuario && s.roles.includes(state.usuario.rol); }
 function puedeEditar(s) { return state.usuario && s.editRoles.includes(state.usuario.rol); }
+// Facturas Odoo y Planilla de Compras dejan entrar a observador a mirar
+// todo (pedido explicito del usuario), pero varias de sus funciones no
+// reciben la seccion "s" (modales, paneles que se refrescan solos) --
+// este helper evita tener que hilar ese parametro por todas ellas solo
+// para saber si hay que esconder los botones que cambian algo.
+function esAdmin() { return state.usuario && state.usuario.rol === 'administrador'; }
 
 const UNIDADES_CATALOGO = [
   { value: 'un', label: 'Und' },
@@ -2477,6 +2483,7 @@ async function renderFacturasDte(el, s) {
 
   el.innerHTML = `
     <h2>Facturas Odoo <span id="dte-contador-pendientes" class="placeholder" style="font-size:1rem">${_textoContadorDte()}</span></h2>
+    ${!esAdmin() ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
     <p class="placeholder" style="margin-bottom:1.25rem">Documentos que Odoo ya recibió del SII pero todavía no tienen una factura borrador creada. Revisa los productos de cada línea y crea la factura -- nunca se crea un producto nuevo, solo se conecta con uno que ya existe.</p>
     <div class="item-row" style="max-width:520px;margin-bottom:1rem">
       <div style="flex:1">
@@ -2541,7 +2548,7 @@ function renderDteResultados(dtes, filtroFolio) {
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <h3>${escapeHtml(proveedor)}</h3>
-          <button type="button" class="btn" data-ocultar-proveedor="${encodeURIComponent(lista[0].proveedor_rut)}" data-ocultar-proveedor-nombre="${encodeURIComponent(proveedor)}">Ocultar proveedor</button>
+          ${esAdmin() ? `<button type="button" class="btn" data-ocultar-proveedor="${encodeURIComponent(lista[0].proveedor_rut)}" data-ocultar-proveedor-nombre="${encodeURIComponent(proveedor)}">Ocultar proveedor</button>` : ''}
         </div>
         <table>
           <thead><tr><th>Folio</th><th>Fecha</th><th>Monto</th><th></th></tr></thead>
@@ -2553,7 +2560,7 @@ function renderDteResultados(dtes, filtroFolio) {
                 <td>$${Math.round(d.monto_total || 0).toLocaleString('es-CL')}</td>
                 <td>
                   <button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button>
-                  <button type="button" class="btn" data-marcar-manual-dte="${d.id}" title="Ya se ingresó esta factura a mano directo en Odoo -- la saca de esta lista sin tocar nada en Odoo">Ingresada Manualmente</button>
+                  ${esAdmin() ? `<button type="button" class="btn" data-marcar-manual-dte="${d.id}" title="Ya se ingresó esta factura a mano directo en Odoo -- la saca de esta lista sin tocar nada en Odoo">Ingresada Manualmente</button>` : ''}
                 </td>
               </tr>`).join('')}
           </tbody>
@@ -2623,7 +2630,7 @@ async function showProveedoresOcultosModal() {
             ${ocultos.map(p => `
               <tr>
                 <td>${escapeHtml(p.proveedor_nombre)}</td>
-                <td><button type="button" class="btn" data-mostrar-proveedor="${encodeURIComponent(p.proveedor_rut)}">Mostrar</button></td>
+                <td>${esAdmin() ? `<button type="button" class="btn" data-mostrar-proveedor="${encodeURIComponent(p.proveedor_rut)}">Mostrar</button>` : ''}</td>
               </tr>`).join('')}
           </tbody>
         </table>` : '<p class="placeholder">No hay proveedores ocultos.</p>'}
@@ -2687,7 +2694,7 @@ async function actualizarColaPanel() {
     <div class="card" style="margin-bottom:1rem">
       <div class="item-row" style="justify-content:space-between;align-items:center;margin-bottom:.5rem">
         <h3 style="margin:0">Cola de creación${activos ? ` — ${activos} en curso` : ''}</h3>
-        <button type="button" class="btn" id="dte-cola-limpiar-todas" title="Solo vacía esta lista -- no afecta las facturas en Odoo">Limpiar todas</button>
+        ${esAdmin() ? '<button type="button" class="btn" id="dte-cola-limpiar-todas" title="Solo vacía esta lista -- no afecta las facturas en Odoo">Limpiar todas</button>' : ''}
       </div>
       <table>
         <thead><tr><th>Proveedor</th><th>Folio</th><th>Estado</th><th></th></tr></thead>
@@ -2699,10 +2706,10 @@ async function actualizarColaPanel() {
               <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${escapeHtml(c.invoice_name)}` : ''}${c.estado === 'error' ? ` — ${escapeHtml(c.error_mensaje)}` : ''}</td>
               <td>
                 ${c.estado === 'completado' ? `<button type="button" class="btn" data-comparar-dte="${c.dte_id}">Comparar</button> ` : ''}
-                ${c.estado === 'error' && (c.error_mensaje || '').includes('Ya existe una factura en Odoo')
+                ${esAdmin() && c.estado === 'error' && (c.error_mensaje || '').includes('Ya existe una factura en Odoo')
                   ? `<button type="button" class="btn btn-primary" data-vincular-cola="${c.id}" data-vincular-dte="${c.dte_id}" title="Busca la factura que ya existe en Odoo para este folio+proveedor y la vincula -- si corresponde, tambien la agrega a Planilla de Compras">Vincular factura existente</button> `
                   : ''}
-                <button type="button" class="btn" data-eliminar-cola="${c.id}" title="Solo quita esta fila de la lista -- no afecta la factura en Odoo">Limpiar</button>
+                ${esAdmin() ? `<button type="button" class="btn" data-eliminar-cola="${c.id}" title="Solo quita esta fila de la lista -- no afecta la factura en Odoo">Limpiar</button>` : ''}
               </td>
             </tr>`).join('')}
         </tbody>
@@ -2749,7 +2756,7 @@ async function actualizarColaPanel() {
     });
   });
 
-  document.getElementById('dte-cola-limpiar-todas').addEventListener('click', async () => {
+  document.getElementById('dte-cola-limpiar-todas')?.addEventListener('click', async () => {
     if (activos && !confirm(`Todavía hay ${activos} factura(s) en curso -- limpiar la lista no las cancela, solo deja de mostrarlas acá. ¿Limpiar de todas formas?`)) return;
     try {
       await api('/facturas-dte/cola', { method: 'DELETE' });
@@ -2784,6 +2791,7 @@ async function showDteModal(dteId) {
     // nuestro mapeo -- hay que confirmarla (boton "Confirmar / cambiar")
     // antes de que cuente como matcheada de verdad.
     const todasMatcheadas = dte.lineas.every(l => l.product_id && !l.sugerido);
+    const editable = esAdmin();
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>${escapeHtml(dte.proveedor_nombre)} — Folio ${escapeHtml(dte.folio)}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
@@ -2795,17 +2803,19 @@ async function showDteModal(dteId) {
             <tr data-linea="${l.id}">
               <td>${escapeHtml(l.item_name)}${l.es_manual ? ' <span class="placeholder" title="Agregada a mano -- no vino como línea propia en el DTE">(manual)</span>' : ''}</td>
               <td>${l.qty}</td>
-              <td>${l.product_id && l.codigo_tipo ? `
+              <td>${l.product_id && l.codigo_tipo ? (editable ? `
                 <input type="number" class="field dte-factor-inline" data-linea-factor-inline="${l.id}" min="0.0001" step="any" style="width:70px" value="${l.factor_conversion || 1}" title="¿Cuántas unidades reales vienen en cada una declarada? (ej. si '1 azúcar' son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código, se aplica solo en toda factura futura igual.">
                 <span class="placeholder" data-factor-estado="${l.id}" style="font-size:.7rem"></span>`
+                : `${l.factor_conversion || 1}`)
                 : '<span class="placeholder">—</span>'}</td>
               <td>${_fmtMonto(l.qty * l.item_price)}</td>
-              <td>${l.product_id ? `
+              <td>${l.product_id ? (editable ? `
                 <input type="number" class="field dte-descuento-inline" data-linea-descuento-inline="${l.id}" min="0" max="100" step="any" style="width:70px" value="${l.descuento_pct || 0}">
                 <span class="placeholder" data-descuento-estado="${l.id}" style="font-size:.75rem">${l.descuento_sugerido ? 'según la última vez -- confirma' : ''}</span>`
+                : `${l.descuento_pct || 0}%`)
                 : '<span class="placeholder">—</span>'}</td>
               <td data-precio-desc="${l.id}">${_fmtMonto(l.qty * l.item_price * (1 - (l.descuento_pct || 0) / 100))}</td>
-              <td style="max-width:300px">${l.product_id ? `
+              <td style="max-width:300px">${l.product_id ? (editable ? `
                 <div data-impuestos-chips="${l.id}" data-seleccionados="${encodeURIComponent(JSON.stringify(l.impuesto_nombres || []))}" style="display:flex;flex-wrap:wrap;gap:.2rem">
                   ${IMPUESTOS_RAPIDOS.map(({ nombre, corto }) => {
                     const activo = (l.impuesto_nombres || []).includes(nombre);
@@ -2814,19 +2824,21 @@ async function showDteModal(dteId) {
                   ${(l.impuesto_nombres || []).filter(n => !IMPUESTOS_RAPIDOS_NOMBRES.includes(n)).map(nombre => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" data-impuesto-chip="${l.id}" data-impuesto-nombre="${escapeHtml(nombre)}">${escapeHtml(nombre)}</button>`).join('')}
                 </div>
                 <p data-impuesto-estado="${l.id}" style="margin-top:.1rem;font-size:.7rem"></p>`
+                : ((l.impuesto_nombres || []).map(escapeHtml).join(', ') || '<span class="placeholder">—</span>'))
                 : '<span class="placeholder">—</span>'}</td>
               <td>${l.product_id
                 ? `${escapeHtml(l.product_name)}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
                 : '<span class="placeholder">Sin producto</span>'}</td>
-              <td>${l.es_manual
+              <td>${!editable ? '' : l.es_manual
                 ? `<button type="button" class="btn" data-quitar-manual="${l.id}">Quitar</button>`
                 : !l.product_id
                   ? `<button type="button" class="btn" data-buscar-linea="${l.id}">Buscar producto</button>`
                   : l.sugerido
                     ? `<button type="button" class="btn btn-primary" data-confirmar-sugerido="${l.id}">Confirmar</button> <button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`
                     : `<button type="button" class="btn" data-buscar-linea="${l.id}">Cambiar</button>`}
-                ${l.product_id ? ` <button type="button" class="btn" data-otros-impuestos-linea="${l.id}" title="Buscar un impuesto que no esté entre los de uso frecuente">Otros impuestos</button>` : ''}</td>
+                ${editable && l.product_id ? ` <button type="button" class="btn" data-otros-impuestos-linea="${l.id}" title="Buscar un impuesto que no esté entre los de uso frecuente">Otros impuestos</button>` : ''}</td>
             </tr>
+            ${editable ? `
             <tr data-buscador="${l.id}" style="display:none"><td colspan="9">
               <div class="item-row">
                 <input type="text" class="field dte-buscar-input" data-linea-buscar="${l.id}" placeholder="Buscar por nombre o código..." style="flex:1">
@@ -2842,10 +2854,11 @@ async function showDteModal(dteId) {
                 <button type="button" class="btn" data-impuesto-buscar-otro-btn="${l.id}">Buscar</button>
               </div>
               <div data-impuesto-otro-resultados="${l.id}" style="margin-top:.3rem"></div>
-            </td></tr>` : ''}`).join('')}
+            </td></tr>` : ''}` : ''}`).join('')}
         </tbody>
       </table>
       </div>
+      ${editable ? `
       <div style="margin-top:.75rem">
         <button type="button" class="btn" id="dte-manual-toggle">+ Agregar línea manual</button>
         <div id="dte-manual-form" style="display:none;margin-top:.5rem">
@@ -2865,63 +2878,65 @@ async function showDteModal(dteId) {
           </div>
           <p class="error-msg" id="dte-manual-error"></p>
         </div>
-      </div>
+      </div>` : ''}
       <div id="dte-resumen" style="margin-top:1rem"><p class="placeholder">Calculando…</p></div>
       <p id="dte-modal-error" class="error-msg"></p>
       <div style="margin-top:1.25rem;display:flex;gap:.5rem">
         <button type="button" class="btn" id="dte-modal-cerrar">Cerrar</button>
-        <button type="button" class="btn btn-primary" id="dte-modal-crear" ${todasMatcheadas ? '' : 'disabled'}>Crear Factura en Odoo</button>
+        ${editable ? `<button type="button" class="btn btn-primary" id="dte-modal-crear" ${todasMatcheadas ? '' : 'disabled'}>Crear Factura en Odoo</button>` : ''}
       </div>`;
 
     overlay.querySelector('#dte-modal-cerrar').onclick = () => overlay.remove();
 
     let manualProductoElegido = null;
-    overlay.querySelector('#dte-manual-toggle').onclick = () => {
-      const form = overlay.querySelector('#dte-manual-form');
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-    };
-    overlay.querySelector('#dte-manual-buscar-btn').onclick = async () => {
-      const q = overlay.querySelector('#dte-manual-buscar-input').value.trim();
-      const resultadosEl = overlay.querySelector('#dte-manual-resultados');
-      if (!q) return;
-      resultadosEl.innerHTML = '<span class="placeholder">Buscando…</span>';
-      try {
-        const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
-        resultadosEl.innerHTML = productos.length
-          ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-manual="${p.id}" data-nombre="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.default_code ? ' (' + escapeHtml(p.default_code) + ')' : ''}</button>`).join('')
-          : '<span class="placeholder">Sin resultados.</span>';
-        resultadosEl.querySelectorAll('[data-elegir-manual]').forEach(pbtn => {
-          pbtn.onclick = () => {
-            manualProductoElegido = { id: parseInt(pbtn.dataset.elegirManual, 10), nombre: pbtn.dataset.nombre };
-            overlay.querySelector('#dte-manual-producto-nombre').textContent = manualProductoElegido.nombre;
-            overlay.querySelector('#dte-manual-detalle').style.display = 'block';
-          };
-        });
-      } catch (err) {
-        resultadosEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
-      }
-    };
-    overlay.querySelector('#dte-manual-guardar').onclick = async () => {
-      const errorEl = overlay.querySelector('#dte-manual-error');
-      errorEl.textContent = '';
-      if (!manualProductoElegido) { errorEl.textContent = 'Elegí un producto primero.'; return; }
-      const qty = parseFloat(overlay.querySelector('#dte-manual-qty').value);
-      const precio = parseFloat(overlay.querySelector('#dte-manual-precio').value);
-      if (isNaN(qty) || qty <= 0) { errorEl.textContent = 'Ingresa una cantidad mayor que 0.'; return; }
-      if (isNaN(precio) || precio < 0) { errorEl.textContent = 'Ingresa un precio unitario válido.'; return; }
-      try {
-        await api(`/facturas-dte/${dteId}/lineas-manuales`, {
-          method: 'POST',
-          body: JSON.stringify({
-            odoo_product_id: manualProductoElegido.id, odoo_product_name: manualProductoElegido.nombre,
-            qty, precio_unitario: precio, descuento_pct: 0, proveedor_rut: dte.proveedor_rut,
-          }),
-        });
-        recargar();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    };
+    if (editable) {
+      overlay.querySelector('#dte-manual-toggle').onclick = () => {
+        const form = overlay.querySelector('#dte-manual-form');
+        form.style.display = form.style.display === 'none' ? 'block' : 'none';
+      };
+      overlay.querySelector('#dte-manual-buscar-btn').onclick = async () => {
+        const q = overlay.querySelector('#dte-manual-buscar-input').value.trim();
+        const resultadosEl = overlay.querySelector('#dte-manual-resultados');
+        if (!q) return;
+        resultadosEl.innerHTML = '<span class="placeholder">Buscando…</span>';
+        try {
+          const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
+          resultadosEl.innerHTML = productos.length
+            ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-manual="${p.id}" data-nombre="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.default_code ? ' (' + escapeHtml(p.default_code) + ')' : ''}</button>`).join('')
+            : '<span class="placeholder">Sin resultados.</span>';
+          resultadosEl.querySelectorAll('[data-elegir-manual]').forEach(pbtn => {
+            pbtn.onclick = () => {
+              manualProductoElegido = { id: parseInt(pbtn.dataset.elegirManual, 10), nombre: pbtn.dataset.nombre };
+              overlay.querySelector('#dte-manual-producto-nombre').textContent = manualProductoElegido.nombre;
+              overlay.querySelector('#dte-manual-detalle').style.display = 'block';
+            };
+          });
+        } catch (err) {
+          resultadosEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
+        }
+      };
+      overlay.querySelector('#dte-manual-guardar').onclick = async () => {
+        const errorEl = overlay.querySelector('#dte-manual-error');
+        errorEl.textContent = '';
+        if (!manualProductoElegido) { errorEl.textContent = 'Elegí un producto primero.'; return; }
+        const qty = parseFloat(overlay.querySelector('#dte-manual-qty').value);
+        const precio = parseFloat(overlay.querySelector('#dte-manual-precio').value);
+        if (isNaN(qty) || qty <= 0) { errorEl.textContent = 'Ingresa una cantidad mayor que 0.'; return; }
+        if (isNaN(precio) || precio < 0) { errorEl.textContent = 'Ingresa un precio unitario válido.'; return; }
+        try {
+          await api(`/facturas-dte/${dteId}/lineas-manuales`, {
+            method: 'POST',
+            body: JSON.stringify({
+              odoo_product_id: manualProductoElegido.id, odoo_product_name: manualProductoElegido.nombre,
+              qty, precio_unitario: precio, descuento_pct: 0, proveedor_rut: dte.proveedor_rut,
+            }),
+          });
+          recargar();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      };
+    }
 
     overlay.querySelectorAll('[data-quitar-manual]').forEach(btn => {
       btn.onclick = async () => {
@@ -3333,6 +3348,7 @@ async function renderPlanillaCompras(el, s) {
     ${state.planillaItems !== null ? `
       <div class="card" style="margin-bottom:1rem">
         <h3>% Costo Venta</h3>
+        ${esAdmin() ? `
         <div class="item-row" style="max-width:420px;margin-bottom:.75rem">
           <div style="flex:1">
             <label class="field-label">Venta del período ($, con IVA)</label>
@@ -3345,7 +3361,7 @@ async function renderPlanillaCompras(el, s) {
             <button type="button" id="pc-guardar-venta" class="btn btn-primary">Guardar</button>
           </div>
         </div>
-        <p id="pc-tcpos-info" class="placeholder" style="margin-bottom:.5rem"></p>
+        <p id="pc-tcpos-info" class="placeholder" style="margin-bottom:.5rem"></p>` : ''}
         <p>
           Costo Venta (Alimentos + Barra): <strong>$${Math.round(resumen.costo_venta || 0).toLocaleString('es-CL')}</strong>
           &nbsp;·&nbsp; Venta Neta: <strong>${resumen.venta_neta != null ? '$' + Math.round(resumen.venta_neta).toLocaleString('es-CL') : '—'}</strong>
@@ -3484,10 +3500,11 @@ function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, 
               <td>$${Math.round(it.iva).toLocaleString('es-CL')}</td>
               <td>$${Math.round(it.total).toLocaleString('es-CL')}</td>
               <td>
+                ${esAdmin() ? `
                 <select class="field" data-tipo-proveedor="${it.proveedor_id}" data-nombre-proveedor="${escapeHtml(it.proveedor_nombre || '')}">
                   <option value="">— Sin asignar —</option>
                   ${TIPOS_PLANILLA_COMPRAS.map(t => `<option value="${t.id}" ${it.tipo === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
-                </select>
+                </select>` : (TIPOS_PLANILLA_COMPRAS.find(t => t.id === it.tipo)?.label || '<span class="placeholder">— Sin asignar —</span>')}
               </td>
             </tr>`).join('')}
         </tbody>
@@ -3521,7 +3538,7 @@ async function showPlanillaFaltantesModal(anio, mes) {
                   <td>${escapeHtml(f.folio)}</td>
                   <td>${f.fecha || '—'}</td>
                   <td>${_fmtMonto(f.total)}</td>
-                  <td><button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button></td>
+                  <td>${esAdmin() ? `<button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button>` : ''}</td>
                 </tr>`).join('')}
             </tbody>
           </table>` : '<p class="placeholder">No hay ninguna -- Planilla de Compras ya incluye todas las facturas de Facturas Odoo de este mes.</p>'}
