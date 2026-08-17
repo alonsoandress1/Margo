@@ -3167,7 +3167,7 @@ async function showDteModal(dteId) {
           const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
           resultadosEl.innerHTML = productos.length
             ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-producto="${p.id}" data-nombre="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.default_code ? ' (' + escapeHtml(p.default_code) + ')' : ''}</button>`).join('')
-            : '<span class="placeholder">No se encontró en Odoo -- hay que crear el producto ahí primero, esta app nunca crea productos.</span>';
+            : '<span class="placeholder">Sin resultados.</span>';
           resultadosEl.querySelectorAll('[data-elegir-producto]').forEach(pbtn => {
             pbtn.onclick = async () => {
               const fila = overlay.querySelector(`tr[data-linea="${lineaId}"]`);
