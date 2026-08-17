@@ -80,7 +80,7 @@ const UNIDADES_CATALOGO = [
   { value: 'porcion', label: 'Porción' },
 ];
 const UNIDAD_LABEL = Object.fromEntries(UNIDADES_CATALOGO.map(u => [u.value, u.label]));
-function formatUnidad(u) { return UNIDAD_LABEL[u] || u; }
+function formatUnidad(u) { return UNIDAD_LABEL[u] || escapeHtml(u); }
 function unidadOptionsHtml(seleccionada) {
   return UNIDADES_CATALOGO.map(u => `<option value="${u.value}" ${u.value === seleccionada ? 'selected' : ''}>${u.label}</option>`).join('');
 }
@@ -244,7 +244,7 @@ function pedirCredencialesOdoo(mensaje) {
         if (empresas.length > 1) {
           loginFields.hidden = true;
           empresaField.hidden = false;
-          empresaSelect.innerHTML = empresas.map(emp => `<option value="${emp.id}">${emp.name}</option>`).join('');
+          empresaSelect.innerHTML = empresas.map(emp => `<option value="${emp.id}">${escapeHtml(emp.name)}</option>`).join('');
           overlay.querySelector('#odoo-creds-title').textContent = 'Elige la empresa';
           overlay.querySelector('#odoo-creds-msg').textContent =
             'Tu usuario de Odoo tiene acceso a varias empresas -- elige con cuál vas a trabajar en esta sesión.';
@@ -307,7 +307,7 @@ async function elegirEmpresaOdoo() {
         <p class="placeholder" style="margin-bottom:1rem">Elige con cuál empresa de Odoo vas a trabajar ahora.</p>
         <form id="odoo-empresa-form">
           <select id="odoo-empresa-select" class="field" style="width:100%;margin-bottom:1rem">
-            ${empresas.map(emp => `<option value="${emp.id}" ${String(emp.id) === state.odooEmpresaId ? 'selected' : ''}>${emp.name}</option>`).join('')}
+            ${empresas.map(emp => `<option value="${emp.id}" ${String(emp.id) === state.odooEmpresaId ? 'selected' : ''}>${escapeHtml(emp.name)}</option>`).join('')}
           </select>
           <button type="submit" class="btn btn-primary">Cambiar</button>
           <button type="button" class="btn" id="odoo-empresa-cancel">Cancelar</button>
@@ -755,7 +755,7 @@ async function renderLocales(el, s) {
       <table>
         <thead><tr><th>Nombre</th><th>Estado</th></tr></thead>
         <tbody>
-          ${locales.map(l => `<tr><td>${l.nombre}</td><td>${l.activo ? 'Activo' : 'Inactivo'}</td></tr>`).join('')}
+          ${locales.map(l => `<tr><td>${escapeHtml(l.nombre)}</td><td>${l.activo ? 'Activo' : 'Inactivo'}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>`;
@@ -806,7 +806,7 @@ async function renderProveedores(el, s) {
     <div class="card">
       <label class="field-label">Proveedor</label>
       <select id="prov-sel" class="field" style="margin-bottom:1rem;width:100%;max-width:320px">
-        ${proveedores.map(p => `<option value="${p.id}" ${p.id === provId ? 'selected' : ''}>${p.nombre}${p.usa_odoo ? ' (Odoo)' : ''}</option>`).join('')}
+        ${proveedores.map(p => `<option value="${p.id}" ${p.id === provId ? 'selected' : ''}>${escapeHtml(p.nombre)}${p.usa_odoo ? ' (Odoo)' : ''}</option>`).join('')}
       </select>
       ${provSeleccionado ? `<p class="placeholder">${provSeleccionado.usa_odoo ? '✓ Genera Orden de Compra real en Odoo.' : 'Sin integración a Odoo — se avisa por correo al generar la OC.'}</p>` : ''}
       ${!proveedores.length ? '<p class="placeholder">Todavía no hay proveedores — agrega uno arriba.</p>' : ''}
@@ -849,9 +849,9 @@ async function renderProveedores(el, s) {
           ${productos.map(p => `
             <tr>
               ${editable ? `<td><input type="checkbox" class="prod-check" data-id="${p.id}"></td>` : ''}
-              <td>${p.nombre} (${formatUnidad(p.unidad)})</td>
-              <td>${p.odoo_name}</td>
-              <td>${p.ref || '—'}</td>
+              <td>${escapeHtml(p.nombre)} (${formatUnidad(p.unidad)})</td>
+              <td>${escapeHtml(p.odoo_name)}</td>
+              <td>${p.ref ? escapeHtml(p.ref) : '—'}</td>
               <td>${editable ? `<input class="field prod-edit-precio" data-key="${p.ingrediente_key}" type="number" style="width:90px" value="${p.precio}">` : p.precio}</td>
               <td>
                 ${editable
@@ -1014,13 +1014,13 @@ async function renderRecetas(el, s) {
   lineas.forEach(l => {
     (porPlato[l.plato_id] ??= { sku: l.plato_sku, nombre: l.plato_nombre, lineas: [] }).lineas.push(l);
   });
-  const etiqueta = (p) => `${p.nombre} (${p.sku})`;
+  const etiqueta = (p) => `${escapeHtml(p.nombre)} (${escapeHtml(p.sku)})`;
 
   el.innerHTML = `
     <h2>Recetas</h2>
     <label class="field-label">Local</label>
     <select id="rec-local" class="field" style="margin-bottom:1.25rem;width:100%;max-width:280px">
-      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${escapeHtml(l.nombre)}</option>`).join('')}
     </select>
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
     ${editable ? `
@@ -1043,7 +1043,7 @@ async function renderRecetas(el, s) {
       </div>` : ''}
     ${Object.keys(porPlato).length ? Object.entries(porPlato).map(([platoId, p]) => `
       <div class="card">
-        <h3>${p.nombre} <span class="placeholder">(${p.sku})</span></h3>
+        <h3>${escapeHtml(p.nombre)} <span class="placeholder">(${escapeHtml(p.sku)})</span></h3>
         <table>
           <thead><tr><th>Insumo</th><th>Cantidad</th><th>Unidad</th>${editable ? '<th></th>' : ''}</tr></thead>
           <tbody>
@@ -1106,7 +1106,7 @@ async function renderUsuarios(el, s) {
   const locales = await api('/locales');
   const usuarios = await api('/usuarios');
 
-  const nombreLocal = (id) => (locales.find(l => l.id === id) || {}).nombre || id;
+  const nombreLocal = (id) => escapeHtml((locales.find(l => l.id === id) || {}).nombre || id);
   const badgeClass = { administrador: 'badge-aprobado', solicitante: 'badge-pendiente', observador: 'badge-editado' };
 
   el.innerHTML = `
@@ -1131,7 +1131,7 @@ async function renderUsuarios(el, s) {
             <label class="field-label">Locales asignados (solo aplica a Solicitante)</label>
             ${locales.map(l => `
               <label style="font-size:.8rem;color:var(--t2);margin-right:1rem">
-                <input type="checkbox" class="usr-local-chk" value="${l.id}"> ${l.nombre}
+                <input type="checkbox" class="usr-local-chk" value="${l.id}"> ${escapeHtml(l.nombre)}
               </label>`).join('')}
           </div>
           <button type="submit" class="btn btn-primary">Crear usuario</button>
@@ -1144,15 +1144,15 @@ async function renderUsuarios(el, s) {
         <tbody>
           ${usuarios.map(u => `
             <tr>
-              <td>${u.nombre}</td>
-              <td>${u.email}</td>
+              <td>${escapeHtml(u.nombre)}</td>
+              <td>${escapeHtml(u.email)}</td>
               <td><span class="badge ${badgeClass[u.rol] || ''}">${u.rol}</span></td>
               <td>${u.locales.map(nombreLocal).join(', ') || '—'}</td>
               <td>${u.activo ? 'Activo' : 'Inactivo'}</td>
               ${editable ? `<td>
                 <button class="btn" data-editar="${u.id}">Editar</button>
                 <button class="btn" data-toggle-activo="${u.id}" data-val="${!u.activo}">${u.activo ? 'Desactivar' : 'Activar'}</button>
-                ${u.id !== state.usuario.id ? `<button class="btn btn-reject" data-eliminar="${u.id}" data-nombre="${u.nombre}">Eliminar</button>` : ''}
+                ${u.id !== state.usuario.id ? `<button class="btn btn-reject" data-eliminar="${u.id}" data-nombre="${escapeHtml(u.nombre)}">Eliminar</button>` : ''}
               </td>` : ''}
             </tr>`).join('')}
         </tbody>
@@ -1221,7 +1221,7 @@ function showEditarUsuarioModal(usuario, locales) {
       <h3>Editar usuario</h3>
       <form id="edit-usr-form">
         <label class="field-label">Nombre</label>
-        <input class="field" id="edit-usr-nombre" style="width:100%;margin-bottom:.75rem" required value="${usuario.nombre}">
+        <input class="field" id="edit-usr-nombre" style="width:100%;margin-bottom:.75rem" required value="${escapeHtml(usuario.nombre)}">
         <label class="field-label">Rol</label>
         <select id="edit-usr-rol" class="field" style="width:100%;margin-bottom:.75rem">
           <option value="solicitante" ${usuario.rol === 'solicitante' ? 'selected' : ''}>Solicitante</option>
@@ -1232,7 +1232,7 @@ function showEditarUsuarioModal(usuario, locales) {
           <label class="field-label">Locales asignados (solo aplica a Solicitante)</label>
           ${locales.map(l => `
             <label style="font-size:.8rem;color:var(--t2);margin-right:1rem">
-              <input type="checkbox" class="edit-usr-local-chk" value="${l.id}" ${usuario.locales.includes(l.id) ? 'checked' : ''}> ${l.nombre}
+              <input type="checkbox" class="edit-usr-local-chk" value="${l.id}" ${usuario.locales.includes(l.id) ? 'checked' : ''}> ${escapeHtml(l.nombre)}
             </label>`).join('')}
         </div>
         <label class="field-label">Nueva contraseña</label>
@@ -1283,7 +1283,7 @@ async function renderParStock(el, s) {
     <h2>Par Stock</h2>
     <label class="field-label">Local</label>
     <select id="ps-local" class="field" style="margin-bottom:1.25rem;width:100%;max-width:280px">
-      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${escapeHtml(l.nombre)}</option>`).join('')}
     </select>
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
     ${editable ? `
@@ -1293,7 +1293,7 @@ async function renderParStock(el, s) {
         <form id="ps-form">
           <div class="item-row">
             <select id="ps-insumo" class="field" style="flex:2" required>
-              ${disponibles.map(p => `<option value="${p.ingrediente_key}">${p.nombre} (${formatUnidad(p.unidad)})</option>`).join('')}
+              ${disponibles.map(p => `<option value="${p.ingrediente_key}">${escapeHtml(p.nombre)} (${formatUnidad(p.unidad)})</option>`).join('')}
             </select>
             <input class="field" id="ps-par" type="number" step="0.01" placeholder="Par Stock" required>
           </div>
@@ -1312,10 +1312,10 @@ async function renderParStock(el, s) {
           ${items.map(i => `
             <tr>
               ${editable ? `<td><input type="checkbox" class="ps-check" data-key="${i.ingrediente_key}"></td>` : ''}
-              <td>${i.nombre} (${formatUnidad(i.unidad)})</td>
+              <td>${escapeHtml(i.nombre)} (${formatUnidad(i.unidad)})</td>
               <td>${editable ? `<input class="field ps-edit-par" data-key="${i.ingrediente_key}" type="number" step="0.01" style="width:90px" value="${i.par_cantidad}">` : i.par_cantidad}</td>
-              <td>${i.odoo_name || '—'}</td>
-              <td>${i.supplier_name || '—'}</td>
+              <td>${i.odoo_name ? escapeHtml(i.odoo_name) : '—'}</td>
+              <td>${i.supplier_name ? escapeHtml(i.supplier_name) : '—'}</td>
               <td>
                 ${editable
                   ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (${formatUnidad(i.unidad)}/paquete)" value="${i.tamano_empaque ?? ''}">`
@@ -1449,7 +1449,7 @@ async function renderInventario(el, s) {
     <h2>Inventario de Bodega</h2>
     <label class="field-label">Local</label>
     <select id="inv-local" class="field" style="margin-bottom:1.25rem;width:100%;max-width:280px">
-      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${escapeHtml(l.nombre)}</option>`).join('')}
     </select>
     ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
     ${editable ? `
@@ -1459,7 +1459,7 @@ async function renderInventario(el, s) {
         <form id="mov-form">
           <div class="item-row">
             <select id="mov-insumo" class="field" style="flex:2" required>
-              ${items.map(i => `<option value="${i.ingrediente_key}">${i.nombre} (${formatUnidad(i.unidad)})</option>`).join('')}
+              ${items.map(i => `<option value="${i.ingrediente_key}">${escapeHtml(i.nombre)} (${formatUnidad(i.unidad)})</option>`).join('')}
             </select>
             <select id="mov-tipo" class="field">
               <option value="egreso">Egreso</option>
@@ -1484,10 +1484,10 @@ async function renderInventario(el, s) {
           <tbody>
             ${stockPendiente.map(p => `
               <tr>
-                <td>${p.producto_nombre}</td>
+                <td>${escapeHtml(p.producto_nombre)}</td>
                 <td>${p.cantidad}</td>
-                <td>${p.proveedor_nombre || '—'}</td>
-                <td>${p.invoice_name || '—'}</td>
+                <td>${p.proveedor_nombre ? escapeHtml(p.proveedor_nombre) : '—'}</td>
+                <td>${p.invoice_name ? escapeHtml(p.invoice_name) : '—'}</td>
                 <td>${p.motivo === 'sin_local' ? 'Local sin mapeo a Odoo' : 'Producto sin insumo asociado'}</td>
               </tr>`).join('')}
           </tbody>
@@ -1501,7 +1501,7 @@ async function renderInventario(el, s) {
         <tbody>
           ${items.map(i => `
             <tr>
-              <td>${i.nombre}</td>
+              <td>${escapeHtml(i.nombre)}</td>
               <td>${formatUnidad(i.unidad)}</td>
               <td>${i.par}</td>
               <td>${i.stock_bodega}</td>
@@ -1580,7 +1580,7 @@ async function showStockInicialModal(localId, itemsLocal) {
         <label class="field-label">Proveedor</label>
         <select id="stock-inicial-proveedor" class="field" style="width:100%;margin-bottom:1rem">
           <option value="">Elige un proveedor…</option>
-          ${proveedores.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('')}
+          ${proveedores.map(p => `<option value="${p.id}">${escapeHtml(p.nombre)}</option>`).join('')}
         </select>
         <button type="button" class="btn" id="stock-inicial-cancelar">Cancelar</button>`;
       box.querySelector('#stock-inicial-cancelar').onclick = () => overlay.remove();
@@ -1613,7 +1613,7 @@ async function showStockInicialModal(localId, itemsLocal) {
           <tbody>
             ${filas.map(i => `
               <tr>
-                <td>${i.nombre}</td>
+                <td>${escapeHtml(i.nombre)}</td>
                 <td>${formatUnidad(i.unidad)}</td>
                 <td>${i.stock_bodega}</td>
                 <td><input type="number" step="0.01" class="field stock-inicial-input" data-key="${i.ingrediente_key}" style="width:110px"></td>
@@ -1687,7 +1687,7 @@ async function renderMermas(el, s) {
       <div style="flex:1">
         <label class="field-label">Local</label>
         <select id="mermas-local" class="field" style="width:100%">
-          ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${l.nombre}</option>`).join('')}
+          ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${escapeHtml(l.nombre)}</option>`).join('')}
         </select>
       </div>
       <div style="flex:1">
@@ -1717,7 +1717,7 @@ async function renderMermas(el, s) {
         <tbody>
           ${resumenSemana.length ? resumenSemana.map(r => `
             <tr>
-              <td>${r.nombre}</td>
+              <td>${escapeHtml(r.nombre)}</td>
               <td style="${r.diferencia_total < 0 ? 'color:var(--danger,#e07a7a)' : ''}">${r.diferencia_total.toFixed(2)} ${formatUnidad(r.unidad)}</td>
               <td>${r.precio ? '$' + r.precio.toLocaleString('es-CL') : '—'}</td>
               <td>${r.total_dscto ? '$' + Math.abs(r.total_dscto).toLocaleString('es-CL') : '—'}</td>
@@ -1738,7 +1738,7 @@ async function renderMermas(el, s) {
             const diferencia = tieneInformado ? i.cantidad_informada - stockReal : null;
             return `
             <tr>
-              <td>${i.nombre}</td>
+              <td>${escapeHtml(i.nombre)}</td>
               <td>${formatUnidad(i.unidad)}</td>
               <td>${i.stock_inicial}</td>
               <td>${i.entregas}</td>
@@ -1764,7 +1764,7 @@ async function renderMermas(el, s) {
           <tbody>
             ${items.filter(i => i.tramo === 'kg').map(i => `
               <tr data-stock-row-key="${i.ingrediente_key}">
-                <td>${i.nombre}</td>
+                <td>${escapeHtml(i.nombre)}</td>
                 <td>${formatUnidad(i.unidad)}</td>
                 <td>${editable ? `<input class="field stock-informado-input" type="number" step="0.01" style="width:90px" value="${i.cantidad_informada ?? ''}">` : (i.cantidad_informada ?? '—')}</td>
                 <td>${editable ? `<input class="field stock-produccion-input" type="number" step="0.01" style="width:80px" value="${i.mermas_produccion ?? ''}">` : (i.mermas_produccion ?? '—')}</td>
@@ -1783,7 +1783,7 @@ async function renderMermas(el, s) {
           <tbody>
             ${items.filter(i => i.tramo === 'unidades').map(i => `
               <tr data-stock-row-key="${i.ingrediente_key}">
-                <td>${i.nombre}</td>
+                <td>${escapeHtml(i.nombre)}</td>
                 <td>${formatUnidad(i.unidad)}</td>
                 <td>${editable ? `<input class="field stock-informado-input" type="number" step="0.01" style="width:90px" value="${i.cantidad_informada ?? ''}">` : (i.cantidad_informada ?? '—')}</td>
                 <td>${editable ? `<input class="field stock-produccion-input" type="number" step="0.01" style="width:80px" value="${i.mermas_produccion ?? ''}">` : (i.mermas_produccion ?? '—')}</td>
@@ -1804,7 +1804,7 @@ async function renderMermas(el, s) {
           <tbody>
             ${items.map(i => `
               <tr data-entrega-row-key="${i.ingrediente_key}">
-                <td>${i.nombre}</td>
+                <td>${escapeHtml(i.nombre)}</td>
                 <td>${formatUnidad(i.unidad)}</td>
                 <td>
                   ${editable
@@ -1825,9 +1825,9 @@ async function renderMermas(el, s) {
           <tbody>
             ${proteinas.map(p => `
               <tr data-receta-id="${p.receta_id}">
-                <td>${p.materia_prima_nombre} <span class="placeholder">(${formatUnidad(p.materia_prima_unidad)})</span></td>
+                <td>${escapeHtml(p.materia_prima_nombre)} <span class="placeholder">(${formatUnidad(p.materia_prima_unidad)})</span></td>
                 <td>${editable ? `<input class="field prot-consumida-input" type="number" step="0.01" style="width:90px" value="${p.cantidad_consumida ?? ''}">` : (p.cantidad_consumida ?? '—')}</td>
-                <td>${p.producto_final_nombre ? `${p.producto_final_nombre} <span class="placeholder">(${formatUnidad(p.producto_final_unidad || '')})</span>` : '—'}</td>
+                <td>${p.producto_final_nombre ? `${escapeHtml(p.producto_final_nombre)} <span class="placeholder">(${formatUnidad(p.producto_final_unidad || '')})</span>` : '—'}</td>
                 <td>${editable && p.producto_final_nombre ? `<input class="field prot-producida-input" type="number" step="0.01" style="width:90px" value="${p.cantidad_producida ?? ''}">` : (p.cantidad_producida ?? '—')}</td>
                 <td>${editable ? `<input class="field prot-mermas-input" type="number" step="0.01" style="width:90px" value="${p.mermas ?? ''}">` : (p.mermas ?? '—')}</td>
               </tr>`).join('')}
@@ -1844,7 +1844,7 @@ async function renderMermas(el, s) {
           <tbody>
             ${pasteleria.map(p => `
               <tr data-producto-key="${p.producto_key}">
-                <td>${p.producto_nombre}</td>
+                <td>${escapeHtml(p.producto_nombre)}</td>
                 <td>${formatUnidad(p.unidad)}</td>
                 <td>${editable ? `<input class="field past-cantidad-input" type="number" step="0.01" style="width:90px" value="${p.cantidad_producida ?? ''}">` : (p.cantidad_producida ?? '—')}</td>
               </tr>`).join('')}
@@ -1861,7 +1861,7 @@ async function renderMermas(el, s) {
           <tbody>
             ${chocolates.map(c => `
               <tr data-producto-key="${c.producto_key}">
-                <td>${c.producto_nombre}</td>
+                <td>${escapeHtml(c.producto_nombre)}</td>
                 <td>${formatUnidad(c.unidad)}</td>
                 <td>${editable ? `<input class="field choc-entregada-input" type="number" step="0.01" style="width:90px" value="${c.cantidad_entregada ?? ''}">` : (c.cantidad_entregada ?? '—')}</td>
                 <td>${editable ? `<input class="field choc-utilizada-input" type="number" step="0.01" style="width:90px" value="${c.cantidad_utilizada ?? ''}">` : (c.cantidad_utilizada ?? '—')}</td>
@@ -2072,7 +2072,7 @@ async function renderPedidos(el, s) {
   const editable = puedeEditar(s);
 
   const badgeClass = { pendiente: 'badge-pendiente', aprobado: 'badge-aprobado', rechazado: 'badge-rechazado', editado: 'badge-editado' };
-  const nombreLocal = (id) => (locales.find(l => l.id === id) || {}).nombre || id;
+  const nombreLocal = (id) => escapeHtml((locales.find(l => l.id === id) || {}).nombre || id);
 
   el.innerHTML = `
     <h2>Pedidos</h2>
@@ -2083,7 +2083,7 @@ async function renderPedidos(el, s) {
         <form id="pedido-form">
           <label class="field-label">Local</label>
           <select id="pedido-local" required class="field" style="margin-bottom:1rem;width:100%;max-width:280px">
-            ${locales.map(l => `<option value="${l.id}">${l.nombre}</option>`).join('')}
+            ${locales.map(l => `<option value="${l.id}">${escapeHtml(l.nombre)}</option>`).join('')}
           </select>
           <div id="items-rows"></div>
           <button type="button" id="add-item-btn" class="btn">+ Agregar insumo</button>
@@ -2108,7 +2108,7 @@ async function renderPedidos(el, s) {
               <td><span class="badge ${badgeClass[p.estado] || ''}">${p.estado}</span></td>
               <td>
                 ${p.acciones && p.acciones.length
-                  ? p.acciones.map(a => a.tipo === 'odoo' ? a.po_name : `✉ ${a.proveedor}`).join(', ')
+                  ? p.acciones.map(a => a.tipo === 'odoo' ? escapeHtml(a.po_name) : `✉ ${escapeHtml(a.proveedor)}`).join(', ')
                   : (editable && p.estado === 'aprobado'
                     ? `<button class="btn-link" data-oc="${p.id}">Generar OC</button>`
                     : '—')}
@@ -2167,9 +2167,9 @@ async function renderPedidos(el, s) {
       row.className = 'item-row';
       row.dataset.key = key;
       row.innerHTML = `
-        <input placeholder="Insumo" class="item-nombre field" style="flex:2" value="${nombre}">
-        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field" value="${cantidad}">
-        <input placeholder="Unidad (g/kg/un)" class="item-unidad field" value="${unidad}">`;
+        <input placeholder="Insumo" class="item-nombre field" style="flex:2" value="${escapeHtml(nombre)}">
+        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field" value="${escapeHtml(String(cantidad))}">
+        <input placeholder="Unidad (g/kg/un)" class="item-unidad field" value="${escapeHtml(unidad)}">`;
       rowsEl.appendChild(row);
     };
     addRow();
@@ -2247,19 +2247,19 @@ async function renderFacturas(el, s) {
       ? '<div class="card"><p class="placeholder">No hay facturas nuevas -- todo al día.</p></div>'
       : pendientes.map(f => `
         <div class="card" data-factura="${f.odoo_invoice_id}">
-          <h3>${f.odoo_invoice_name} — ${f.proveedor}</h3>
+          <h3>${escapeHtml(f.odoo_invoice_name)} — ${escapeHtml(f.proveedor)}</h3>
           <p class="placeholder" style="margin-bottom:1rem">${f.fecha || '—'} · Total: ${f.total}</p>
           <label class="field-label">Local</label>
           <select class="field factura-local-sel" data-invoice="${f.odoo_invoice_id}" style="max-width:280px;margin-bottom:1rem">
             <option value="">-- selecciona un local --</option>
-            ${locales.map(l => `<option value="${l.id}">${l.nombre}</option>`).join('')}
+            ${locales.map(l => `<option value="${l.id}">${escapeHtml(l.nombre)}</option>`).join('')}
           </select>
           <table>
             <thead><tr><th>Insumo</th><th>Cantidad</th><th>Estado</th></tr></thead>
             <tbody>
               ${f.lineas.map(l => `
                 <tr>
-                  <td>${l.nombre}</td>
+                  <td>${escapeHtml(l.nombre)}</td>
                   <td>${l.cantidad}</td>
                   <td>${l.reconocido ? '✓ En catálogo' : '⚠ No reconocido -- no se ingresará'}</td>
                 </tr>`).join('')}
@@ -2276,8 +2276,8 @@ async function renderFacturas(el, s) {
         <tbody>
           ${historial.map(h => `
             <tr>
-              <td>${h.odoo_invoice_name}</td>
-              <td>${h.proveedor}</td>
+              <td>${escapeHtml(h.odoo_invoice_name)}</td>
+              <td>${escapeHtml(h.proveedor)}</td>
               <td>${h.local_id ? nombreLocal(h.local_id) : '—'}</td>
               <td>${(h.procesada_en || '').slice(0, 10)}</td>
             </tr>`).join('')}
@@ -2403,7 +2403,7 @@ function renderDteResultados(dtes, filtroFolio) {
   return Object.entries(filtrados.reduce((acc, d) => { (acc[d.proveedor_nombre] ||= []).push(d); return acc; }, {})).map(([proveedor, lista]) => `
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <h3>${proveedor}</h3>
+          <h3>${escapeHtml(proveedor)}</h3>
           <button type="button" class="btn" data-ocultar-proveedor="${encodeURIComponent(lista[0].proveedor_rut)}" data-ocultar-proveedor-nombre="${encodeURIComponent(proveedor)}">Ocultar proveedor</button>
         </div>
         <table>
@@ -2411,7 +2411,7 @@ function renderDteResultados(dtes, filtroFolio) {
           <tbody>
             ${lista.map(d => `
               <tr>
-                <td>${d.folio}</td>
+                <td>${escapeHtml(d.folio)}</td>
                 <td>${d.fecha || '—'}</td>
                 <td>$${Math.round(d.monto_total || 0).toLocaleString('es-CL')}</td>
                 <td>
@@ -2485,7 +2485,7 @@ async function showProveedoresOcultosModal() {
           <tbody>
             ${ocultos.map(p => `
               <tr>
-                <td>${p.proveedor_nombre}</td>
+                <td>${escapeHtml(p.proveedor_nombre)}</td>
                 <td><button type="button" class="btn" data-mostrar-proveedor="${encodeURIComponent(p.proveedor_rut)}">Mostrar</button></td>
               </tr>`).join('')}
           </tbody>
@@ -2557,9 +2557,9 @@ async function actualizarColaPanel() {
         <tbody>
           ${recientes.map(c => `
             <tr>
-              <td>${c.proveedor_nombre}</td>
-              <td>${c.folio}</td>
-              <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${c.invoice_name}` : ''}${c.estado === 'error' ? ` — ${c.error_mensaje}` : ''}</td>
+              <td>${escapeHtml(c.proveedor_nombre)}</td>
+              <td>${escapeHtml(c.folio)}</td>
+              <td>${ETIQUETA_ESTADO_COLA[c.estado] || c.estado}${c.estado === 'completado' ? ` — ${escapeHtml(c.invoice_name)}` : ''}${c.estado === 'error' ? ` — ${escapeHtml(c.error_mensaje)}` : ''}</td>
               <td>
                 ${c.estado === 'completado' ? `<button type="button" class="btn" data-comparar-dte="${c.dte_id}">Comparar</button> ` : ''}
                 ${c.estado === 'error' && (c.error_mensaje || '').includes('Ya existe una factura en Odoo')
@@ -2648,7 +2648,7 @@ async function showDteModal(dteId) {
     // antes de que cuente como matcheada de verdad.
     const todasMatcheadas = dte.lineas.every(l => l.product_id && !l.sugerido);
     overlay.querySelector('.modal-box').innerHTML = `
-      <h3>${dte.proveedor_nombre} — Folio ${dte.folio}</h3>
+      <h3>${escapeHtml(dte.proveedor_nombre)} — Folio ${escapeHtml(dte.folio)}</h3>
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
       <div style="overflow-x:auto">
       <table>
@@ -2656,7 +2656,7 @@ async function showDteModal(dteId) {
         <tbody>
           ${dte.lineas.map(l => `
             <tr data-linea="${l.id}">
-              <td>${l.item_name}${l.es_manual ? ' <span class="placeholder" title="Agregada a mano -- no vino como línea propia en el DTE">(manual)</span>' : ''}</td>
+              <td>${escapeHtml(l.item_name)}${l.es_manual ? ' <span class="placeholder" title="Agregada a mano -- no vino como línea propia en el DTE">(manual)</span>' : ''}</td>
               <td>${l.qty}</td>
               <td>${l.product_id && l.codigo_tipo ? `
                 <input type="number" class="field dte-factor-inline" data-linea-factor-inline="${l.id}" min="0.0001" step="any" style="width:70px" value="${l.factor_conversion || 1}" title="¿Cuántas unidades reales vienen en cada una declarada? (ej. si '1 azúcar' son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código, se aplica solo en toda factura futura igual.">
@@ -2674,12 +2674,12 @@ async function showDteModal(dteId) {
                     const activo = (l.impuesto_nombres || []).includes(nombre);
                     return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" title="${nombre}" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${corto}</button>`;
                   }).join('')}
-                  ${(l.impuesto_nombres || []).filter(n => !IMPUESTOS_RAPIDOS_NOMBRES.includes(n)).map(nombre => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" data-impuesto-chip="${l.id}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${nombre}</button>`).join('')}
+                  ${(l.impuesto_nombres || []).filter(n => !IMPUESTOS_RAPIDOS_NOMBRES.includes(n)).map(nombre => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" data-impuesto-chip="${l.id}" data-impuesto-nombre="${escapeHtml(nombre)}">${escapeHtml(nombre)}</button>`).join('')}
                 </div>
                 <p data-impuesto-estado="${l.id}" style="margin-top:.1rem;font-size:.7rem"></p>`
                 : '<span class="placeholder">—</span>'}</td>
               <td>${l.product_id
-                ? `${l.product_name}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
+                ? `${escapeHtml(l.product_name)}${l.sugerido ? ' <span class="placeholder" title="Sugerido automáticamente por el mapeo guardado -- confirma con un clic">(sugerido)</span>' : ' ✓'}`
                 : '<span class="placeholder">Sin producto</span>'}</td>
               <td>${l.es_manual
                 ? `<button type="button" class="btn" data-quitar-manual="${l.id}">Quitar</button>`
@@ -2699,7 +2699,7 @@ async function showDteModal(dteId) {
             </td></tr>
             ${l.product_id ? `
             <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="9">
-              <p class="placeholder" style="margin-bottom:.5rem">Buscar un impuesto de <strong>${l.product_name}</strong> que no esté entre los de uso frecuente (máx. 3 en total, aplica y guarda al elegirlo).</p>
+              <p class="placeholder" style="margin-bottom:.5rem">Buscar un impuesto de <strong>${escapeHtml(l.product_name)}</strong> que no esté entre los de uso frecuente (máx. 3 en total, aplica y guarda al elegirlo).</p>
               <div class="item-row">
                 <input type="text" class="field dte-impuesto-buscar-otro" data-linea-buscar-impuesto="${l.id}" placeholder="Buscar otro impuesto..." style="flex:1;max-width:260px">
                 <button type="button" class="btn" data-impuesto-buscar-otro-btn="${l.id}">Buscar</button>
@@ -2751,7 +2751,7 @@ async function showDteModal(dteId) {
       try {
         const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
         resultadosEl.innerHTML = productos.length
-          ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-manual="${p.id}" data-nombre="${p.name.replace(/"/g, '&quot;')}">${p.name}${p.default_code ? ' (' + p.default_code + ')' : ''}</button>`).join('')
+          ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-manual="${p.id}" data-nombre="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.default_code ? ' (' + escapeHtml(p.default_code) + ')' : ''}</button>`).join('')
           : '<span class="placeholder">Sin resultados.</span>';
         resultadosEl.querySelectorAll('[data-elegir-manual]').forEach(pbtn => {
           pbtn.onclick = () => {
@@ -2812,7 +2812,7 @@ async function showDteModal(dteId) {
         const unSoloImpuesto = r.impuestos.length === 1;
         resumenEl.innerHTML = `
           <table>
-            <thead><tr><th></th><th>Neto</th>${r.impuestos.map(i => `<th>${i.nombre}</th>`).join('')}<th>Total</th></tr></thead>
+            <thead><tr><th></th><th>Neto</th>${r.impuestos.map(i => `<th>${escapeHtml(i.nombre)}</th>`).join('')}<th>Total</th></tr></thead>
             <tbody>
               <tr>
                 <td>Calculado (con lo confirmado hoy)</td>
@@ -2958,7 +2958,7 @@ async function showDteModal(dteId) {
           const activo = nuevos.includes(nombre);
           return `<button type="button" class="btn ${activo ? 'btn-primary' : ''}" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" title="${nombre}" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${nombre.replace(/"/g, '&quot;')}">${corto}</button>`;
         }).join('');
-        const extrasHtml = extras.map(n => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${n.replace(/"/g, '&quot;')}">${n}</button>`).join('');
+        const extrasHtml = extras.map(n => `<button type="button" class="btn btn-primary" style="font-size:.72rem;padding:.1rem .35rem;white-space:nowrap" data-impuesto-chip="${lineaId}" data-impuesto-nombre="${escapeHtml(n)}">${escapeHtml(n)}</button>`).join('');
         cont.innerHTML = rapidosHtml + extrasHtml;
         renderImpuestoChips(lineaId);
         estadoEl.textContent = '';
@@ -2987,7 +2987,7 @@ async function showDteModal(dteId) {
           if (!q) return;
           const encontrados = todosImpuestos.filter(t => t.name.toLowerCase().includes(q));
           resEl.innerHTML = encontrados.length
-            ? encontrados.map(t => `<button type="button" class="btn" style="margin:.15rem" data-impuesto-otro-elegir="${lineaId}" data-impuesto-otro-nombre="${t.name.replace(/"/g, '&quot;')}">${t.name} (${t.amount}%)</button>`).join('')
+            ? encontrados.map(t => `<button type="button" class="btn" style="margin:.15rem" data-impuesto-otro-elegir="${lineaId}" data-impuesto-otro-nombre="${escapeHtml(t.name)}">${escapeHtml(t.name)} (${t.amount}%)</button>`).join('')
             : '<span class="placeholder">Sin resultados.</span>';
           resEl.querySelectorAll('[data-impuesto-otro-elegir]').forEach(rbtn => {
             rbtn.onclick = () => toggleImpuestoLinea(lineaId, rbtn.dataset.impuestoOtroNombre);
@@ -3029,7 +3029,7 @@ async function showDteModal(dteId) {
         try {
           const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
           resultadosEl.innerHTML = productos.length
-            ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-producto="${p.id}" data-nombre="${p.name.replace(/"/g, '&quot;')}">${p.name}${p.default_code ? ' (' + p.default_code + ')' : ''}</button>`).join('')
+            ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-producto="${p.id}" data-nombre="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.default_code ? ' (' + escapeHtml(p.default_code) + ')' : ''}</button>`).join('')
             : '<span class="placeholder">Sin resultados.</span>';
           resultadosEl.querySelectorAll('[data-elegir-producto]').forEach(pbtn => {
             pbtn.onclick = async () => {
@@ -3096,7 +3096,7 @@ async function showCompararModal(dteId) {
     const c = await api(`/facturas-dte/${dteId}/comparar`);
     const diffMonto = (a, b) => Math.abs(a - b) > 9;
     overlay.querySelector('.modal-box').innerHTML = `
-      <h3>Comparación — ${c.invoice_name}</h3>
+      <h3>Comparación — ${escapeHtml(c.invoice_name)}</h3>
       <p class="placeholder" style="margin-bottom:1rem">Lo que declaró el proveedor en su factura electrónica (DTE) vs. lo que quedó realmente creado en Odoo.</p>
       <table style="margin-bottom:1rem">
         <thead><tr><th></th><th>Neto</th><th>Impuestos</th><th>Total</th></tr></thead>
@@ -3120,13 +3120,13 @@ async function showCompararModal(dteId) {
         <tbody>
           ${c.lineas.map(l => `
             <tr>
-              <td>${l.item_name}</td>
+              <td>${escapeHtml(l.item_name)}</td>
               <td>${l.qty_dte}</td>
               <td>${_fmtMonto(l.precio_dte)}</td>
-              <td>${l.producto_nombre || '<span class="placeholder">—</span>'}</td>
+              <td>${l.producto_nombre ? escapeHtml(l.producto_nombre) : '<span class="placeholder">—</span>'}</td>
               <td>${l.qty_odoo ?? '<span class="placeholder">—</span>'}</td>
               <td>${l.precio_odoo != null ? _fmtMonto(l.precio_odoo) : '<span class="placeholder">—</span>'}</td>
-              <td>${l.impuestos_odoo.length ? l.impuestos_odoo.join(', ') : '<span class="placeholder">por defecto</span>'}</td>
+              <td>${l.impuestos_odoo.length ? l.impuestos_odoo.map(escapeHtml).join(', ') : '<span class="placeholder">por defecto</span>'}</td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -3334,20 +3334,20 @@ function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, 
   return `
     <div class="card">
       ${sinTipo ? `<p class="error-msg" style="margin-bottom:.75rem">${sinTipo} factura(s) de proveedores sin Tipo asignado -- clasifícalos en "Categorías de proveedores".</p>` : ''}
-      ${filtro && !itemsFiltrados.length ? `<p class="placeholder" style="margin-bottom:.75rem">Ningún N° de factura coincide con "${filtroTexto}".</p>` : ''}
+      ${filtro && !itemsFiltrados.length ? `<p class="placeholder" style="margin-bottom:.75rem">Ningún N° de factura coincide con "${escapeHtml(filtroTexto)}".</p>` : ''}
       <table>
         <thead><tr><th>Fecha</th><th>Proveedor</th><th>N° Factura</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Tipo</th></tr></thead>
         <tbody>
           ${itemsFiltrados.map(it => `
             <tr>
               <td>${it.fecha || '—'}</td>
-              <td>${it.proveedor_nombre}</td>
-              <td>${it.num_factura || '—'}</td>
+              <td>${escapeHtml(it.proveedor_nombre)}</td>
+              <td>${it.num_factura ? escapeHtml(it.num_factura) : '—'}</td>
               <td>$${Math.round(it.subtotal).toLocaleString('es-CL')}</td>
               <td>$${Math.round(it.iva).toLocaleString('es-CL')}</td>
               <td>$${Math.round(it.total).toLocaleString('es-CL')}</td>
               <td>
-                <select class="field" data-tipo-proveedor="${it.proveedor_id}" data-nombre-proveedor="${(it.proveedor_nombre || '').replace(/"/g, '&quot;')}">
+                <select class="field" data-tipo-proveedor="${it.proveedor_id}" data-nombre-proveedor="${escapeHtml(it.proveedor_nombre || '')}">
                   <option value="">— Sin asignar —</option>
                   ${TIPOS_PLANILLA_COMPRAS.map(t => `<option value="${t.id}" ${it.tipo === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
                 </select>
@@ -3380,8 +3380,8 @@ async function showPlanillaFaltantesModal(anio, mes) {
             <tbody>
               ${faltantes.map(f => `
                 <tr>
-                  <td>${f.proveedor_nombre}</td>
-                  <td>${f.folio}</td>
+                  <td>${escapeHtml(f.proveedor_nombre)}</td>
+                  <td>${escapeHtml(f.folio)}</td>
                   <td>${f.fecha || '—'}</td>
                   <td>${_fmtMonto(f.total)}</td>
                   <td><button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button></td>
@@ -3432,7 +3432,7 @@ async function showCatalogoProveedoresTipo() {
         <table>
           <thead><tr><th>Proveedor</th><th>Tipo</th></tr></thead>
           <tbody>
-            ${proveedores.map(p => `<tr><td>${p.proveedor_nombre}</td><td>${TIPOS_PLANILLA_COMPRAS.find(t => t.id === p.tipo)?.label || p.tipo}</td></tr>`).join('')}
+            ${proveedores.map(p => `<tr><td>${escapeHtml(p.proveedor_nombre)}</td><td>${TIPOS_PLANILLA_COMPRAS.find(t => t.id === p.tipo)?.label || p.tipo}</td></tr>`).join('')}
           </tbody>
         </table>` : '<p class="placeholder">Todavía no hay proveedores clasificados.</p>'}
       <div style="margin-top:1.25rem">
