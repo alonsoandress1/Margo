@@ -18,6 +18,7 @@ def _producto_de(row: dict) -> ProductoOut:
         unidad=row["ingrediente_key"].split("||")[1] if "||" in row["ingrediente_key"] else "",
         proveedor_id=row["proveedor_id"], odoo_id=row["odoo_id"], odoo_name=row["odoo_name"],
         ref=row.get("ref"), precio=row.get("price", 0), tamano_empaque=row.get("tamano_empaque"),
+        unidad_odoo=row.get("unidad_odoo"),
     )
 
 
@@ -63,7 +64,7 @@ def crear_producto(proveedor_id: str, body: ProductoIn, claims: dict = Depends(g
         "ingrediente_key": key, "proveedor_id": proveedor_id,
         "ref": body.ref, "odoo_id": body.odoo_id, "odoo_name": body.odoo_name,
         "supplier_id": prov.data[0]["odoo_supplier_id"], "supplier_name": prov.data[0]["nombre"],
-        "price": body.precio, "tamano_empaque": tamano,
+        "price": body.precio, "tamano_empaque": tamano, "unidad_odoo": body.unidad_odoo,
     }, on_conflict="ingrediente_key,proveedor_id").execute()
 
     row = db.table("odoo_mapping").select("*").eq("ingrediente_key", key).eq("proveedor_id", proveedor_id).execute().data[0]
@@ -79,7 +80,7 @@ def actualizar_producto(proveedor_id: str, body: ProductoUpdateIn, claims: dict 
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Producto no encontrado para ese proveedor")
 
-    update = {"tamano_empaque": None if body.a_granel else body.tamano_empaque}
+    update = {"tamano_empaque": None if body.a_granel else body.tamano_empaque, "unidad_odoo": body.unidad_odoo}
     if body.precio is not None:
         update["price"] = body.precio
     db.table("odoo_mapping").update(update).eq("id", existente.data[0]["id"]).execute()

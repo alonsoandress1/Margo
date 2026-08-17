@@ -312,22 +312,25 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
         nombre_proveedor = proveedor["nombre"] if proveedor else "Proveedor desconocido"
 
         if proveedor and proveedor.get("usa_odoo"):
-            # La cantidad que mandamos siempre esta en una de dos unidades
-            # que decidimos NOSOTROS al calcularla (nunca la que ese
-            # producto tenga configurada por defecto en Odoo, que puede no
-            # coincidir): "Kg" si el insumo se pesa (unidad "kg"/"g", ya
-            # convertido a Kg mas abajo) o "Unidades" en cualquier otro
-            # caso. Se resuelven los IDs reales de esas dos unidades de
-            # medida estandar de Odoo por su external id (estable en
-            # cualquier base de Odoo) y se mandan explicitos en cada linea,
-            # para que Odoo nunca pueda interpretar el numero con una
-            # unidad distinta a la que ya asumimos nosotros.
+            # La unidad que se le manda a Odoo por linea sale, en orden de
+            # prioridad: (1) la que nosotros mismos definimos explicitamente
+            # para ESE producto en Proveedores (odoo_mapping.unidad_odoo --
+            # justamente para no quedar a merced de como haya quedado
+            # configurado alla), y si no la definimos, (2) la que ese
+            # producto tenga configurada por defecto en su propia ficha de
+            # Odoo (mejor eso que nada).
             ids_uom = odoo_session.call_kw('ir.model.data', 'search_read',
                 [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
                 {'fields': ['name', 'res_id']})
             uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
-            uom_kg = uom_por_nombre.get('product_uom_kgm')
-            uom_unidad = uom_por_nombre.get('product_uom_unit')
+            uom_odoo_a_id = {'kg': uom_por_nombre.get('product_uom_kgm'), 'un': uom_por_nombre.get('product_uom_unit')}
+
+            ids_sin_override = list({m["odoo_id"] for m, _ in entradas if not m.get("unidad_odoo")})
+            uom_default_producto = {}
+            if ids_sin_override:
+                productos_odoo = odoo_session.call_kw('product.product', 'read',
+                    [ids_sin_override], {'fields': ['uom_id']})
+                uom_default_producto = {p['id']: p['uom_id'][0] for p in productos_odoo if p.get('uom_id')}
 
             bloques = list(_en_bloques(entradas, MAX_ITEMS_POR_OC))
             total_bloques = len(bloques)
@@ -339,7 +342,8 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
                     unidad = (item.get("unidad") or "").lower()
                     cantidad_kg = cantidad / 1000 if unidad == "g" else cantidad
                     cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
-                    uom_linea = uom_kg if unidad in ("g", "kg") else uom_unidad
+                    override = m.get("unidad_odoo")
+                    uom_linea = uom_odoo_a_id.get(override) if override else uom_default_producto.get(m["odoo_id"])
                     linea = {
                         "product_id": m["odoo_id"], "name": m["odoo_name"],
                         "product_qty": round(cantidad_kg, 2), "price_unit": m.get("price", 0) or 0,

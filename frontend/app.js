@@ -833,6 +833,12 @@ async function renderProveedores(el, s) {
             <input type="checkbox" id="prod-granel"> Se compra a granel (sin formato/empaque fijo)
           </label>
           <input class="field" id="prod-empaque" type="number" step="0.01" placeholder="Formato / cantidad por paquete (misma unidad de arriba)" style="max-width:260px;margin-bottom:.75rem">
+          <label class="field-label" style="margin-top:.5rem">Unidad de compra en Odoo</label>
+          <select class="field" id="prod-unidad-odoo" style="max-width:260px;margin-bottom:.75rem" title="Con qué unidad se marca la cantidad al crear la OC/factura en Odoo para este producto. Automático = usa la que ese producto tenga configurada por defecto en Odoo.">
+            <option value="">Automático (por defecto en Odoo)</option>
+            <option value="kg">Kg</option>
+            <option value="un">Unidades</option>
+          </select>
           <br>
           <button type="submit" class="btn btn-primary">Agregar producto</button>
           <p id="prod-error" class="error-msg"></p>
@@ -844,7 +850,7 @@ async function renderProveedores(el, s) {
         <button type="button" class="btn btn-reject" id="prod-del-selected" disabled>Eliminar seleccionados (<span id="prod-selected-count">0</span>)</button>
       </div>` : ''}
       <table>
-        <thead><tr>${editable ? '<th><input type="checkbox" id="prod-check-all"></th>' : ''}<th>Insumo</th><th>Nombre Odoo</th><th>Ref</th><th>Precio</th><th>Formato</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr>${editable ? '<th><input type="checkbox" id="prod-check-all"></th>' : ''}<th>Insumo</th><th>Nombre Odoo</th><th>Ref</th><th>Precio</th><th>Formato</th><th title="Unidad que se manda a Odoo al crear la OC/factura para este producto">Unidad Odoo</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${productos.map(p => `
             <tr>
@@ -858,12 +864,21 @@ async function renderProveedores(el, s) {
                   ? `<input class="field prod-edit-empaque" data-key="${p.ingrediente_key}" type="number" step="0.01" style="width:90px" placeholder="A granel" value="${p.tamano_empaque ?? ''}">`
                   : (p.tamano_empaque ? `${p.tamano_empaque} ${formatUnidad(p.unidad)}/paquete` : 'A granel')}
               </td>
+              <td>
+                ${editable
+                  ? `<select class="field prod-edit-unidad-odoo" data-key="${p.ingrediente_key}" style="width:120px">
+                      <option value="" ${!p.unidad_odoo ? 'selected' : ''}>Automático</option>
+                      <option value="kg" ${p.unidad_odoo === 'kg' ? 'selected' : ''}>Kg</option>
+                      <option value="un" ${p.unidad_odoo === 'un' ? 'selected' : ''}>Unidades</option>
+                    </select>`
+                  : (p.unidad_odoo === 'kg' ? 'Kg' : p.unidad_odoo === 'un' ? 'Unidades' : 'Automático')}
+              </td>
               ${editable ? `<td>
                 <button class="btn" data-guardar-prod="${p.ingrediente_key}">Guardar</button>
                 <button class="btn btn-reject" data-del-prod="${p.id}">Eliminar</button>
               </td>` : ''}
             </tr>`).join('')}
-          ${!productos.length ? `<tr><td colspan="${editable ? 7 : 5}" class="placeholder">Sin productos todavía.</td></tr>` : ''}
+          ${!productos.length ? `<tr><td colspan="${editable ? 8 : 6}" class="placeholder">Sin productos todavía.</td></tr>` : ''}
         </tbody>
       </table>
     </div>` : ''}`;
@@ -925,6 +940,7 @@ async function renderProveedores(el, s) {
             precio: parseFloat(document.getElementById('prod-precio').value) || 0,
             a_granel: granel,
             tamano_empaque: granel ? null : (parseFloat(document.getElementById('prod-empaque').value) || null),
+            unidad_odoo: document.getElementById('prod-unidad-odoo').value || null,
           }),
         });
         renderView();
@@ -938,6 +954,7 @@ async function renderProveedores(el, s) {
         const key = btn.dataset.guardarProd;
         const precio = el.querySelector(`.prod-edit-precio[data-key="${key}"]`).value;
         const empaqueVal = el.querySelector(`.prod-edit-empaque[data-key="${key}"]`).value;
+        const unidadOdoo = el.querySelector(`.prod-edit-unidad-odoo[data-key="${key}"]`).value;
         try {
           await api(`/proveedores/${provId}/productos`, {
             method: 'PATCH',
@@ -946,6 +963,7 @@ async function renderProveedores(el, s) {
               precio: parseFloat(precio) || 0,
               a_granel: empaqueVal === '',
               tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
+              unidad_odoo: unidadOdoo || null,
             }),
           });
           renderView();

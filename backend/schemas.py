@@ -3,6 +3,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 UnidadCatalogo = Literal["un", "kg", "porcion"]
+# Unidad que se le impone a Odoo al crear una OC/factura para este producto en
+# particular -- independiente de la "unidad" del insumo (que es la de Par
+# Stock/pedidos). None = no la definimos nosotros, se usa la que traiga el
+# producto por defecto en Odoo.
+UnidadOdoo = Literal["un", "kg"]
 
 
 class LocalOut(BaseModel):
@@ -209,6 +214,7 @@ class ProductoOut(BaseModel):
     ref: str | None = None
     precio: float = 0
     tamano_empaque: float | None = None  # None = a granel
+    unidad_odoo: UnidadOdoo | None = None  # None = usar la que traiga el producto por defecto en Odoo
 
 
 class ProductoIn(BaseModel):
@@ -220,6 +226,7 @@ class ProductoIn(BaseModel):
     precio: float = 0
     a_granel: bool = False
     tamano_empaque: float | None = None
+    unidad_odoo: UnidadOdoo | None = None
 
 
 class ProductoUpdateIn(BaseModel):
@@ -227,6 +234,7 @@ class ProductoUpdateIn(BaseModel):
     precio: float | None = None
     a_granel: bool = False
     tamano_empaque: float | None = None
+    unidad_odoo: UnidadOdoo | None = None
 
 
 class ConfiguracionEmailOut(BaseModel):
