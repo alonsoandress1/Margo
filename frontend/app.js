@@ -1511,7 +1511,7 @@ async function renderInventario(el, s) {
         <h3>Stock pendiente de sumar (${stockPendiente.length})</h3>
         <p class="placeholder" style="margin-bottom:.75rem">Productos de facturas de Facturas Odoo que todavía no tienen insumo asociado (o el local todavía no tiene mapeo a su empresa de Odoo) -- una vez que agregues el mapeo que falta, tocá "Actualizar" para sumarlos al stock.</p>
         <table>
-          <thead><tr><th>Producto</th><th>Cantidad</th><th>Proveedor</th><th>Factura</th><th>Motivo</th></tr></thead>
+          <thead><tr><th>Producto</th><th>Cantidad</th><th>Proveedor</th><th>Factura</th><th>Motivo</th><th></th></tr></thead>
           <tbody>
             ${stockPendiente.map(p => `
               <tr>
@@ -1520,6 +1520,7 @@ async function renderInventario(el, s) {
                 <td>${p.proveedor_nombre ? escapeHtml(p.proveedor_nombre) : '—'}</td>
                 <td>${p.invoice_name ? escapeHtml(p.invoice_name) : '—'}</td>
                 <td>${p.motivo === 'sin_local' ? 'Local sin mapeo a Odoo' : 'Producto sin insumo asociado'}</td>
+                <td>${p.motivo === 'sin_insumo' ? `<button type="button" class="btn" data-vincular-pendiente="${p.id}">Vincular</button>` : ''}</td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -1591,7 +1592,112 @@ async function renderInventario(el, s) {
         errorEl.textContent = err.message;
       }
     });
+
+    el.querySelectorAll('[data-vincular-pendiente]').forEach(btn => {
+      btn.onclick = () => {
+        const p = stockPendiente.find(x => String(x.id) === btn.dataset.vincularPendiente);
+        if (p) showVincularPendienteModal(p);
+      };
+    });
   }
+}
+
+function _adivinarUnidadOdoo(nombreUom) {
+  const n = (nombreUom || '').toLowerCase();
+  if (n.includes('kg') || n.includes('kilo')) return 'kg';
+  if (n.includes('unid')) return 'un';
+  return '';
+}
+
+async function showVincularPendienteModal(p) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:640px"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  const insumos = await api('/par-stock/productos').catch(() => []);
+  const unidadAdivinada = _adivinarUnidadOdoo(p.uom_odoo_nombre);
+
+  overlay.querySelector('.modal-box').innerHTML = `
+    <h3>Vincular producto de factura</h3>
+    <p class="placeholder" style="margin-bottom:1rem">
+      Datos reales de la factura ${p.invoice_name ? escapeHtml(p.invoice_name) : ''} -- no hace falta retipearlos.
+    </p>
+    <table style="margin-bottom:1rem">
+      <tbody>
+        <tr><td>Producto en Odoo</td><td>${escapeHtml(p.producto_nombre)}</td></tr>
+        <tr><td>Unidad real en Odoo</td><td>${p.uom_odoo_nombre ? escapeHtml(p.uom_odoo_nombre) : '—'}</td></tr>
+        <tr><td>Precio de esta factura</td><td>${p.precio ?? '—'}</td></tr>
+        <tr><td>Proveedor</td><td>${p.proveedor_nombre ? escapeHtml(p.proveedor_nombre) : '—'}</td></tr>
+      </tbody>
+    </table>
+    <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem">
+      <input type="radio" name="vp-modo" value="existente" checked> Vincular a insumo ya cargado
+    </label>
+    <select class="field" id="vp-insumo-existente" style="width:100%;margin-bottom:.75rem">
+      ${insumos.map(i => `<option value="${i.ingrediente_key}">${escapeHtml(i.nombre)} (${formatUnidad(i.unidad)})</option>`).join('')}
+    </select>
+    <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem">
+      <input type="radio" name="vp-modo" value="nuevo"> Crear insumo nuevo
+    </label>
+    <div class="item-row" style="margin-bottom:.75rem">
+      <input class="field" id="vp-nombre-nuevo" placeholder="Nombre del insumo" style="flex:2" value="${escapeHtml(p.producto_nombre)}" disabled>
+      <select class="field" id="vp-unidad-nueva" disabled>${unidadOptionsHtml(unidadAdivinada)}</select>
+    </div>
+    <div class="item-row" style="margin-bottom:.75rem">
+      <input class="field" id="vp-precio" type="number" step="1" placeholder="Precio" value="${p.precio ?? ''}">
+      <input class="field" id="vp-empaque" type="number" step="0.01" placeholder="Formato (opcional, a granel si vacío)">
+    </div>
+    <label class="field-label">Unidad de compra en Odoo</label>
+    <select class="field" id="vp-unidad-odoo" style="max-width:260px;margin-bottom:1rem">
+      <option value="">Automático (por defecto en Odoo)</option>
+      <option value="kg" ${unidadAdivinada === 'kg' ? 'selected' : ''}>Kg</option>
+      <option value="un" ${unidadAdivinada === 'un' ? 'selected' : ''}>Unidades</option>
+    </select>
+    <br>
+    <button type="button" class="btn btn-primary" id="vp-guardar">Vincular</button>
+    <button type="button" class="btn" id="vp-cancelar">Cancelar</button>
+    <p id="vp-error" class="error-msg"></p>
+  `;
+
+  const modoRadios = overlay.querySelectorAll('input[name="vp-modo"]');
+  const elExistente = overlay.querySelector('#vp-insumo-existente');
+  const elNombreNuevo = overlay.querySelector('#vp-nombre-nuevo');
+  const elUnidadNueva = overlay.querySelector('#vp-unidad-nueva');
+  modoRadios.forEach(r => {
+    r.onchange = () => {
+      const esNuevo = overlay.querySelector('input[name="vp-modo"]:checked').value === 'nuevo';
+      elExistente.disabled = esNuevo;
+      elNombreNuevo.disabled = !esNuevo;
+      elUnidadNueva.disabled = !esNuevo;
+    };
+  });
+
+  overlay.querySelector('#vp-cancelar').onclick = () => overlay.remove();
+  overlay.querySelector('#vp-guardar').onclick = async () => {
+    const errorEl = overlay.querySelector('#vp-error');
+    const esNuevo = overlay.querySelector('input[name="vp-modo"]:checked').value === 'nuevo';
+    const empaqueVal = overlay.querySelector('#vp-empaque').value;
+    const unidadOdoo = overlay.querySelector('#vp-unidad-odoo').value;
+    const precioVal = overlay.querySelector('#vp-precio').value;
+    try {
+      await api(`/inventario/stock-pendiente/${p.id}/vincular`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ingrediente_key_existente: esNuevo ? null : elExistente.value,
+          nombre_nuevo: esNuevo ? elNombreNuevo.value.trim() : null,
+          unidad_nueva: esNuevo ? elUnidadNueva.value : null,
+          precio: precioVal === '' ? null : parseFloat(precioVal),
+          tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
+          unidad_odoo: unidadOdoo || null,
+        }),
+      });
+      overlay.remove();
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  };
 }
 
 async function showStockInicialModal(localId, itemsLocal) {
@@ -3061,7 +3167,7 @@ async function showDteModal(dteId) {
           const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
           resultadosEl.innerHTML = productos.length
             ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem" data-elegir-producto="${p.id}" data-nombre="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.default_code ? ' (' + escapeHtml(p.default_code) + ')' : ''}</button>`).join('')
-            : '<span class="placeholder">Sin resultados.</span>';
+            : '<span class="placeholder">No se encontró en Odoo -- hay que crear el producto ahí primero, esta app nunca crea productos.</span>';
           resultadosEl.querySelectorAll('[data-elegir-producto]').forEach(pbtn => {
             pbtn.onclick = async () => {
               const fila = overlay.querySelector(`tr[data-linea="${lineaId}"]`);

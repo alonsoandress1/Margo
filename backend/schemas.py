@@ -79,11 +79,25 @@ class StockPendienteOut(BaseModel):
     proveedor_nombre: str | None = None
     motivo: str
     creado_en: str
+    proveedor_rut: str | None = None
+    odoo_partner_id: int | None = None
+    precio: float | None = None
+    uom_odoo_id: int | None = None
+    uom_odoo_nombre: str | None = None
 
 
 class StockPendienteReprocesarOut(BaseModel):
     resueltos: int
     pendientes: int
+
+
+class VincularPendienteIn(BaseModel):
+    ingrediente_key_existente: str | None = None
+    nombre_nuevo: str | None = None
+    unidad_nueva: UnidadCatalogo | None = None
+    precio: float | None = None
+    tamano_empaque: float | None = None
+    unidad_odoo: UnidadOdoo | None = None
 
 
 class StockCocinaIn(BaseModel):

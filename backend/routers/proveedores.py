@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..catalogo import _producto_de
 from ..db import get_db
 from ..deps import get_current_claims
 from ..schemas import ProductoIn, ProductoOut, ProductoUpdateIn, ProveedorIn, ProveedorOut
@@ -10,16 +11,6 @@ router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 def _require_admin(claims: dict):
     if claims["rol"] != "administrador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador puede gestionar proveedores")
-
-
-def _producto_de(row: dict) -> ProductoOut:
-    return ProductoOut(
-        id=row["id"], ingrediente_key=row["ingrediente_key"], nombre=row["ingrediente_key"].split("||")[0],
-        unidad=row["ingrediente_key"].split("||")[1] if "||" in row["ingrediente_key"] else "",
-        proveedor_id=row["proveedor_id"], odoo_id=row["odoo_id"], odoo_name=row["odoo_name"],
-        ref=row.get("ref"), precio=row.get("price", 0), tamano_empaque=row.get("tamano_empaque"),
-        unidad_odoo=row.get("unidad_odoo"),
-    )
 
 
 @router.get("", response_model=list[ProveedorOut])

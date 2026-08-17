@@ -1217,8 +1217,10 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
 
     # La factura ya quedo creada en Odoo (lo que importa) -- alimentar el
     # stock de Bodega es un extra que nunca debe hacer fallar la creacion.
+    uom_nombre_por_producto = {pid: p['uom_id'][1] for pid, p in info_por_producto.items() if p.get('uom_id')}
     try:
-        _alimentar_stock_bodega(db, company_id, dte_id, move_id, move['name'], proveedor_nombre, order_lines)
+        _alimentar_stock_bodega(db, company_id, dte_id, move_id, move['name'], proveedor_nombre,
+                                 doc['issuer_rut'], partner_id, uom_nombre_por_producto, order_lines)
     except Exception:
         pass
 
@@ -1226,7 +1228,8 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
 
 
 def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invoice_name: str,
-                             proveedor_nombre: str, order_lines: list) -> None:
+                             proveedor_nombre: str, proveedor_rut: str, odoo_partner_id: int,
+                             uom_nombre_por_producto: dict[int, str], order_lines: list) -> None:
     """Suma automaticamente a bodega_movimientos el ingreso de cada linea de
     la factura recien creada -- pedido explicito del usuario, para no tener
     que cargar el stock a mano cada vez que se ingresa una factura.
@@ -1238,8 +1241,10 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
     Si el local (por la empresa de Odoo) o el insumo (por el producto de
     Odoo, via odoo_mapping) todavia no se pueden resolver, la linea queda
     en bodega_stock_pendiente en vez de sumarse -- se resuelve despues con
-    el boton "Actualizar" en Inventario, una vez que exista el mapeo que
-    faltaba (ver inventario.py::reprocesar_stock_pendiente)."""
+    el boton "Actualizar" en Inventario (si solo faltaba el local) o con
+    "Vincular" (si faltaba el insumo -- ver inventario.py::vincular_pendiente,
+    que usa proveedor_rut/odoo_partner_id/precio/uom para no tener que
+    retipear a mano lo que la factura ya trajo)."""
     locales = db.table("locales").select("id").eq("odoo_company_id", company_id).execute().data
     local_id = locales[0]["id"] if locales else None
 
@@ -1257,6 +1262,9 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
                 "odoo_company_id": company_id, "local_id": local_id, "odoo_product_id": pid,
                 "producto_nombre": linea_oc["name"], "cantidad": linea_oc["product_qty"],
                 "proveedor_nombre": proveedor_nombre, "motivo": "sin_local" if not local_id else "sin_insumo",
+                "proveedor_rut": proveedor_rut, "odoo_partner_id": odoo_partner_id,
+                "precio": linea_oc.get("price_unit"), "uom_odoo_id": linea_oc.get("product_uom") or None,
+                "uom_odoo_nombre": uom_nombre_por_producto.get(pid),
             }).execute()
             continue
         db.table("bodega_movimientos").insert({
