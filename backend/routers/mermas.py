@@ -582,6 +582,10 @@ def reporte_ventas_pdf(local_id: str, fecha: str | None = None, claims: dict = D
     bucket 'reportes-ventas'."""
     verificar_acceso_local(claims, local_id)
     fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
+    try:
+        date.fromisoformat(fecha)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Fecha inválida, debe ser YYYY-MM-DD")
     db = get_db()
     ruta = f"{local_id}/{fecha}-ArticleAnalysis.pdf"
     try:
