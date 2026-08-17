@@ -79,13 +79,30 @@ def actualizar_producto(proveedor_id: str, body: ProductoUpdateIn, claims: dict 
     existente = db.table("odoo_mapping").select("*").eq("ingrediente_key", body.ingrediente_key).eq("proveedor_id", proveedor_id).execute()
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Producto no encontrado para ese proveedor")
+    producto_id = existente.data[0]["id"]
+
+    if body.unidad is not None:
+        key_actual = existente.data[0]["ingrediente_key"]
+        nombre, _, unidad_actual = key_actual.partition("||")
+        if body.unidad != unidad_actual:
+            nueva_key = f"{nombre}||{body.unidad}"
+            # Renombra en una sola transaccion (odoo_mapping de TODOS los
+            # proveedores que venden este insumo, Par Stock, bodega_movimientos,
+            # stock_cocina, ventas_recetas) -- si algo choca en el camino, se
+            # aborta completo y no queda nada a medio migrar.
+            try:
+                db.rpc("renombrar_unidad_insumo", {
+                    "p_old_key": key_actual, "p_new_key": nueva_key, "p_nueva_unidad": body.unidad,
+                }).execute()
+            except Exception as e:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No se pudo cambiar la unidad: {e}")
 
     update = {"tamano_empaque": None if body.a_granel else body.tamano_empaque, "unidad_odoo": body.unidad_odoo}
     if body.precio is not None:
         update["price"] = body.precio
-    db.table("odoo_mapping").update(update).eq("id", existente.data[0]["id"]).execute()
+    db.table("odoo_mapping").update(update).eq("id", producto_id).execute()
 
-    row = db.table("odoo_mapping").select("*").eq("id", existente.data[0]["id"]).execute().data[0]
+    row = db.table("odoo_mapping").select("*").eq("id", producto_id).execute().data[0]
     return _producto_de(row)
 
 

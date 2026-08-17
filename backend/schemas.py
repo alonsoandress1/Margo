@@ -235,6 +235,7 @@ class ProductoUpdateIn(BaseModel):
     a_granel: bool = False
     tamano_empaque: float | None = None
     unidad_odoo: UnidadOdoo | None = None
+    unidad: UnidadCatalogo | None = None  # si viene y difiere de la actual, renombra el insumo
 
 
 class ConfiguracionEmailOut(BaseModel):

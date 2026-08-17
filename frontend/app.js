@@ -855,7 +855,11 @@ async function renderProveedores(el, s) {
           ${productos.map(p => `
             <tr>
               ${editable ? `<td><input type="checkbox" class="prod-check" data-id="${p.id}"></td>` : ''}
-              <td>${escapeHtml(p.nombre)} (${formatUnidad(p.unidad)})</td>
+              <td>${escapeHtml(p.nombre)}
+                ${editable
+                  ? `<select class="field prod-edit-unidad" data-key="${p.ingrediente_key}" style="width:90px;display:inline-block;margin-left:.4rem" title="Cambiar la unidad base de este insumo migra su Par Stock e historial de bodega -- no borra nada.">${unidadOptionsHtml(p.unidad)}</select>`
+                  : ` (${formatUnidad(p.unidad)})`}
+              </td>
               <td>${escapeHtml(p.odoo_name)}</td>
               <td>${p.ref ? escapeHtml(p.ref) : '—'}</td>
               <td>${editable ? `<input class="field prod-edit-precio" data-key="${p.ingrediente_key}" type="number" style="width:90px" value="${p.precio}">` : p.precio}</td>
@@ -955,6 +959,12 @@ async function renderProveedores(el, s) {
         const precio = el.querySelector(`.prod-edit-precio[data-key="${key}"]`).value;
         const empaqueVal = el.querySelector(`.prod-edit-empaque[data-key="${key}"]`).value;
         const unidadOdoo = el.querySelector(`.prod-edit-unidad-odoo[data-key="${key}"]`).value;
+        const unidadNueva = el.querySelector(`.prod-edit-unidad[data-key="${key}"]`).value;
+        const unidadActual = key.split('||')[1] || '';
+        if (unidadNueva !== unidadActual && !confirm(
+          `¿Cambiar la unidad de este insumo de "${formatUnidad(unidadActual)}" a "${formatUnidad(unidadNueva)}"? ` +
+          'Se va a migrar su Par Stock y todo su historial de bodega a la nueva unidad -- no se pierde nada, pero no se puede deshacer solo.'
+        )) return;
         try {
           await api(`/proveedores/${provId}/productos`, {
             method: 'PATCH',
@@ -964,6 +974,7 @@ async function renderProveedores(el, s) {
               a_granel: empaqueVal === '',
               tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
               unidad_odoo: unidadOdoo || null,
+              unidad: unidadNueva,
             }),
           });
           renderView();
