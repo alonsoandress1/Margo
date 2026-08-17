@@ -1318,7 +1318,7 @@ async function renderParStock(el, s) {
               <td>${i.supplier_name ? escapeHtml(i.supplier_name) : '—'}</td>
               <td>
                 ${editable
-                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" placeholder="A granel (${formatUnidad(i.unidad)}/paquete)" value="${i.tamano_empaque ?? ''}">`
+                  ? `<input class="field ps-edit-empaque" data-key="${i.ingrediente_key}" data-prov="${i.proveedor_id || ''}" type="number" step="0.01" style="width:90px" title="¿Cuántas ${formatUnidad(i.unidad)} vienen en cada paquete/caja que despacha el proveedor? Los pedidos se redondean solos hacia arriba a este múltiplo. Vacío = a granel (sin formato fijo)." placeholder="A granel (${formatUnidad(i.unidad)}/paquete)" value="${i.tamano_empaque ?? ''}">`
                   : (i.tamano_empaque ? `${i.tamano_empaque} ${formatUnidad(i.unidad)}/paquete` : 'A granel')}
               </td>
               ${editable ? `<td>
@@ -1379,6 +1379,8 @@ async function renderParStock(el, s) {
                 tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
               }),
             });
+          } else if (empaqueVal !== '') {
+            alert('El Par Stock se guardó, pero el Formato no -- este insumo no tiene un proveedor vinculado en Odoo (revisa "Proveedores"), así que no hay dónde guardarlo.');
           }
           renderView();
         } catch (err) {
