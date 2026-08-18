@@ -21,7 +21,6 @@ const SECCIONES = [
   { id: 'parstock',  label: 'Par Stock',             grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'recetas',   label: 'Recetas',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'proveedores', label: 'Proveedores',         grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'facturas',  label: 'Recepción en Bodega',    grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas-dte', label: 'Facturas Odoo',         grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
   { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
   { id: 'ahorro-acuerdos', label: 'Ahorro por Acuerdos', grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: [] },
@@ -46,7 +45,6 @@ let state = {
   odooEmpresaNombre: sessionStorage.getItem('odooEmpresaNombre') || null,
   section: 'resumen',
   locales: [],
-  facturasPendientes: null,
   planillaItems: null,
   planillaResumen: null,
   planillaFiltroFolio: '',
@@ -600,22 +598,6 @@ async function generarOC(pedidoId, btn) {
   }
 }
 
-// ---------- Buscar facturas nuevas ----------
-
-async function buscarFacturasNuevas(btn) {
-  const original = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Buscando…';
-  try {
-    state.facturasPendientes = await api('/facturas/buscar', { method: 'POST' });
-    renderView();
-  } catch (err) {
-    alert(err.message);
-    btn.disabled = false;
-    btn.textContent = original;
-  }
-}
-
 // ---------- Nav ----------
 
 function renderNav() {
@@ -668,7 +650,6 @@ async function renderView() {
     if (state.section === 'proveedores') return renderProveedores(el, s);
     if (state.section === 'recetas') return renderRecetas(el, s);
     if (state.section === 'usuarios') return renderUsuarios(el, s);
-    if (state.section === 'facturas') return renderFacturas(el, s);
     if (state.section === 'facturas-dte') return renderFacturasDte(el, s);
     if (state.section === 'planilla-compras') return renderPlanillaCompras(el, s);
     if (state.section === 'ahorro-acuerdos') return renderAhorroAcuerdos(el, s);
@@ -2303,10 +2284,12 @@ async function renderPedidos(el, s) {
                     : '—')}
               </td>
               <td>
-                ${editable && p.estado === 'pendiente' ? `
+                ${editable && p.estado === 'pendiente' ? (p.creado_por === state.usuario.id
+                  ? '<span class="placeholder" title="Separacion de funciones: quien crea el pedido no puede aprobarlo">Espera revision de otra persona</span>'
+                  : `
                   <button class="btn btn-approve" data-id="${p.id}" data-estado="aprobado">Aprobar</button>
                   <button class="btn btn-reject" data-id="${p.id}" data-estado="rechazado">Rechazar</button>
-                ` : ''}
+                `) : ''}
                 ${editable && (!p.acciones || !p.acciones.length) ? `<button class="btn btn-reject" data-del="${p.id}">Eliminar</button>` : ''}
               </td>
             </tr>`).join('')}
@@ -2414,94 +2397,6 @@ async function renderPedidos(el, s) {
           renderView();
         } catch (err) {
           alert(err.message);
-        }
-      };
-    });
-  }
-}
-
-async function renderFacturas(el, s) {
-  const editable = puedeEditar(s);
-  const [historial, locales] = await Promise.all([api('/facturas'), api('/locales')]);
-  const nombreLocal = (id) => (locales.find(l => l.id === id) || {}).nombre || '—';
-  const pendientes = state.facturasPendientes;
-
-  el.innerHTML = `
-    <h2>Facturas de Proveedor</h2>
-    <p class="placeholder" style="margin-bottom:1.25rem">Al aceptar una factura, sus insumos reconocidos se registran como ingreso real a Bodega -- no se puede procesar la misma factura dos veces.</p>
-    ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
-    ${editable ? `<div class="card"><button type="button" id="btn-buscar-facturas" class="btn btn-primary">Buscar facturas nuevas</button></div>` : ''}
-
-    ${pendientes === null ? '' : (!pendientes.length
-      ? '<div class="card"><p class="placeholder">No hay facturas nuevas -- todo al día.</p></div>'
-      : pendientes.map(f => `
-        <div class="card" data-factura="${f.odoo_invoice_id}">
-          <h3>${escapeHtml(f.odoo_invoice_name)} — ${escapeHtml(f.proveedor)}</h3>
-          <p class="placeholder" style="margin-bottom:1rem">${f.fecha || '—'} · Total: ${f.total}</p>
-          <label class="field-label">Local</label>
-          <select class="field factura-local-sel" data-invoice="${f.odoo_invoice_id}" style="max-width:280px;margin-bottom:1rem">
-            <option value="">-- selecciona un local --</option>
-            ${locales.map(l => `<option value="${l.id}">${escapeHtml(l.nombre)}</option>`).join('')}
-          </select>
-          <table>
-            <thead><tr><th>Insumo</th><th>Cantidad</th><th>Estado</th></tr></thead>
-            <tbody>
-              ${f.lineas.map(l => `
-                <tr>
-                  <td>${escapeHtml(l.nombre)}</td>
-                  <td>${l.cantidad}</td>
-                  <td>${l.reconocido ? '✓ En catálogo' : '⚠ No reconocido -- no se ingresará'}</td>
-                </tr>`).join('')}
-              ${!f.lineas.length ? '<tr><td colspan="3" class="placeholder">Sin líneas de producto.</td></tr>' : ''}
-            </tbody>
-          </table>
-          ${editable ? `<button type="button" class="btn btn-primary" data-aceptar-factura="${f.odoo_invoice_id}" style="margin-top:1rem">Aceptar e ingresar a Bodega</button>` : ''}
-        </div>`).join(''))}
-
-    <div class="card">
-      <h3>Historial</h3>
-      <table>
-        <thead><tr><th>Factura</th><th>Proveedor</th><th>Local</th><th>Procesada</th></tr></thead>
-        <tbody>
-          ${historial.map(h => `
-            <tr>
-              <td>${escapeHtml(h.odoo_invoice_name)}</td>
-              <td>${escapeHtml(h.proveedor)}</td>
-              <td>${h.local_id ? nombreLocal(h.local_id) : '—'}</td>
-              <td>${(h.procesada_en || '').slice(0, 10)}</td>
-            </tr>`).join('')}
-          ${!historial.length ? '<tr><td colspan="4" class="placeholder">Todavía no se ha procesado ninguna factura.</td></tr>' : ''}
-        </tbody>
-      </table>
-    </div>`;
-
-  document.getElementById('btn-buscar-facturas')?.addEventListener('click', (e) => buscarFacturasNuevas(e.target));
-
-  if (editable && pendientes) {
-    el.querySelectorAll('button[data-aceptar-factura]').forEach(btn => {
-      btn.onclick = async () => {
-        const invoiceId = parseInt(btn.dataset.aceptarFactura, 10);
-        const factura = pendientes.find(f => f.odoo_invoice_id === invoiceId);
-        const localId = el.querySelector(`.factura-local-sel[data-invoice="${invoiceId}"]`).value;
-        if (!localId) { alert('Selecciona un local antes de aceptar.'); return; }
-        if (!confirm(`¿Aceptar ${factura.odoo_invoice_name}? Se registrará el ingreso a Bodega de los insumos reconocidos.`)) return;
-        btn.disabled = true;
-        btn.textContent = 'Aceptando…';
-        try {
-          await api('/facturas/aceptar', {
-            method: 'POST',
-            body: JSON.stringify({
-              odoo_invoice_id: factura.odoo_invoice_id, odoo_invoice_name: factura.odoo_invoice_name,
-              proveedor: factura.proveedor, local_id: localId,
-              lineas: factura.lineas,
-            }),
-          });
-          state.facturasPendientes = pendientes.filter(f => f.odoo_invoice_id !== invoiceId);
-          renderView();
-        } catch (err) {
-          alert(err.message);
-          btn.disabled = false;
-          btn.textContent = 'Aceptar e ingresar a Bodega';
         }
       };
     });

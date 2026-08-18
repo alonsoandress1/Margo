@@ -148,10 +148,21 @@ def actualizar_estado(pedido_id: str, body: PedidoEstadoIn, claims: dict = Depen
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Estado invalido, debe ser uno de: {ESTADOS_VALIDOS}")
 
     db = get_db()
-    existente = db.table("pedidos").select("local_id").eq("id", pedido_id).execute()
+    existente = db.table("pedidos").select("local_id,creado_por").eq("id", pedido_id).execute()
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Pedido no encontrado")
     verificar_acceso_local(claims, existente.data[0]["local_id"])
+
+    # Separacion de funciones: quien creo el pedido no puede ser quien lo
+    # aprueba o rechaza (aunque sea administrador) -- si podria, un mismo
+    # solicitante/administrador podria pedir y auto-aprobarse sin que nadie
+    # mas lo revise. "editado" no cuenta (es la propia persona ajustando su
+    # pedido antes de que otro lo revise), solo aprobado/rechazado.
+    if body.estado in ("aprobado", "rechazado") and existente.data[0].get("creado_por") == claims["sub"]:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "No puedes aprobar o rechazar un pedido que tu mismo creaste -- pidele a otra persona que lo revise",
+        )
 
     update = {
         "estado": body.estado,
