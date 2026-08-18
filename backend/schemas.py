@@ -229,6 +229,7 @@ class ProductoOut(BaseModel):
     precio: float = 0
     tamano_empaque: float | None = None  # None = a granel
     unidad_odoo: UnidadOdoo | None = None  # None = usar la que traiga el producto por defecto en Odoo
+    precio_negociado: float | None = None  # None = sin acuerdo comercial para este insumo+proveedor
 
 
 class ProductoIn(BaseModel):
@@ -241,6 +242,7 @@ class ProductoIn(BaseModel):
     a_granel: bool = False
     tamano_empaque: float | None = None
     unidad_odoo: UnidadOdoo | None = None
+    precio_negociado: float | None = None
 
 
 class ProductoUpdateIn(BaseModel):
@@ -250,6 +252,40 @@ class ProductoUpdateIn(BaseModel):
     tamano_empaque: float | None = None
     unidad_odoo: UnidadOdoo | None = None
     unidad: UnidadCatalogo | None = None  # si viene y difiere de la actual, renombra el insumo
+    precio_negociado: float | None = None
+
+
+class AlertaPrecioOut(BaseModel):
+    id: str
+    dte_id: int | None = None
+    invoice_name: str | None = None
+    ingrediente_key: str
+    nombre: str
+    proveedor_id: str | None = None
+    proveedor_nombre: str | None = None
+    precio_real: float
+    precio_negociado: float
+    fecha: str
+    resuelta: bool
+
+
+class ItemAhorroOut(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    proveedor_nombre: str
+    precio_pagado: float
+    mejor_precio_pactado: float
+    cantidad: float
+    perdida: float
+    fecha: str
+    invoice_name: str | None = None
+
+
+class AhorroMensualOut(BaseModel):
+    anio: int
+    mes: int
+    total_perdido: float
+    items: list[ItemAhorroOut]
 
 
 class ConfiguracionEmailOut(BaseModel):

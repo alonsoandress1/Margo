@@ -13,7 +13,7 @@ def _producto_de(row: dict) -> ProductoOut:
         unidad=row["ingrediente_key"].split("||")[1] if "||" in row["ingrediente_key"] else "",
         proveedor_id=row["proveedor_id"], odoo_id=row["odoo_id"], odoo_name=row["odoo_name"],
         ref=row.get("ref"), precio=row.get("price", 0), tamano_empaque=row.get("tamano_empaque"),
-        unidad_odoo=row.get("unidad_odoo"),
+        unidad_odoo=row.get("unidad_odoo"), precio_negociado=row.get("precio_negociado"),
     )
 
 

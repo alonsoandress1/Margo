@@ -1,9 +1,13 @@
+from calendar import monthrange
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..catalogo import _producto_de
 from ..db import get_db
 from ..deps import get_current_claims
-from ..schemas import ProductoIn, ProductoOut, ProductoUpdateIn, ProveedorIn, ProveedorOut
+from ..schemas import (AhorroMensualOut, AlertaPrecioOut, ItemAhorroOut, ProductoIn, ProductoOut,
+                       ProductoUpdateIn, ProveedorIn, ProveedorOut)
 
 router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 
@@ -11,6 +15,13 @@ router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 def _require_admin(claims: dict):
     if claims["rol"] != "administrador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo un administrador puede gestionar proveedores")
+
+
+def _require_lectura(claims: dict):
+    """Observador puede ver todo (pedido explicito del usuario), nunca
+    cambiar nada -- se usa solo en los endpoints puramente de lectura."""
+    if claims["rol"] not in ("administrador", "observador"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes acceso")
 
 
 @router.get("", response_model=list[ProveedorOut])
@@ -56,6 +67,7 @@ def crear_producto(proveedor_id: str, body: ProductoIn, claims: dict = Depends(g
         "ref": body.ref, "odoo_id": body.odoo_id, "odoo_name": body.odoo_name,
         "supplier_id": prov.data[0]["odoo_supplier_id"], "supplier_name": prov.data[0]["nombre"],
         "price": body.precio, "tamano_empaque": tamano, "unidad_odoo": body.unidad_odoo,
+        "precio_negociado": body.precio_negociado,
     }, on_conflict="ingrediente_key,proveedor_id").execute()
 
     row = db.table("odoo_mapping").select("*").eq("ingrediente_key", key).eq("proveedor_id", proveedor_id).execute().data[0]
@@ -88,7 +100,10 @@ def actualizar_producto(proveedor_id: str, body: ProductoUpdateIn, claims: dict 
             except Exception as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No se pudo cambiar la unidad: {e}")
 
-    update = {"tamano_empaque": None if body.a_granel else body.tamano_empaque, "unidad_odoo": body.unidad_odoo}
+    update = {
+        "tamano_empaque": None if body.a_granel else body.tamano_empaque, "unidad_odoo": body.unidad_odoo,
+        "precio_negociado": body.precio_negociado,
+    }
     if body.precio is not None:
         update["price"] = body.precio
     db.table("odoo_mapping").update(update).eq("id", producto_id).execute()
@@ -114,3 +129,94 @@ def eliminar_producto(proveedor_id: str, producto_id: str, claims: dict = Depend
         )
 
     db.table("odoo_mapping").delete().eq("id", producto_id).execute()
+
+
+@router.get("/alertas-precio", response_model=list[AlertaPrecioOut])
+def listar_alertas_precio(claims: dict = Depends(get_current_claims)):
+    """Facturas reales cuyo precio superó el precio_negociado de ese
+    proveedor -- se generan solas al crear una factura en Facturas Odoo
+    (ver facturas_dte.py::_alimentar_stock_bodega). No se borran al
+    resolverlas (solo se marcan), para que el reporte de Ahorro por
+    Acuerdos Comerciales las siga contando igual."""
+    _require_lectura(claims)
+    db = get_db()
+    alertas = db.table("alertas_precio_factura").select("*").eq("resuelta", False) \
+        .order("fecha", desc=True).execute().data or []
+    if not alertas:
+        return []
+    proveedor_ids = list({a["proveedor_id"] for a in alertas if a.get("proveedor_id")})
+    proveedores = (db.table("proveedores").select("id,nombre").in_("id", proveedor_ids).execute().data or []) \
+        if proveedor_ids else []
+    nombre_por_proveedor = {p["id"]: p["nombre"] for p in proveedores}
+    return [
+        AlertaPrecioOut(
+            id=a["id"], dte_id=a.get("dte_id"), invoice_name=a.get("invoice_name"),
+            ingrediente_key=a["ingrediente_key"], nombre=a["ingrediente_key"].split("||")[0],
+            proveedor_id=a.get("proveedor_id"), proveedor_nombre=nombre_por_proveedor.get(a.get("proveedor_id")),
+            precio_real=a["precio_real"], precio_negociado=a["precio_negociado"],
+            fecha=a["fecha"], resuelta=a["resuelta"],
+        )
+        for a in alertas
+    ]
+
+
+@router.post("/alertas-precio/{alerta_id}/resolver", status_code=status.HTTP_204_NO_CONTENT)
+def resolver_alerta_precio(alerta_id: str, claims: dict = Depends(get_current_claims)):
+    _require_admin(claims)
+    db = get_db()
+    db.table("alertas_precio_factura").update({"resuelta": True}).eq("id", alerta_id).execute()
+
+
+@router.get("/ahorro-mensual", response_model=AhorroMensualOut)
+def ahorro_mensual(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """Cuanta plata se dejo de ahorrar este mes por no haber comprado
+    siempre al mejor precio pactado disponible para cada insumo -- cubre
+    tanto pagarle de mas a un proveedor con acuerdo (rompio el precio)
+    como comprarle a un proveedor sin acuerdo (o mas caro) pudiendo haber
+    ido a uno pactado mas barato para el mismo insumo. Se calcula sobre
+    historial_precios_compra, que solo tiene datos desde que existe esta
+    funcionalidad -- no hay como reconstruir el pasado."""
+    _require_lectura(claims)
+    db = get_db()
+
+    negociados = db.table("odoo_mapping").select("ingrediente_key,precio_negociado") \
+        .not_.is_("precio_negociado", "null").execute().data or []
+    mejor_precio_por_key: dict[str, float] = {}
+    for n in negociados:
+        k, p = n["ingrediente_key"], n["precio_negociado"]
+        if k not in mejor_precio_por_key or p < mejor_precio_por_key[k]:
+            mejor_precio_por_key[k] = p
+    if not mejor_precio_por_key:
+        return AhorroMensualOut(anio=anio, mes=mes, total_perdido=0, items=[])
+
+    ultimo_dia = monthrange(anio, mes)[1]
+    desde = date(anio, mes, 1).isoformat()
+    hasta = date(anio, mes, ultimo_dia).isoformat()
+    compras = db.table("historial_precios_compra").select("*") \
+        .in_("ingrediente_key", list(mejor_precio_por_key.keys())) \
+        .gte("fecha", desde).lte("fecha", f"{hasta}T23:59:59").execute().data or []
+    if not compras:
+        return AhorroMensualOut(anio=anio, mes=mes, total_perdido=0, items=[])
+
+    proveedor_ids = list({c["proveedor_id"] for c in compras if c.get("proveedor_id")})
+    proveedores = (db.table("proveedores").select("id,nombre").in_("id", proveedor_ids).execute().data or []) \
+        if proveedor_ids else []
+    nombre_por_proveedor = {p["id"]: p["nombre"] for p in proveedores}
+
+    items: list[ItemAhorroOut] = []
+    total = 0.0
+    for c in compras:
+        mejor_precio = mejor_precio_por_key[c["ingrediente_key"]]
+        if c["precio"] <= mejor_precio:
+            continue
+        perdida = (c["precio"] - mejor_precio) * c["cantidad"]
+        total += perdida
+        items.append(ItemAhorroOut(
+            ingrediente_key=c["ingrediente_key"], nombre=c["ingrediente_key"].split("||")[0],
+            proveedor_nombre=nombre_por_proveedor.get(c.get("proveedor_id"), "Proveedor desconocido"),
+            precio_pagado=c["precio"], mejor_precio_pactado=mejor_precio, cantidad=c["cantidad"],
+            perdida=round(perdida, 2), fecha=c["fecha"], invoice_name=c.get("invoice_name"),
+        ))
+    items.sort(key=lambda it: it.perdida, reverse=True)
+
+    return AhorroMensualOut(anio=anio, mes=mes, total_perdido=round(total, 2), items=items)

@@ -1259,18 +1259,27 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
     el boton "Actualizar" en Inventario (si solo faltaba el local) o con
     "Vincular" (si faltaba el insumo -- ver inventario.py::vincular_pendiente,
     que usa proveedor_rut/odoo_partner_id/precio/uom para no tener que
-    retipear a mano lo que la factura ya trajo)."""
+    retipear a mano lo que la factura ya trajo).
+
+    Cuando el insumo SI se resuelve, ademas se guarda el precio real de esa
+    linea en historial_precios_compra (base del reporte "Ahorro por Acuerdos
+    Comerciales", ver proveedores.py::ahorro_mensual) y, si ese proveedor
+    tiene un precio_negociado cargado y este precio real lo supero, se
+    genera una alerta en alertas_precio_factura (tarjeta "Alertas de precio"
+    en Facturas Odoo) -- para poder llamar al proveedor por el alza."""
     locales = db.table("locales").select("id").eq("odoo_company_id", company_id).execute().data
     local_id = locales[0]["id"] if locales else None
 
     product_ids = list({linea_oc["product_id"] for _, _, linea_oc in order_lines})
-    mapeos = db.table("odoo_mapping").select("odoo_id,ingrediente_key").in_("odoo_id", product_ids).execute().data or []
-    ingrediente_por_producto = {m["odoo_id"]: m["ingrediente_key"] for m in mapeos}
+    mapeos = db.table("odoo_mapping").select("odoo_id,ingrediente_key,proveedor_id,precio_negociado") \
+        .in_("odoo_id", product_ids).execute().data or []
+    mapeo_por_producto = {m["odoo_id"]: m for m in mapeos}
 
     ahora = datetime.now(timezone.utc).isoformat()
     for _, _, linea_oc in order_lines:
         pid = linea_oc["product_id"]
-        ingrediente_key = ingrediente_por_producto.get(pid)
+        mapeo = mapeo_por_producto.get(pid)
+        ingrediente_key = mapeo["ingrediente_key"] if mapeo else None
         if not local_id or not ingrediente_key:
             db.table("bodega_stock_pendiente").insert({
                 "dte_id": dte_id, "invoice_id": move_id, "invoice_name": invoice_name,
@@ -1287,6 +1296,21 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
             "cantidad": linea_oc["product_qty"], "origen": "factura_odoo", "ref": invoice_name,
             "nota": f"Factura Odoo {invoice_name} ({proveedor_nombre})", "fecha": ahora,
         }).execute()
+
+        precio_real = linea_oc.get("price_unit")
+        db.table("historial_precios_compra").insert({
+            "ingrediente_key": ingrediente_key, "proveedor_id": mapeo.get("proveedor_id"),
+            "precio": precio_real, "cantidad": linea_oc["product_qty"],
+            "invoice_name": invoice_name, "dte_id": dte_id, "fecha": ahora,
+        }).execute()
+
+        precio_negociado = mapeo.get("precio_negociado")
+        if precio_negociado is not None and precio_real is not None and precio_real > precio_negociado:
+            db.table("alertas_precio_factura").insert({
+                "dte_id": dte_id, "invoice_name": invoice_name, "ingrediente_key": ingrediente_key,
+                "proveedor_id": mapeo.get("proveedor_id"), "precio_real": precio_real,
+                "precio_negociado": precio_negociado, "fecha": ahora,
+            }).execute()
 
 
 def _procesar_item_cola(cola_id: str, dte_id: int, odoo_creds: tuple[str, str]):

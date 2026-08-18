@@ -24,6 +24,7 @@ const SECCIONES = [
   { id: 'facturas',  label: 'Recepción en Bodega',    grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas-dte', label: 'Facturas Odoo',         grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
   { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
+  { id: 'ahorro-acuerdos', label: 'Ahorro por Acuerdos', grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: [] },
   { id: 'locales',   label: 'Locales',                grupo: 'Configuración', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'usuarios',  label: 'Usuarios',               grupo: 'Configuración', roles: ['administrador'], editRoles: ['administrador'] },
 ];
@@ -670,6 +671,7 @@ async function renderView() {
     if (state.section === 'facturas') return renderFacturas(el, s);
     if (state.section === 'facturas-dte') return renderFacturasDte(el, s);
     if (state.section === 'planilla-compras') return renderPlanillaCompras(el, s);
+    if (state.section === 'ahorro-acuerdos') return renderAhorroAcuerdos(el, s);
     return renderPlaceholder(el, s);
   } catch (err) {
     el.innerHTML = `<p class="error-msg">${err.message}</p>`;
@@ -834,6 +836,7 @@ async function renderProveedores(el, s) {
           </div>
           <div class="item-row">
             <input class="field" id="prod-precio" type="number" step="1" placeholder="Precio unitario">
+            <input class="field" id="prod-precio-negociado" type="number" step="1" placeholder="Precio negociado (opcional)" title="Precio pactado en un acuerdo comercial con este proveedor -- distinto del Precio de arriba">
           </div>
           <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.75rem">
             <input type="checkbox" id="prod-granel"> Se compra a granel (sin formato/empaque fijo)
@@ -856,7 +859,7 @@ async function renderProveedores(el, s) {
         <button type="button" class="btn btn-reject" id="prod-del-selected" disabled>Eliminar seleccionados (<span id="prod-selected-count">0</span>)</button>
       </div>` : ''}
       <table>
-        <thead><tr>${editable ? '<th><input type="checkbox" id="prod-check-all"></th>' : ''}<th>Insumo</th><th>Nombre Odoo</th><th>Ref</th><th>Precio</th><th>Formato</th><th title="Unidad que se manda a Odoo al crear la OC/factura para este producto">Unidad Odoo</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
+        <thead><tr>${editable ? '<th><input type="checkbox" id="prod-check-all"></th>' : ''}<th>Insumo</th><th>Nombre Odoo</th><th>Ref</th><th>Precio</th><th title="Precio pactado en un acuerdo comercial con este proveedor para este insumo -- distinto del Precio de arriba">Precio Negociado</th><th>Formato</th><th title="Unidad que se manda a Odoo al crear la OC/factura para este producto">Unidad Odoo</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${productos.map(p => `
             <tr>
@@ -869,6 +872,9 @@ async function renderProveedores(el, s) {
               <td>${escapeHtml(p.odoo_name)}</td>
               <td>${p.ref ? escapeHtml(p.ref) : '—'}</td>
               <td>${editable ? `<input class="field prod-edit-precio" data-key="${p.ingrediente_key}" type="number" style="width:90px" value="${p.precio}">` : p.precio}</td>
+              <td>${editable
+                ? `<input class="field prod-edit-precio-negociado" data-key="${p.ingrediente_key}" type="number" style="width:90px" placeholder="Sin acuerdo" value="${p.precio_negociado ?? ''}">`
+                : (p.precio_negociado ?? '<span class="placeholder">— sin acuerdo —</span>')}</td>
               <td>
                 ${editable
                   ? `<input class="field prod-edit-empaque" data-key="${p.ingrediente_key}" type="number" step="0.01" style="width:90px" placeholder="A granel" value="${p.tamano_empaque ?? ''}">`
@@ -888,7 +894,7 @@ async function renderProveedores(el, s) {
                 <button class="btn btn-reject" data-del-prod="${p.id}">Eliminar</button>
               </td>` : ''}
             </tr>`).join('')}
-          ${!productos.length ? `<tr><td colspan="${editable ? 8 : 6}" class="placeholder">Sin productos todavía.</td></tr>` : ''}
+          ${!productos.length ? `<tr><td colspan="${editable ? 9 : 7}" class="placeholder">Sin productos todavía.</td></tr>` : ''}
         </tbody>
       </table>
     </div>` : ''}`;
@@ -951,6 +957,7 @@ async function renderProveedores(el, s) {
             a_granel: granel,
             tamano_empaque: granel ? null : (parseFloat(document.getElementById('prod-empaque').value) || null),
             unidad_odoo: document.getElementById('prod-unidad-odoo').value || null,
+            precio_negociado: parseFloat(document.getElementById('prod-precio-negociado').value) || null,
           }),
         });
         renderView();
@@ -963,6 +970,7 @@ async function renderProveedores(el, s) {
       btn.onclick = async () => {
         const key = btn.dataset.guardarProd;
         const precio = el.querySelector(`.prod-edit-precio[data-key="${key}"]`).value;
+        const precioNegociado = el.querySelector(`.prod-edit-precio-negociado[data-key="${key}"]`).value;
         const empaqueVal = el.querySelector(`.prod-edit-empaque[data-key="${key}"]`).value;
         const unidadOdoo = el.querySelector(`.prod-edit-unidad-odoo[data-key="${key}"]`).value;
         const unidadNueva = el.querySelector(`.prod-edit-unidad[data-key="${key}"]`).value;
@@ -981,6 +989,7 @@ async function renderProveedores(el, s) {
               tamano_empaque: empaqueVal === '' ? null : parseFloat(empaqueVal),
               unidad_odoo: unidadOdoo || null,
               unidad: unidadNueva,
+              precio_negociado: precioNegociado === '' ? null : parseFloat(precioNegociado),
             }),
           });
           renderView();
@@ -2506,6 +2515,7 @@ async function renderFacturasDte(el, s) {
     <div style="margin-bottom:1rem">
       <button type="button" class="btn" id="dte-proveedores-ocultos">Proveedores ocultos</button>
     </div>
+    <div id="dte-alertas-precio"></div>
     <p id="dte-error" class="error-msg"></p>
     <div id="dte-cola-panel"></div>
     <div id="dte-resultados">${renderDteResultados(state.dteLista, state.dteFiltroFolio)}</div>`;
@@ -2535,8 +2545,51 @@ async function renderFacturasDte(el, s) {
 
   bindDteResultadosBotones();
 
+  await actualizarAlertasPrecio();
   await actualizarColaPanel();
   iniciarPollingCola();
+}
+
+async function actualizarAlertasPrecio() {
+  const panel = document.getElementById('dte-alertas-precio');
+  if (!panel) return;
+  let alertas;
+  try {
+    alertas = await api('/proveedores/alertas-precio');
+  } catch (err) {
+    return; // no interrumpir el resto de la pantalla si falla
+  }
+  if (!alertas.length) { panel.innerHTML = ''; return; }
+  panel.innerHTML = `
+    <div class="card" style="margin-bottom:1rem;border-color:var(--danger,#c0392b)">
+      <h3>⚠ Alertas de precio (${alertas.length})</h3>
+      <p class="placeholder" style="margin-bottom:.75rem">Facturas donde el precio real superó el precio pactado con ese proveedor -- vale la pena llamar y preguntar por el alza.</p>
+      <table>
+        <thead><tr><th>Insumo</th><th>Proveedor</th><th>Precio real</th><th>Precio pactado</th><th>Factura</th><th>Fecha</th>${esAdmin() ? '<th></th>' : ''}</tr></thead>
+        <tbody>
+          ${alertas.map(a => `
+            <tr>
+              <td>${escapeHtml(a.nombre)}</td>
+              <td>${a.proveedor_nombre ? escapeHtml(a.proveedor_nombre) : '—'}</td>
+              <td>${_fmtMonto(a.precio_real)}</td>
+              <td>${_fmtMonto(a.precio_negociado)}</td>
+              <td>${a.invoice_name ? escapeHtml(a.invoice_name) : '—'}</td>
+              <td>${(a.fecha || '').slice(0, 10)}</td>
+              ${esAdmin() ? `<td><button type="button" class="btn" data-resolver-alerta="${a.id}">Marcar revisado</button></td>` : ''}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  panel.querySelectorAll('[data-resolver-alerta]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await api(`/proveedores/alertas-precio/${btn.dataset.resolverAlerta}/resolver`, { method: 'POST' });
+        actualizarAlertasPrecio();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 }
 
 function renderDteResultados(dtes, filtroFolio) {
@@ -3597,6 +3650,64 @@ async function showCatalogoProveedoresTipo() {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="pc-catalogo-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#pc-catalogo-cerrar-error').onclick = () => overlay.remove();
   }
+}
+
+async function renderAhorroAcuerdos(el, s) {
+  const hoy = new Date();
+  if (!state.ahorroMes) state.ahorroMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+  const datos = state.ahorroDatos;
+
+  el.innerHTML = `
+    <h2>Ahorro por Acuerdos Comerciales</h2>
+    <p class="placeholder" style="margin-bottom:1.25rem">Cuánta plata se dejó de ahorrar comprando más caro de lo pactado en los acuerdos comerciales (o comprándole a un proveedor sin acuerdo pudiendo haber ido a uno pactado más barato) -- solo cuenta desde que se cargaron los primeros Precios Negociados en Proveedores, no hay forma de reconstruir compras anteriores.</p>
+    <div class="item-row" style="max-width:320px;margin-bottom:1rem">
+      <div style="flex:1">
+        <label class="field-label">Mes</label>
+        <input type="month" id="ah-mes" class="field" style="width:100%" value="${state.ahorroMes}">
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button type="button" id="ah-buscar" class="btn btn-primary">Buscar</button>
+      </div>
+    </div>
+    <p id="ah-error" class="error-msg"></p>
+    ${datos === null || datos === undefined ? '<div class="card"><p class="placeholder">Buscá para ver el mes.</p></div>' : `
+      <div class="card" style="margin-bottom:1rem">
+        <h3>Ahorro perdido este mes</h3>
+        <p style="font-size:1.6rem;margin:0">${_fmtMonto(datos.total_perdido)}</p>
+      </div>
+      ${datos.items.length ? `
+      <div class="card">
+        <table>
+          <thead><tr><th>Insumo</th><th>Comprado a</th><th>Precio pagado</th><th>Mejor precio pactado</th><th>Cantidad</th><th>Plata perdida</th><th>Factura</th><th>Fecha</th></tr></thead>
+          <tbody>
+            ${datos.items.map(it => `
+              <tr>
+                <td>${escapeHtml(it.nombre)}</td>
+                <td>${escapeHtml(it.proveedor_nombre)}</td>
+                <td>${_fmtMonto(it.precio_pagado)}</td>
+                <td>${_fmtMonto(it.mejor_precio_pactado)}</td>
+                <td>${it.cantidad}</td>
+                <td>${_fmtMonto(it.perdida)}</td>
+                <td>${it.invoice_name ? escapeHtml(it.invoice_name) : '—'}</td>
+                <td>${(it.fecha || '').slice(0, 10)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '<div class="card"><p class="placeholder">Ninguna compra de este mes superó el mejor precio pactado -- todo dentro de los acuerdos.</p></div>'}`}`;
+
+  document.getElementById('ah-mes').addEventListener('change', (e) => { state.ahorroMes = e.target.value; });
+
+  document.getElementById('ah-buscar').addEventListener('click', async () => {
+    const errorEl = document.getElementById('ah-error');
+    errorEl.textContent = '';
+    const [anio, mes] = state.ahorroMes.split('-').map(Number);
+    try {
+      state.ahorroDatos = await api(`/proveedores/ahorro-mensual?anio=${anio}&mes=${mes}`);
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
 }
 
 // ---------- Init ----------
