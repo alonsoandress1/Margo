@@ -674,17 +674,20 @@ async function renderResumen(el, s) {
 
   let facturasPendientesCount = null;
   let planillaResumen = null;
+  let totalPerdidoMes = null;
   if (esAdmin()) {
     const hoy = new Date();
     const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
     const desde = primerDiaMes.toISOString().slice(0, 10);
     const hasta = hoy.toISOString().slice(0, 10);
-    const [dte, planilla] = await Promise.all([
+    const [dte, planilla, ahorro] = await Promise.all([
       api(`/facturas-dte?desde=${desde}&hasta=${hasta}`).catch(() => null),
       api(`/planilla-compras?anio=${hoy.getFullYear()}&mes=${hoy.getMonth() + 1}`).catch(() => null),
+      api(`/proveedores/ahorro-mensual?anio=${hoy.getFullYear()}&mes=${hoy.getMonth() + 1}`).catch(() => null),
     ]);
     facturasPendientesCount = dte ? dte.length : null;
     planillaResumen = planilla ? planilla.resumen : null;
+    totalPerdidoMes = ahorro ? ahorro.total_perdido : null;
   }
 
   const claseCantidad = (n) => n > 0 ? 'resumen-valor-gold' : 'resumen-valor-good';
@@ -717,6 +720,12 @@ async function renderResumen(el, s) {
           ${planillaResumen && planillaResumen.pct_costo_venta != null ? (planillaResumen.pct_costo_venta * 100).toFixed(1) + '%' : '—'}
         </div>
         ${!planillaResumen || planillaResumen.pct_costo_venta == null ? '<div class="resumen-card-sub placeholder">Falta cargar la Venta del Período</div>' : ''}
+      </div>
+      <div class="resumen-card" data-ir="ahorro-acuerdos" tabindex="0" role="button">
+        <div class="resumen-card-label">Plata perdida por no seguir los acuerdos (este mes)</div>
+        <div class="resumen-card-valor ${totalPerdidoMes === null ? '' : (totalPerdidoMes > 0 ? 'resumen-valor-gold' : 'resumen-valor-good')}">
+          ${totalPerdidoMes === null ? '—' : _fmtMonto(totalPerdidoMes)}
+        </div>
       </div>` : ''}
     </div>`;
 
