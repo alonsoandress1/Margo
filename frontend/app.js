@@ -1616,7 +1616,12 @@ async function showVincularPendienteModal(p) {
   document.body.appendChild(overlay);
 
   const insumos = await api('/productos').catch(() => []);
-  const unidadAdivinada = _adivinarUnidadOdoo(p.uom_odoo_nombre);
+  // unidad_sugerida viene resuelta en el backend contra los ids estandar
+  // de Odoo (product_uom_kgm/product_uom_unit) -- confiable, no adivinada.
+  // Para filas de antes de este cambio (sin unidad_sugerida) se cae al
+  // heuristico de texto de siempre.
+  const unidadSugerida = p.unidad_sugerida || _adivinarUnidadOdoo(p.uom_odoo_nombre);
+  const hayMatch = !!p.sugerencia_ingrediente_key;
 
   overlay.querySelector('.modal-box').innerHTML = `
     <h3>Vincular producto de factura</h3>
@@ -1631,18 +1636,19 @@ async function showVincularPendienteModal(p) {
         <tr><td>Proveedor</td><td>${p.proveedor_nombre ? escapeHtml(p.proveedor_nombre) : '—'}</td></tr>
       </tbody>
     </table>
+    ${hayMatch ? `<p class="placeholder" style="margin-bottom:.75rem">Este producto ya está vinculado a <strong>${escapeHtml((insumos.find(i => i.ingrediente_key === p.sugerencia_ingrediente_key) || {}).nombre || p.sugerencia_ingrediente_key)}</strong> con otro proveedor -- lo preseleccionamos, solo confirma.</p>` : ''}
     <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem">
-      <input type="radio" name="vp-modo" value="existente" checked> Vincular a insumo ya cargado
+      <input type="radio" name="vp-modo" value="existente" ${hayMatch ? 'checked' : ''}> Vincular a insumo ya cargado
     </label>
-    <select class="field" id="vp-insumo-existente" style="width:100%;margin-bottom:.75rem">
-      ${insumos.map(i => `<option value="${i.ingrediente_key}">${escapeHtml(i.nombre)} (${formatUnidad(i.unidad)})</option>`).join('')}
+    <select class="field" id="vp-insumo-existente" style="width:100%;margin-bottom:.75rem" ${hayMatch ? '' : 'disabled'}>
+      ${insumos.map(i => `<option value="${i.ingrediente_key}" ${i.ingrediente_key === p.sugerencia_ingrediente_key ? 'selected' : ''}>${escapeHtml(i.nombre)} (${formatUnidad(i.unidad)})</option>`).join('')}
     </select>
     <label style="font-size:.8rem;color:var(--t2);display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem">
-      <input type="radio" name="vp-modo" value="nuevo"> Crear insumo nuevo
+      <input type="radio" name="vp-modo" value="nuevo" ${hayMatch ? '' : 'checked'}> Crear insumo nuevo
     </label>
     <div class="item-row" style="margin-bottom:.75rem">
-      <input class="field" id="vp-nombre-nuevo" placeholder="Nombre del insumo" style="flex:2" value="${escapeHtml(p.producto_nombre)}" disabled>
-      <select class="field" id="vp-unidad-nueva" disabled>${unidadOptionsHtml(unidadAdivinada)}</select>
+      <input class="field" id="vp-nombre-nuevo" placeholder="Nombre del insumo" style="flex:2" value="${escapeHtml(p.producto_nombre)}" ${hayMatch ? 'disabled' : ''}>
+      <select class="field" id="vp-unidad-nueva" ${hayMatch ? 'disabled' : ''}>${unidadOptionsHtml(unidadSugerida)}</select>
     </div>
     <div class="item-row" style="margin-bottom:.75rem">
       <input class="field" id="vp-precio" type="number" step="1" placeholder="Precio" value="${p.precio ?? ''}">
@@ -1651,11 +1657,11 @@ async function showVincularPendienteModal(p) {
     <label class="field-label">Unidad de compra en Odoo</label>
     <select class="field" id="vp-unidad-odoo" style="max-width:260px;margin-bottom:1rem">
       <option value="">Automático (por defecto en Odoo)</option>
-      <option value="kg" ${unidadAdivinada === 'kg' ? 'selected' : ''}>Kg</option>
-      <option value="un" ${unidadAdivinada === 'un' ? 'selected' : ''}>Unidades</option>
+      <option value="kg" ${unidadSugerida === 'kg' ? 'selected' : ''}>Kg</option>
+      <option value="un" ${unidadSugerida === 'un' ? 'selected' : ''}>Unidades</option>
     </select>
     <br>
-    <button type="button" class="btn btn-primary" id="vp-guardar">Vincular</button>
+    <button type="button" class="btn btn-primary" id="vp-guardar">${hayMatch ? 'Confirmar' : 'Confirmar y crear'}</button>
     <button type="button" class="btn" id="vp-cancelar">Cancelar</button>
     <p id="vp-error" class="error-msg"></p>
   `;
@@ -1664,12 +1670,14 @@ async function showVincularPendienteModal(p) {
   const elExistente = overlay.querySelector('#vp-insumo-existente');
   const elNombreNuevo = overlay.querySelector('#vp-nombre-nuevo');
   const elUnidadNueva = overlay.querySelector('#vp-unidad-nueva');
+  const elGuardar = overlay.querySelector('#vp-guardar');
   modoRadios.forEach(r => {
     r.onchange = () => {
       const esNuevo = overlay.querySelector('input[name="vp-modo"]:checked').value === 'nuevo';
       elExistente.disabled = esNuevo;
       elNombreNuevo.disabled = !esNuevo;
       elUnidadNueva.disabled = !esNuevo;
+      elGuardar.textContent = esNuevo ? 'Confirmar y crear' : 'Confirmar';
     };
   });
 
@@ -2482,6 +2490,25 @@ async function renderFacturasDte(el, s) {
   iniciarPollingCola();
 }
 
+function _tablaAlertasPrecio(alertas, colPrecioLabel) {
+  return `
+    <table>
+      <thead><tr><th>Insumo</th><th>Proveedor</th><th>Precio real</th><th>${colPrecioLabel}</th><th>Factura</th><th>Fecha</th>${esAdmin() ? '<th></th>' : ''}</tr></thead>
+      <tbody>
+        ${alertas.map(a => `
+          <tr>
+            <td>${escapeHtml(a.nombre)}</td>
+            <td>${a.proveedor_nombre ? escapeHtml(a.proveedor_nombre) : '—'}</td>
+            <td>${_fmtMonto(a.precio_real)}</td>
+            <td>${_fmtMonto(a.precio_negociado)}</td>
+            <td>${a.invoice_name ? escapeHtml(a.invoice_name) : '—'}</td>
+            <td>${(a.fecha || '').slice(0, 10)}</td>
+            ${esAdmin() ? `<td><button type="button" class="btn" data-resolver-alerta="${a.id}">Marcar revisado</button></td>` : ''}
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
 async function actualizarAlertasPrecio() {
   const panel = document.getElementById('dte-alertas-precio');
   if (!panel) return;
@@ -2492,26 +2519,24 @@ async function actualizarAlertasPrecio() {
     return; // no interrumpir el resto de la pantalla si falla
   }
   if (!alertas.length) { panel.innerHTML = ''; return; }
+
+  const sobreprecio = alertas.filter(a => a.tipo !== 'oportunidad');
+  const oportunidad = alertas.filter(a => a.tipo === 'oportunidad');
+
   panel.innerHTML = `
+    ${sobreprecio.length ? `
     <div class="card" style="margin-bottom:1rem;border-color:var(--danger,#c0392b)">
-      <h3>⚠ Alertas de precio (${alertas.length})</h3>
+      <h3>⚠ Alertas de precio (${sobreprecio.length})</h3>
       <p class="placeholder" style="margin-bottom:.75rem">Facturas donde el precio real superó el precio pactado con ese proveedor -- vale la pena llamar y preguntar por el alza.</p>
-      <table>
-        <thead><tr><th>Insumo</th><th>Proveedor</th><th>Precio real</th><th>Precio pactado</th><th>Factura</th><th>Fecha</th>${esAdmin() ? '<th></th>' : ''}</tr></thead>
-        <tbody>
-          ${alertas.map(a => `
-            <tr>
-              <td>${escapeHtml(a.nombre)}</td>
-              <td>${a.proveedor_nombre ? escapeHtml(a.proveedor_nombre) : '—'}</td>
-              <td>${_fmtMonto(a.precio_real)}</td>
-              <td>${_fmtMonto(a.precio_negociado)}</td>
-              <td>${a.invoice_name ? escapeHtml(a.invoice_name) : '—'}</td>
-              <td>${(a.fecha || '').slice(0, 10)}</td>
-              ${esAdmin() ? `<td><button type="button" class="btn" data-resolver-alerta="${a.id}">Marcar revisado</button></td>` : ''}
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
+      ${_tablaAlertasPrecio(sobreprecio, 'Precio pactado')}
+    </div>` : ''}
+    ${oportunidad.length ? `
+    <div class="card" style="margin-bottom:1rem;border-color:var(--success,#2e8b57)">
+      <h3>💡 Oportunidad: proveedor más barato (${oportunidad.length})</h3>
+      <p class="placeholder" style="margin-bottom:.75rem">Un proveedor facturó este insumo más barato que tu mejor precio pactado vigente -- evalúa cambiar de proveedor prioritario para este insumo.</p>
+      ${_tablaAlertasPrecio(oportunidad, 'Mejor precio pactado')}
+    </div>` : ''}`;
+
   panel.querySelectorAll('[data-resolver-alerta]').forEach(btn => {
     btn.addEventListener('click', async () => {
       try {

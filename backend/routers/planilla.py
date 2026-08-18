@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
+from ..bodega_service import registrar_venta_descuento
 from ..db import get_db
 from ..tcpos_report_parser import parsear_article_analysis
 
@@ -94,5 +95,34 @@ def importar_ventas_tcpos(_: None = Depends(_verificar_cron_secret)):
             "local_id": local_id, "fecha": fecha, "plato_id": plato_id_por_sku.get(f["codigo"]),
             "plato_sku": f["codigo"], "plato_nombre": f["nombre"], "cantidad": f["cantidad"],
         }, on_conflict="local_id,fecha,plato_sku").execute()
+
+    # Descontar de Bodega los insumos de cada plato vendido, segun la receta
+    # ya sembrada en ventas_recetas (mismo mapeo plato->ingrediente que usa
+    # Mermas para la columna "Ventas teoricas") -- lineas con
+    # ingrediente_key nulo (insumo fuera del seguimiento de Mermas) se
+    # omiten, no se puede descontar sin saber que insumo es. Envuelto en su
+    # propio try/except -- ventas_historial (arriba) ya quedo guardado, un
+    # fallo aca no debe convertir una importacion exitosa en un 500 para el
+    # cron.
+    try:
+        skus = list({f["codigo"] for f in filas})
+        recetas = (db.table("ventas_recetas").select("plato_sku,ingrediente_key,cantidad")
+                   .eq("local_id", local_id).in_("plato_sku", skus).execute().data or []) if skus else []
+        recetas_por_sku: dict[str, list[dict]] = {}
+        for r in recetas:
+            recetas_por_sku.setdefault(r["plato_sku"], []).append(r)
+
+        descuento_por_insumo: dict[str, float] = {}
+        for f in filas:
+            for r in recetas_por_sku.get(f["codigo"], []):
+                if not r["ingrediente_key"]:
+                    continue
+                descuento_por_insumo[r["ingrediente_key"]] = (
+                    descuento_por_insumo.get(r["ingrediente_key"], 0) + f["cantidad"] * r["cantidad"]
+                )
+        for ingrediente_key, cantidad in descuento_por_insumo.items():
+            registrar_venta_descuento(db, local_id, ingrediente_key, fecha, cantidad)
+    except Exception:
+        pass
 
     return {"fecha": fecha, "ventas_guardadas": len(filas), "pdf_guardado": pdf_guardado}

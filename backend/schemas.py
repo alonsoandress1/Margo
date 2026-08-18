@@ -84,6 +84,8 @@ class StockPendienteOut(BaseModel):
     precio: float | None = None
     uom_odoo_id: int | None = None
     uom_odoo_nombre: str | None = None
+    unidad_sugerida: str | None = None
+    sugerencia_ingrediente_key: str | None = None
 
 
 class StockPendienteReprocesarOut(BaseModel):
@@ -265,6 +267,7 @@ class AlertaPrecioOut(BaseModel):
     proveedor_nombre: str | None = None
     precio_real: float
     precio_negociado: float
+    tipo: Literal["sobreprecio", "oportunidad"] = "sobreprecio"
     fecha: str
     resuelta: bool
 

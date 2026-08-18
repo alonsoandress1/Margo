@@ -1278,7 +1278,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     # stock de Bodega es un extra que nunca debe hacer fallar la creacion.
     uom_nombre_por_producto = {pid: p['uom_id'][1] for pid, p in info_por_producto.items() if p.get('uom_id')}
     try:
-        _alimentar_stock_bodega(db, company_id, dte_id, move_id, move['name'], proveedor_nombre,
+        _alimentar_stock_bodega(db, cliente, company_id, dte_id, move_id, move['name'], proveedor_nombre,
                                  doc['issuer_rut'], partner_id, uom_nombre_por_producto, order_lines)
     except Exception:
         pass
@@ -1286,7 +1286,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     return move_id, move['name']
 
 
-def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invoice_name: str,
+def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: int, invoice_name: str,
                              proveedor_nombre: str, proveedor_rut: str, odoo_partner_id: int,
                              uom_nombre_por_producto: dict[int, str], order_lines: list) -> None:
     """Suma automaticamente a bodega_movimientos el ingreso de cada linea de
@@ -1303,14 +1303,21 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
     el boton "Actualizar" en Inventario (si solo faltaba el local) o con
     "Vincular" (si faltaba el insumo -- ver inventario.py::vincular_pendiente,
     que usa proveedor_rut/odoo_partner_id/precio/uom para no tener que
-    retipear a mano lo que la factura ya trajo).
+    retipear a mano lo que la factura ya trajo). Tambien se guarda
+    unidad_sugerida ("kg"/"un"), resuelta contra los ids estandar de Odoo
+    (product_uom_kgm/product_uom_unit, mismo patron que pedidos.py::
+    _generar_oc_cuerpo) en vez de adivinada por texto -- reduce el modal de
+    Vincular a un clic de confirmacion en el caso comun.
 
     Cuando el insumo SI se resuelve, ademas se guarda el precio real de esa
     linea en historial_precios_compra (base del reporte "Ahorro por Acuerdos
-    Comerciales", ver proveedores.py::ahorro_mensual) y, si ese proveedor
-    tiene un precio_negociado cargado y este precio real lo supero, se
-    genera una alerta en alertas_precio_factura (tarjeta "Alertas de precio"
-    en Facturas Odoo) -- para poder llamar al proveedor por el alza."""
+    Comerciales", ver proveedores.py::ahorro_mensual) y se generan dos tipos
+    de alerta en alertas_precio_factura (tarjeta "Alertas de precio" en
+    Facturas Odoo): 'sobreprecio' si el proveedor de esta factura cobro mas
+    caro que SU propio precio_negociado, y 'oportunidad' si CUALQUIER
+    proveedor factura mas barato que el mejor precio_negociado vigente entre
+    todos los proveedores de ese insumo (para evaluar cambiar de proveedor
+    prioritario)."""
     locales = db.table("locales").select("id").eq("odoo_company_id", company_id).execute().data
     local_id = locales[0]["id"] if locales else None
 
@@ -1318,6 +1325,40 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
     mapeos = db.table("odoo_mapping").select("odoo_id,ingrediente_key,proveedor_id,precio_negociado") \
         .in_("odoo_id", product_ids).execute().data or []
     mapeo_por_producto = {m["odoo_id"]: m for m in mapeos}
+
+    # Mejor precio pactado GLOBAL (entre todos los proveedores, no solo el
+    # de esta factura) para cada insumo de esta factura -- para la alerta
+    # 'oportunidad'. Nunca debe tumbar el resto de la funcion si Odoo/la
+    # consulta fallan.
+    mejor_por_key: dict[str, tuple[float, str | None]] = {}
+    try:
+        ingrediente_keys = list({m["ingrediente_key"] for m in mapeos if m.get("ingrediente_key")})
+        if ingrediente_keys:
+            todos = db.table("odoo_mapping").select("ingrediente_key,precio_negociado,proveedor_id") \
+                .in_("ingrediente_key", ingrediente_keys).not_.is_("precio_negociado", "null").execute().data or []
+            for t in todos:
+                k, p = t["ingrediente_key"], t["precio_negociado"]
+                if k not in mejor_por_key or p < mejor_por_key[k][0]:
+                    mejor_por_key[k] = (p, t.get("proveedor_id"))
+    except Exception:
+        pass
+
+    # Ids estandar de Odoo para "Kilogramos"/"Unidades", resueltos una sola
+    # vez por factura -- para poder guardar unidad_sugerida sin adivinar por
+    # texto. Si esto falla, unidad_sugerida simplemente queda null (el admin
+    # la completa a mano, como hoy).
+    unidad_por_uom_id: dict[int, str] = {}
+    try:
+        ids_uom = cliente._call('ir.model.data', 'search_read',
+            [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
+            {'fields': ['name', 'res_id']})
+        uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
+        if uom_por_nombre.get('product_uom_kgm'):
+            unidad_por_uom_id[uom_por_nombre['product_uom_kgm']] = 'kg'
+        if uom_por_nombre.get('product_uom_unit'):
+            unidad_por_uom_id[uom_por_nombre['product_uom_unit']] = 'un'
+    except Exception:
+        pass
 
     ahora = datetime.now(timezone.utc).isoformat()
     for _, _, linea_oc in order_lines:
@@ -1333,6 +1374,7 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
                 "proveedor_rut": proveedor_rut, "odoo_partner_id": odoo_partner_id,
                 "precio": linea_oc.get("price_unit"), "uom_odoo_id": linea_oc.get("product_uom") or None,
                 "uom_odoo_nombre": uom_nombre_por_producto.get(pid),
+                "unidad_sugerida": unidad_por_uom_id.get(linea_oc.get("product_uom")),
             }).execute()
             continue
         db.table("bodega_movimientos").insert({
@@ -1342,7 +1384,7 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
         }).execute()
 
         # El stock (arriba) ya quedo sumado -- eso es lo que importa. El
-        # historial de precios y la alerta son un extra que, igual que el
+        # historial de precios y las alertas son un extra que, igual que el
         # resto de esta funcion, nunca debe hacer fallar el procesamiento
         # de las lineas SIGUIENTES de la factura (antes de este try/except
         # un fallo aca cortaba el loop entero, dejando esas lineas sin
@@ -1360,7 +1402,16 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
                 db.table("alertas_precio_factura").insert({
                     "dte_id": dte_id, "invoice_name": invoice_name, "ingrediente_key": ingrediente_key,
                     "proveedor_id": mapeo.get("proveedor_id"), "precio_real": precio_real,
-                    "precio_negociado": precio_negociado, "fecha": ahora,
+                    "precio_negociado": precio_negociado, "fecha": ahora, "tipo": "sobreprecio",
+                }).execute()
+
+            mejor = mejor_por_key.get(ingrediente_key)
+            if (mejor is not None and precio_real is not None and precio_real < mejor[0]
+                    and mapeo.get("proveedor_id") != mejor[1]):
+                db.table("alertas_precio_factura").insert({
+                    "dte_id": dte_id, "invoice_name": invoice_name, "ingrediente_key": ingrediente_key,
+                    "proveedor_id": mapeo.get("proveedor_id"), "precio_real": precio_real,
+                    "precio_negociado": mejor[0], "fecha": ahora, "tipo": "oportunidad",
                 }).execute()
         except Exception:
             pass

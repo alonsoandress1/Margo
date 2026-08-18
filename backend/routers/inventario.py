@@ -69,10 +69,27 @@ def listar_stock_pendiente(claims: dict = Depends(get_current_claims)):
 
     Sin gate de rol a proposito -- Inventario ya es visible para
     administrador/solicitante/observador por igual (ver SECCIONES en el
-    frontend), asi que basta con estar autenticado."""
+    frontend), asi que basta con estar autenticado.
+
+    Ademas anexa sugerencia_ingrediente_key cuando el mismo producto de
+    Odoo (odoo_product_id) ya esta vinculado en el catalogo bajo otro
+    proveedor -- para que "Vincular" pueda preseleccionar ese insumo en vez
+    de arriesgar crear uno nuevo duplicado con otro nombre."""
     db = get_db()
     filas = db.table("bodega_stock_pendiente").select("*").order("creado_en", desc=True).execute().data or []
-    return [StockPendienteOut(**f) for f in filas]
+    if not filas:
+        return []
+
+    product_ids = list({f["odoo_product_id"] for f in filas})
+    mapeos = db.table("odoo_mapping").select("odoo_id,ingrediente_key").in_("odoo_id", product_ids).execute().data or []
+    ingrediente_key_por_producto: dict[int, str] = {}
+    for m in mapeos:
+        ingrediente_key_por_producto.setdefault(m["odoo_id"], m["ingrediente_key"])
+
+    return [
+        StockPendienteOut(**f, sugerencia_ingrediente_key=ingrediente_key_por_producto.get(f["odoo_product_id"]))
+        for f in filas
+    ]
 
 
 def _creditar_pendiente(db, p: dict, local_id: str, ingrediente_key: str) -> bool:

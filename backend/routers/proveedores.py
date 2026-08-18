@@ -133,11 +133,14 @@ def eliminar_producto(proveedor_id: str, producto_id: str, claims: dict = Depend
 
 @router.get("/alertas-precio", response_model=list[AlertaPrecioOut])
 def listar_alertas_precio(claims: dict = Depends(get_current_claims)):
-    """Facturas reales cuyo precio superó el precio_negociado de ese
-    proveedor -- se generan solas al crear una factura en Facturas Odoo
-    (ver facturas_dte.py::_alimentar_stock_bodega). No se borran al
-    resolverlas (solo se marcan), para que el reporte de Ahorro por
-    Acuerdos Comerciales las siga contando igual."""
+    """Dos tipos de alerta, generadas solas al crear una factura en
+    Facturas Odoo (ver facturas_dte.py::_alimentar_stock_bodega):
+    'sobreprecio' (el precio de esta factura superó el precio_negociado de
+    ESE proveedor) y 'oportunidad' (cualquier proveedor facturó más barato
+    que el mejor precio_negociado vigente entre todos, para evaluar
+    cambiar de proveedor prioritario). No se borran al resolverlas (solo
+    se marcan), para que el reporte de Ahorro por Acuerdos Comerciales las
+    siga contando igual."""
     _require_lectura(claims)
     db = get_db()
     alertas = db.table("alertas_precio_factura").select("*").eq("resuelta", False) \
@@ -154,7 +157,7 @@ def listar_alertas_precio(claims: dict = Depends(get_current_claims)):
             ingrediente_key=a["ingrediente_key"], nombre=a["ingrediente_key"].split("||")[0],
             proveedor_id=a.get("proveedor_id"), proveedor_nombre=nombre_por_proveedor.get(a.get("proveedor_id")),
             precio_real=a["precio_real"], precio_negociado=a["precio_negociado"],
-            fecha=a["fecha"], resuelta=a["resuelta"],
+            tipo=a.get("tipo", "sobreprecio"), fecha=a["fecha"], resuelta=a["resuelta"],
         )
         for a in alertas
     ]

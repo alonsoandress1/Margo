@@ -51,3 +51,33 @@ def registrar_entrega_cocina(db, local_id: str, ingrediente_key: str, fecha: str
         if existente.data:
             db.table("bodega_movimientos").update({"cantidad": cantidad, "nota": nota}) \
                 .eq("id", existente.data[0]["id"]).execute()
+
+
+def registrar_venta_descuento(db, local_id: str, ingrediente_key: str, fecha: str, cantidad: float,
+                               nota: str | None = None) -> None:
+    """Registra (o reemplaza) el egreso de Bodega por ventas del dia para un
+    insumo, calculado desde ventas_recetas (plato vendido -> ingrediente).
+    Mismo patron de idempotencia que registrar_entrega_cocina (insert
+    primero, indice unico parcial en Postgres por origen='venta_tcpos', ver
+    _migracion_venta_tcpos_unica.sql) -- si se reimporta el reporte de
+    ventas de un dia ya procesado, esto actualiza la cantidad en vez de
+    duplicar el descuento."""
+    nota = nota or f"Ventas TCPOS ({fecha})"
+    fecha_iso = f"{fecha}T00:00:00+00:00"
+    try:
+        db.table("bodega_movimientos").insert({
+            "local_id": local_id, "ingrediente_key": ingrediente_key, "tipo": "egreso",
+            "cantidad": cantidad, "origen": "venta_tcpos", "nota": nota,
+            "fecha": fecha_iso,
+        }).execute()
+    except APIError as e:
+        if e.code != "23505":
+            raise
+        existente = db.table("bodega_movimientos").select("id") \
+            .eq("local_id", local_id).eq("ingrediente_key", ingrediente_key) \
+            .eq("origen", "venta_tcpos") \
+            .gte("fecha", f"{fecha}T00:00:00+00:00").lt("fecha", f"{fecha}T23:59:59.999999+00:00") \
+            .execute()
+        if existente.data:
+            db.table("bodega_movimientos").update({"cantidad": cantidad, "nota": nota}) \
+                .eq("id", existente.data[0]["id"]).execute()
