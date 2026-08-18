@@ -23,14 +23,6 @@ def get_current_claims(creds: HTTPAuthorizationCredentials = Depends(_bearer)) -
     return claims
 
 
-def require_roles(*roles: str):
-    def _check(claims: dict = Depends(get_current_claims)) -> dict:
-        if claims.get("rol") not in roles:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes permiso para esto")
-        return claims
-    return _check
-
-
 def locales_permitidos(claims: dict) -> list[str] | None:
     """None significa 'todos los locales' (administrador/observador).
     Lista vacia o con ids significa acceso restringido (solicitante)."""

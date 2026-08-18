@@ -124,5 +124,8 @@ def aceptar(body: FacturaAceptarIn, claims: dict = Depends(get_current_claims)):
 
 @router.get("", response_model=list[FacturaTrackingOut])
 def historial(claims: dict = Depends(get_current_claims)):
+    """Sin gate de rol a proposito -- Recepción en Bodega ya es visible para
+    administrador/solicitante/observador por igual (ver SECCIONES en el
+    frontend), asi que basta con estar autenticado."""
     db = get_db()
     return db.table("factura_tracking").select("*").order("procesada_en", desc=True).limit(100).execute().data or []

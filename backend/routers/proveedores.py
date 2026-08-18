@@ -189,12 +189,17 @@ def ahorro_mensual(anio: int, mes: int, claims: dict = Depends(get_current_claim
     if not mejor_precio_por_key:
         return AhorroMensualOut(anio=anio, mes=mes, total_perdido=0, items=[])
 
+    # Limites explicitos en UTC -- historial_precios_compra.fecha se guarda
+    # siempre con offset UTC (datetime.now(timezone.utc).isoformat()), asi
+    # que comparar contra fechas sin offset podia excluir/incluir mal una
+    # compra muy cerca de medianoche en el borde del mes segun el huso
+    # horario de sesion de Postgres.
     ultimo_dia = monthrange(anio, mes)[1]
-    desde = date(anio, mes, 1).isoformat()
-    hasta = date(anio, mes, ultimo_dia).isoformat()
+    desde = f"{date(anio, mes, 1).isoformat()}T00:00:00+00:00"
+    hasta = f"{date(anio, mes, ultimo_dia).isoformat()}T23:59:59.999999+00:00"
     compras = db.table("historial_precios_compra").select("*") \
         .in_("ingrediente_key", list(mejor_precio_por_key.keys())) \
-        .gte("fecha", desde).lte("fecha", f"{hasta}T23:59:59").execute().data or []
+        .gte("fecha", desde).lte("fecha", hasta).execute().data or []
     if not compras:
         return AhorroMensualOut(anio=anio, mes=mes, total_perdido=0, items=[])
 

@@ -679,7 +679,6 @@ async function renderView() {
 }
 
 async function renderResumen(el, s) {
-  const esAdmin = state.usuario.rol === 'administrador';
   const locales = await api('/locales');
 
   const mermasPorLocal = await Promise.all(locales.map(l =>
@@ -694,7 +693,7 @@ async function renderResumen(el, s) {
 
   let facturasPendientesCount = null;
   let planillaResumen = null;
-  if (esAdmin) {
+  if (esAdmin()) {
     const hoy = new Date();
     const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
     const desde = primerDiaMes.toISOString().slice(0, 10);
@@ -722,7 +721,7 @@ async function renderResumen(el, s) {
                 : `<span class="resumen-valor-good">completo</span>`}</div>`).join('')
           : '<div class="resumen-card-sub placeholder">Sin insumos de seguimiento configurados</div>'}
       </div>
-      ${esAdmin ? `
+      ${esAdmin() ? `
       <div class="resumen-card" data-ir="facturas-dte" tabindex="0" role="button">
         <div class="resumen-card-label">Facturas Odoo pendientes (mes actual)</div>
         <div class="resumen-card-valor ${facturasPendientesCount === null ? '' : claseCantidad(facturasPendientesCount)}">
@@ -2377,7 +2376,7 @@ async function renderPedidos(el, s) {
           return;
         }
         rowsEl.innerHTML = '';
-        conCompra.forEach(i => addRow(i.nombre, i.sugerido, formatUnidad(i.unidad), i.ingrediente_key));
+        conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad, i.ingrediente_key));
       } catch (err) {
         errorEl.textContent = err.message;
       }
@@ -3479,6 +3478,7 @@ async function renderPlanillaCompras(el, s) {
       const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
       state.planillaItems = res.items;
       state.planillaResumen = res.resumen;
+      state.planillaFiltroFolio = '';
       renderView();
     } catch (err) {
       errorEl.textContent = err.message;

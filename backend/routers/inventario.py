@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 
 from ..bodega_service import stock_bodega_por_insumo
 from ..catalogo import _producto_de
@@ -64,7 +65,11 @@ def listar_stock_pendiente(claims: dict = Depends(get_current_claims)):
     sumar solas al stock de Bodega -- producto todavia sin insumo asociado
     (odoo_mapping) o local sin mapeo a su empresa de Odoo (locales.
     odoo_company_id). Se resuelven con reprocesar_stock_pendiente() una vez
-    que el mapeo que faltaba exista."""
+    que el mapeo que faltaba exista.
+
+    Sin gate de rol a proposito -- Inventario ya es visible para
+    administrador/solicitante/observador por igual (ver SECCIONES en el
+    frontend), asi que basta con estar autenticado."""
     db = get_db()
     filas = db.table("bodega_stock_pendiente").select("*").order("creado_en", desc=True).execute().data or []
     return [StockPendienteOut(**f) for f in filas]
@@ -152,10 +157,18 @@ def _resolver_proveedor(db, p: dict) -> dict:
     existente = db.table("proveedores").select("*").eq("odoo_supplier_id", p["odoo_partner_id"]).execute()
     if existente.data:
         return existente.data[0]
-    nuevo = db.table("proveedores").insert({
-        "nombre": p.get("proveedor_nombre") or "Proveedor sin nombre",
-        "odoo_supplier_id": p["odoo_partner_id"], "usa_odoo": True,
-    }).execute()
+    try:
+        nuevo = db.table("proveedores").insert({
+            "nombre": p.get("proveedor_nombre") or "Proveedor sin nombre",
+            "odoo_supplier_id": p["odoo_partner_id"], "usa_odoo": True,
+        }).execute()
+    except APIError as e:
+        if e.code != "23505":
+            raise
+        # Dos "Vincular" concurrentes del mismo proveedor nuevo -- el otro
+        # gano la carrera (indice unico en odoo_supplier_id, ver
+        # _migracion_proveedores_odoo_supplier_id_unico.sql), se usa esa fila.
+        return db.table("proveedores").select("*").eq("odoo_supplier_id", p["odoo_partner_id"]).execute().data[0]
     return nuevo.data[0]
 
 

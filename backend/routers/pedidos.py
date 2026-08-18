@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from postgrest.exceptions import APIError
 
 from ..bodega_service import stock_bodega_por_insumo
 from ..catalogo import productos_mas_baratos
@@ -235,24 +236,55 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
     if ya_existe.data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ya se generó una acción de compra para este pedido")
 
-    local = db.table("locales").select("nombre").eq("id", pedido["local_id"]).execute().data[0]
+    # Reclamo atomico ANTES de tocar Odoo/correo -- el chequeo de arriba
+    # (leer po_tracking) por si solo no alcanza contra dos clics casi
+    # simultaneos (o dos pestañas): los dos pueden pasar esa lectura antes
+    # de que cualquiera alcance a insertar su primera fila de po_tracking,
+    # y terminar creando dos OC reales en Odoo para el mismo pedido. Se
+    # inserta una fila en pedido_oc_claim con pedido_id como llave unica --
+    # solo el primer clic gana. Si algo falla despues (Odoo caido,
+    # credenciales, correo), se libera el reclamo en el except de mas
+    # abajo para que se pueda reintentar -- mismo criterio de "seguro
+    # reintentar" que ya se usa en la cola de Facturas Odoo.
+    try:
+        db.table("pedido_oc_claim").insert({"pedido_id": pedido_id}).execute()
+    except APIError as e:
+        if e.code == "23505":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Ya se generó (o se está generando en este momento) una acción de compra para este pedido",
+            ) from e
+        raise
 
-    keys = [i["ingrediente_key"] for i in pedido["items"] if i.get("ingrediente_key")]
-    mapping = productos_mas_baratos(db, keys)
+    try:
+        local = db.table("locales").select("nombre").eq("id", pedido["local_id"]).execute().data[0]
 
-    grupos: dict[str, list[tuple[dict, dict]]] = {}
-    omitidos = []
-    for item in pedido["items"]:
-        key = item.get("ingrediente_key")
-        m = mapping.get(key) if key else None
-        if not m or not m.get("proveedor_id"):
-            omitidos.append(item.get("ingrediente", "?"))
-            continue
-        grupos.setdefault(m["proveedor_id"], []).append((m, item))
+        keys = [i["ingrediente_key"] for i in pedido["items"] if i.get("ingrediente_key")]
+        mapping = productos_mas_baratos(db, keys)
 
-    if not grupos:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ningun insumo del pedido tiene un proveedor registrado -- nada que generar")
+        grupos: dict[str, list[tuple[dict, dict]]] = {}
+        omitidos = []
+        for item in pedido["items"]:
+            key = item.get("ingrediente_key")
+            m = mapping.get(key) if key else None
+            if not m or not m.get("proveedor_id"):
+                omitidos.append(item.get("ingrediente", "?"))
+                continue
+            grupos.setdefault(m["proveedor_id"], []).append((m, item))
 
+        if not grupos:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ningun insumo del pedido tiene un proveedor registrado -- nada que generar")
+
+        resultado = _generar_oc_cuerpo(db, pedido, pedido_id, local, grupos, omitidos,
+                                        claims, x_odoo_user, x_odoo_password, x_odoo_company_id)
+    except Exception:
+        db.table("pedido_oc_claim").delete().eq("pedido_id", pedido_id).execute()
+        raise
+    return resultado
+
+
+def _generar_oc_cuerpo(db, pedido: dict, pedido_id: str, local: dict, grupos: dict, omitidos: list,
+                        claims: dict, x_odoo_user, x_odoo_password, x_odoo_company_id) -> GenerarOCOut:
     proveedor_ids = list(grupos.keys())
     proveedores = {p["id"]: p for p in db.table("proveedores").select("*").in_("id", proveedor_ids).execute().data or []}
 
@@ -344,9 +376,17 @@ def generar_oc(pedido_id: str, claims: dict = Depends(get_current_claims),
                     cantidad_kg = _redondear_a_empaque(cantidad_kg, m.get("tamano_empaque"))
                     override = m.get("unidad_odoo")
                     uom_linea = uom_odoo_a_id.get(override) if override else uom_default_producto.get(m["odoo_id"])
+                    # El precio pactado en un acuerdo comercial manda por
+                    # sobre el campo "price" de uso libre -- si no hay
+                    # acuerdo para este insumo+proveedor, se cae al precio
+                    # de siempre (mismo caso que se encontro real esta
+                    # sesion: precio viejo desactualizado vs. el pactado).
+                    precio_linea = m.get("precio_negociado")
+                    if precio_linea is None:
+                        precio_linea = m.get("price", 0) or 0
                     linea = {
                         "product_id": m["odoo_id"], "name": m["odoo_name"],
-                        "product_qty": round(cantidad_kg, 2), "price_unit": m.get("price", 0) or 0,
+                        "product_qty": round(cantidad_kg, 2), "price_unit": precio_linea,
                     }
                     if uom_linea:
                         linea["product_uom"] = uom_linea

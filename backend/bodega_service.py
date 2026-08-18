@@ -1,3 +1,6 @@
+from postgrest.exceptions import APIError
+
+
 def stock_bodega_por_insumo(db, local_id: str, keys: list[str]) -> dict[str, float]:
     """Stock actual de Bodega por insumo -- suma del ledger completo de
     bodega_movimientos (ingreso +, egreso -). Logica centralizada aca porque
@@ -19,19 +22,32 @@ def registrar_entrega_cocina(db, local_id: str, ingrediente_key: str, fecha: str
     """Registra (o reemplaza) el egreso de Bodega -> Cocina de un insumo para
     un dia. bodega_movimientos es un libro append-only -- si ya existe un
     egreso 'entrega_cocina' para ese local/insumo/dia, se actualiza en vez de
-    duplicar (mismo dato reingresado a mano o por reimportacion de planilla)."""
+    duplicar (mismo dato reingresado a mano o por reimportacion de planilla).
+
+    Se inserta primero (nunca se lee antes) -- un indice unico parcial en
+    Postgres (local_id, ingrediente_key, fecha where origen='entrega_cocina',
+    ver _migracion_entrega_cocina_unica.sql) es lo que de verdad garantiza
+    que no queden dos filas para el mismo local/insumo/dia si dos clicks (o
+    dos pestañas) caen casi juntos -- un chequeo "leer primero" no alcanza,
+    los dos podrian pasar la lectura antes de que cualquiera inserte. Si el
+    insert choca contra ese indice, se actualiza la fila que ya gano la
+    carrera en vez de duplicar."""
     nota = nota or f"Entrega a Cocina ({fecha})"
-    ya = db.table("bodega_movimientos").select("id") \
-        .eq("local_id", local_id).eq("ingrediente_key", ingrediente_key) \
-        .eq("origen", "entrega_cocina") \
-        .gte("fecha", f"{fecha}T00:00:00+00:00").lt("fecha", f"{fecha}T23:59:59.999999+00:00") \
-        .execute()
-    if ya.data:
-        db.table("bodega_movimientos").update({"cantidad": cantidad, "nota": nota}) \
-            .eq("id", ya.data[0]["id"]).execute()
-    else:
+    fecha_iso = f"{fecha}T00:00:00+00:00"
+    try:
         db.table("bodega_movimientos").insert({
             "local_id": local_id, "ingrediente_key": ingrediente_key, "tipo": "egreso",
             "cantidad": cantidad, "origen": "entrega_cocina", "nota": nota,
-            "fecha": f"{fecha}T00:00:00+00:00", "created_by": created_by,
+            "fecha": fecha_iso, "created_by": created_by,
         }).execute()
+    except APIError as e:
+        if e.code != "23505":
+            raise
+        existente = db.table("bodega_movimientos").select("id") \
+            .eq("local_id", local_id).eq("ingrediente_key", ingrediente_key) \
+            .eq("origen", "entrega_cocina") \
+            .gte("fecha", f"{fecha}T00:00:00+00:00").lt("fecha", f"{fecha}T23:59:59.999999+00:00") \
+            .execute()
+        if existente.data:
+            db.table("bodega_movimientos").update({"cantidad": cantidad, "nota": nota}) \
+                .eq("id", existente.data[0]["id"]).execute()
