@@ -5,9 +5,9 @@ nunca se escribe en Odoo, se asigna una vez y se reusa siempre.
 
 Tipos: AL=Alimentos, BA=Barra, GF=Gastos Fijos, OT=Otros, AS=Aseo.
 
-Por ahora escaneado solo para Doña Delfina (company_id=2 en Odoo) -- el
-Excel original es de ese local. Se puede generalizar a los demas locales
-mas adelante agregando el company_id correspondiente."""
+Escanea TODAS las empresas de Odoo que tengan un local mapeado
+(locales.odoo_company_id) -- no una empresa fija -- para no quedar ciega
+en silencio el dia que se agregue un local nuevo (ver _company_ids_locales)."""
 import os
 import sys
 from calendar import monthrange
@@ -35,7 +35,6 @@ _MESES_ES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AG
 
 router = APIRouter(prefix="/planilla-compras", tags=["planilla-compras"])
 
-COMPANY_ID_DONA_DELFINA = 2
 TIPOS_VALIDOS = {"AL", "BA", "GF", "OT", "AS"}
 TIPOS_COSTO_VENTA = {"AL", "BA"}  # igual que el Excel real: Costo Venta = N6+O6 (solo Alimentos + Barra)
 
@@ -76,6 +75,14 @@ def _odoo(odoo_creds: tuple[str, str]) -> OdooClient:
     return cliente
 
 
+def _company_ids_locales(db) -> list[int]:
+    """Empresas de Odoo de TODOS los locales mapeados (locales.odoo_company_id)
+    -- se resuelve en vivo en vez de una empresa fija, para que un local
+    nuevo aparezca solo en Planilla de Compras sin tener que tocar codigo."""
+    rows = db.table("locales").select("odoo_company_id").execute().data or []
+    return list({r["odoo_company_id"] for r in rows if r.get("odoo_company_id")})
+
+
 def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str]) -> PlanillaComprasOut:
     cliente = _odoo(odoo_creds)
     ultimo_dia = monthrange(anio, mes)[1]
@@ -83,6 +90,10 @@ def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str]) -
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
 
     db = get_db()
+    company_ids = _company_ids_locales(db)
+    if not company_ids:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Ningún local tiene odoo_company_id configurado -- no hay ninguna empresa que escanear")
 
     # invoice_origin != False -- solo facturas que vienen de una Orden de
     # Compra (el flujo OC -> recepcion -> factura). Sin eso, "Facturas de
@@ -98,7 +109,7 @@ def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str]) -
     # Dominio de Odoo (notacion Polaca) -- el operador '|' va SUELTO en la
     # lista plana, aplicando a los dos terminos que le siguen; no se puede
     # anidar como un elemento normal o Odoo lo interpreta mal.
-    condiciones_base = [['move_type', '=', 'in_invoice'], ['company_id', '=', COMPANY_ID_DONA_DELFINA],
+    condiciones_base = [['move_type', '=', 'in_invoice'], ['company_id', 'in', company_ids],
                          ['invoice_date', '>=', desde], ['invoice_date', '<=', hasta], ['state', '!=', 'cancel']]
     condiciones_origen = (['|', ['invoice_origin', '!=', False], ['id', 'in', ids_manual]]
                            if ids_manual else [['invoice_origin', '!=', False]])
@@ -141,9 +152,10 @@ def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str]) -
 @router.get("", response_model=PlanillaComprasOut)
 def listar(anio: int, mes: int, claims: dict = Depends(get_current_claims),
            odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
-    """Todas las facturas de proveedor del mes en Odoo (Doña Delfina), con
-    el Tipo de cada una resuelto por su proveedor -- null si ese proveedor
-    todavia no tiene Tipo asignado (hay que clasificarlo en /proveedores)."""
+    """Todas las facturas de proveedor del mes en Odoo, de todas las
+    empresas con un local mapeado, con el Tipo de cada una resuelto por su
+    proveedor -- null si ese proveedor todavia no tiene Tipo asignado (hay
+    que clasificarlo en /proveedores)."""
     _require_lectura(claims)
     return _obtener_items_y_resumen(anio, mes, odoo_creds)
 
@@ -184,6 +196,7 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     /faltantes/{factura_id}/agregar."""
     _require_lectura(claims)
     cliente = _odoo(odoo_creds)
+    company_ids = _company_ids_locales(get_db())
     ultimo_dia = monthrange(anio, mes)[1]
     desde = f"{anio:04d}-{mes:02d}-01"
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
@@ -213,7 +226,7 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
         move = moves_por_id.get(move_id)
         if not move or move.get('state') == 'cancel':
             continue
-        if not move.get('company_id') or move['company_id'][0] != COMPANY_ID_DONA_DELFINA:
+        if not move.get('company_id') or move['company_id'][0] not in company_ids:
             continue
         fecha = move.get('invoice_date')
         if not fecha or not (desde <= fecha <= hasta):

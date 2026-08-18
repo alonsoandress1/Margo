@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ..catalogo import productos_mas_baratos
+from ..catalogo import _producto_de, productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..schemas import ParStockAddIn, ParStockItem, ParStockUpdateIn, ProductoOut
@@ -29,21 +29,9 @@ def listar_todos_productos(claims: dict = Depends(get_current_claims)):
     proveedores) -- para elegir al agregar a Par Stock. Par Stock no
     depende de que proveedor se elija, eso lo decide la sugerencia."""
     db = get_db()
-    rows = db.table("odoo_mapping").select("*").execute().data or []
-    mejor: dict[str, dict] = {}
-    for r in rows:
-        k = r["ingrediente_key"]
-        if k not in mejor or (r.get("price") or 0) < (mejor[k].get("price") or 0):
-            mejor[k] = r
-    return [
-        ProductoOut(
-            id=r["id"], ingrediente_key=r["ingrediente_key"], nombre=r["ingrediente_key"].split("||")[0],
-            unidad=r["ingrediente_key"].split("||")[1] if "||" in r["ingrediente_key"] else "",
-            proveedor_id=r.get("proveedor_id") or "", odoo_id=r["odoo_id"], odoo_name=r["odoo_name"],
-            ref=r.get("ref"), precio=r.get("price", 0), tamano_empaque=r.get("tamano_empaque"),
-        )
-        for r in mejor.values()
-    ]
+    keys = list({r["ingrediente_key"] for r in db.table("odoo_mapping").select("ingrediente_key").execute().data or []})
+    mejor = productos_mas_baratos(db, keys)
+    return [_producto_de(r) for r in mejor.values()]
 
 
 @router.get("/par-stock", response_model=list[ParStockItem])

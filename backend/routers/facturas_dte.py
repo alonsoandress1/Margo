@@ -1341,20 +1341,29 @@ def _alimentar_stock_bodega(db, company_id: int, dte_id: int, move_id: int, invo
             "nota": f"Factura Odoo {invoice_name} ({proveedor_nombre})", "fecha": ahora,
         }).execute()
 
-        precio_real = linea_oc.get("price_unit")
-        db.table("historial_precios_compra").insert({
-            "ingrediente_key": ingrediente_key, "proveedor_id": mapeo.get("proveedor_id"),
-            "precio": precio_real, "cantidad": linea_oc["product_qty"],
-            "invoice_name": invoice_name, "dte_id": dte_id, "fecha": ahora,
-        }).execute()
-
-        precio_negociado = mapeo.get("precio_negociado")
-        if precio_negociado is not None and precio_real is not None and precio_real > precio_negociado:
-            db.table("alertas_precio_factura").insert({
-                "dte_id": dte_id, "invoice_name": invoice_name, "ingrediente_key": ingrediente_key,
-                "proveedor_id": mapeo.get("proveedor_id"), "precio_real": precio_real,
-                "precio_negociado": precio_negociado, "fecha": ahora,
+        # El stock (arriba) ya quedo sumado -- eso es lo que importa. El
+        # historial de precios y la alerta son un extra que, igual que el
+        # resto de esta funcion, nunca debe hacer fallar el procesamiento
+        # de las lineas SIGUIENTES de la factura (antes de este try/except
+        # un fallo aca cortaba el loop entero, dejando esas lineas sin
+        # sumar stock ni quedar pendientes -- se perdian sin rastro).
+        try:
+            precio_real = linea_oc.get("price_unit")
+            db.table("historial_precios_compra").insert({
+                "ingrediente_key": ingrediente_key, "proveedor_id": mapeo.get("proveedor_id"),
+                "precio": precio_real, "cantidad": linea_oc["product_qty"],
+                "invoice_name": invoice_name, "dte_id": dte_id, "fecha": ahora,
             }).execute()
+
+            precio_negociado = mapeo.get("precio_negociado")
+            if precio_negociado is not None and precio_real is not None and precio_real > precio_negociado:
+                db.table("alertas_precio_factura").insert({
+                    "dte_id": dte_id, "invoice_name": invoice_name, "ingrediente_key": ingrediente_key,
+                    "proveedor_id": mapeo.get("proveedor_id"), "precio_real": precio_real,
+                    "precio_negociado": precio_negociado, "fecha": ahora,
+                }).execute()
+        except Exception:
+            pass
 
 
 def _procesar_item_cola(cola_id: str, dte_id: int, odoo_creds: tuple[str, str]):

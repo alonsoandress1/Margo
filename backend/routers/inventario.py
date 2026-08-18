@@ -135,26 +135,28 @@ def reprocesar_stock_pendiente(claims: dict = Depends(get_current_claims)):
     return StockPendienteReprocesarOut(resueltos=resueltos, pendientes=len(pendientes) - resueltos)
 
 
-def _resolver_proveedor(db, p: dict) -> str:
+def _resolver_proveedor(db, p: dict) -> dict:
     """Busca el proveedor por su ID real en Odoo (odoo_supplier_id); si
     todavia no esta en nuestra tabla de Proveedores, lo crea usando los
     datos que la factura ya trajo -- nunca se inventa nada, solo se
     registra lo que Odoo ya confirmo al crear la factura real. No crea
-    nada EN Odoo, solo en nuestra base."""
+    nada EN Odoo, solo en nuestra base. Devuelve la fila completa (no solo
+    el id) para poder llenar supplier_id/supplier_name en odoo_mapping,
+    igual que crear_producto en proveedores.py."""
     if not p.get("odoo_partner_id"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Esta fila pendiente es de antes de este cambio y no tiene el proveedor de Odoo resuelto -- "
             "hay que vincular este producto a mano en Proveedores",
         )
-    existente = db.table("proveedores").select("id").eq("odoo_supplier_id", p["odoo_partner_id"]).execute()
+    existente = db.table("proveedores").select("*").eq("odoo_supplier_id", p["odoo_partner_id"]).execute()
     if existente.data:
-        return existente.data[0]["id"]
+        return existente.data[0]
     nuevo = db.table("proveedores").insert({
         "nombre": p.get("proveedor_nombre") or "Proveedor sin nombre",
         "odoo_supplier_id": p["odoo_partner_id"], "usa_odoo": True,
     }).execute()
-    return nuevo.data[0]["id"]
+    return nuevo.data[0]
 
 
 @router.post("/stock-pendiente/{pendiente_id}/vincular", response_model=ProductoOut)
@@ -180,12 +182,14 @@ def vincular_pendiente(pendiente_id: str, body: VincularPendienteIn, claims: dic
     if p["motivo"] != "sin_insumo":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Esta fila no está pendiente por falta de insumo")
 
-    proveedor_id = _resolver_proveedor(db, p)
+    proveedor = _resolver_proveedor(db, p)
+    proveedor_id = proveedor["id"]
     ingrediente_key = body.ingrediente_key_existente or f"{body.nombre_nuevo}||{body.unidad_nueva}"
 
     db.table("odoo_mapping").upsert({
         "ingrediente_key": ingrediente_key, "proveedor_id": proveedor_id,
         "odoo_id": p["odoo_product_id"], "odoo_name": p["producto_nombre"],
+        "supplier_id": proveedor["odoo_supplier_id"], "supplier_name": proveedor["nombre"],
         "price": body.precio if body.precio is not None else (p.get("precio") or 0),
         "tamano_empaque": body.tamano_empaque, "unidad_odoo": body.unidad_odoo,
     }, on_conflict="ingrediente_key,proveedor_id").execute()

@@ -1635,7 +1635,7 @@ async function showVincularPendienteModal(p) {
   overlay.innerHTML = '<div class="modal-box" style="width:640px"><p class="placeholder">Cargando…</p></div>';
   document.body.appendChild(overlay);
 
-  const insumos = await api('/par-stock/productos').catch(() => []);
+  const insumos = await api('/productos').catch(() => []);
   const unidadAdivinada = _adivinarUnidadOdoo(p.uom_odoo_nombre);
 
   overlay.querySelector('.modal-box').innerHTML = `
@@ -3415,7 +3415,7 @@ async function renderPlanillaCompras(el, s) {
 
   el.innerHTML = `
     <h2>Planilla de Compras</h2>
-    <p class="placeholder" style="margin-bottom:1.25rem">Facturas de proveedor ya ingresadas en Odoo este mes (Doña Delfina) -- así sabemos cuáles están y cuáles faltan. El Tipo es por proveedor, se guarda solo acá.</p>
+    <p class="placeholder" style="margin-bottom:1.25rem">Facturas de proveedor ya ingresadas en Odoo este mes -- así sabemos cuáles están y cuáles faltan. El Tipo es por proveedor, se guarda solo acá.</p>
     <div class="item-row" style="max-width:420px;margin-bottom:1rem">
       <div style="flex:1">
         <label class="field-label">Mes</label>
