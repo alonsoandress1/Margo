@@ -472,6 +472,16 @@ class DteDetalleOut(DteOut):
     lineas: list[DteLineaOut]
 
 
+class DteMarcadoManualOut(BaseModel):
+    dte_id: int
+    proveedor_rut: str
+    proveedor_nombre: str
+    folio: str
+    fecha: str | None = None
+    marcado_en: str
+    factura_vinculada: bool = False
+
+
 class DteMatchLineaIn(BaseModel):
     dte_id: int
     line_id: int

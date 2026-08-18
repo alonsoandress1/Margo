@@ -37,8 +37,8 @@ if str(_REPO_ROOT) not in sys.path:
 from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
-                       DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
-                       HistoricoFacturaOut, HistoricoLineaOut,
+                       DteDetalleOut, DteLineaOut, DteMarcadoManualOut, DteMatchLineaIn, DteOut, DteProductoOut,
+                       FactorConversionIn, HistoricoFacturaOut, HistoricoLineaOut,
                        ImpuestoOut, LineaManualIn, ProductoImpuestosIn,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
@@ -235,6 +235,36 @@ def desmarcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_c
     if fila and fila[0].get("factura_id_vinculada"):
         db.table("planilla_compras_factura_manual").delete().eq("factura_id", fila[0]["factura_id_vinculada"]).execute()
     db.table("facturas_dte_ingresado_manual").delete().eq("dte_id", dte_id).execute()
+
+
+@router.get("/marcados-manual", response_model=list[DteMarcadoManualOut])
+def listar_marcados_manual(claims: dict = Depends(get_current_claims),
+                            odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """DTE marcados como 'ingresada manualmente' hoy -- para poder
+    revisarlos y desmarcarlos si hace falta (ver desmarcar_ingresada_manual
+    arriba). Sin esta lista no habia forma de saber cuales estaban
+    marcados ni de deshacer una marca por error sin entrar directo a
+    Supabase."""
+    _require_lectura(claims)
+    db = get_db()
+    marcados = db.table("facturas_dte_ingresado_manual").select("*").order("marcado_en", desc=True).execute().data or []
+    if not marcados:
+        return []
+    cliente = _odoo(odoo_creds)
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', 'in', [m["dte_id"] for m in marcados]]]],
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date']})
+    docs_por_id = {d['id']: d for d in docs}
+    resultado = []
+    for m in marcados:
+        d = docs_por_id.get(m["dte_id"])
+        if not d:
+            continue  # el DTE ya no existe en Odoo (borrado) -- se omite, no hay nada que mostrar
+        resultado.append(DteMarcadoManualOut(
+            dte_id=m["dte_id"], proveedor_rut=d.get('issuer_rut') or '', proveedor_nombre=d.get('issuer_name') or '',
+            folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'),
+            marcado_en=m["marcado_en"], factura_vinculada=m.get("factura_id_vinculada") is not None,
+        ))
+    return resultado
 
 
 @router.get("/proveedores/ocultos", response_model=list[ProveedorOcultoOut])

@@ -2499,6 +2499,7 @@ async function renderFacturasDte(el, s) {
       </div>` : ''}
     <div style="margin-bottom:1rem">
       <button type="button" class="btn" id="dte-proveedores-ocultos">Proveedores ocultos</button>
+      <button type="button" class="btn" id="dte-marcados-manual">Ingresadas manualmente</button>
     </div>
     <div id="dte-alertas-precio"></div>
     <p id="dte-error" class="error-msg"></p>
@@ -2515,6 +2516,7 @@ async function renderFacturasDte(el, s) {
   document.getElementById('dte-hasta').addEventListener('change', (e) => { state.dteHasta = e.target.value; });
 
   document.getElementById('dte-proveedores-ocultos').addEventListener('click', () => showProveedoresOcultosModal());
+  document.getElementById('dte-marcados-manual').addEventListener('click', () => showMarcadosManualModal());
 
   document.getElementById('dte-buscar').addEventListener('click', async () => {
     const errorEl = document.getElementById('dte-error');
@@ -2711,6 +2713,55 @@ async function showProveedoresOcultosModal() {
   } catch (err) {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-ocultos-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#dte-ocultos-cerrar-error').onclick = () => overlay.remove();
+  }
+}
+
+async function showMarcadosManualModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:640px"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const marcados = await api('/facturas-dte/marcados-manual');
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Facturas ingresadas manualmente</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Ya no aparecen en la lista de pendientes. Desmarcar las devuelve a pendientes si en Odoo todavía no tienen factura vinculada -- no toca nada en Odoo (si se había vinculado una factura real al marcarla, ese vínculo se mantiene).</p>
+      ${marcados.length ? `
+        <table>
+          <thead><tr><th>Proveedor</th><th>Folio</th><th>Fecha</th><th></th></tr></thead>
+          <tbody>
+            ${marcados.map(m => `
+              <tr>
+                <td>${escapeHtml(m.proveedor_nombre)}${m.factura_vinculada ? ' <span class="placeholder" title="Se encontró y vinculó una factura real en Odoo">✓ vinculada</span>' : ''}</td>
+                <td>${escapeHtml(m.folio)}</td>
+                <td>${(m.fecha || '').slice(0, 10)}</td>
+                <td>${esAdmin() ? `<button type="button" class="btn" data-desmarcar-manual="${m.dte_id}">Desmarcar</button>` : ''}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="placeholder">No hay ninguna factura marcada como ingresada manualmente.</p>'}
+      <div style="margin-top:1.25rem">
+        <button type="button" class="btn" id="dte-marcados-cerrar">Cerrar</button>
+      </div>`;
+    overlay.querySelector('#dte-marcados-cerrar').onclick = () => overlay.remove();
+    overlay.querySelectorAll('[data-desmarcar-manual]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const dteId = btn.dataset.desmarcarManual;
+        try {
+          await api(`/facturas-dte/${dteId}/marcar-manual`, { method: 'DELETE' });
+          overlay.remove();
+          if (state.dteLista !== null) {
+            state.dteLista = await api(`/facturas-dte?desde=${state.dteDesde}&hasta=${state.dteHasta}`);
+            renderView();
+          }
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-marcados-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#dte-marcados-cerrar-error').onclick = () => overlay.remove();
   }
 }
 
