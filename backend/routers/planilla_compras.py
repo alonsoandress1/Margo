@@ -285,8 +285,15 @@ def obtener_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Todavía no hay ventas cerradas para ese mes")
 
     try:
+        # timeout mas alto que el default (30s) -- a diferencia del reporte
+        # diario de ventas (un solo dia), este cubre todo el mes corrido y
+        # mientras mas avanza el mes, mas tarda TCPOS en generarlo. Con el
+        # default ya estaba dando timeout consistente a mitad de mes
+        # (confirmado: fallaba a los ~32s). 75s deja margen de sobra sin
+        # acercarse al limite tipico de proxy HTTP de Render (~100s).
         session = TcposWebReportSession(
             os.environ["TCPOS_URL"], os.environ["TCPOS_OPERATOR_CODE"], os.environ["TCPOS_PASSWORD"],
+            timeout=75,
         )
     except KeyError as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
