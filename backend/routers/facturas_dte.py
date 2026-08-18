@@ -38,6 +38,7 @@ from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteMatchLineaIn, DteOut, DteProductoOut, FactorConversionIn,
+                       HistoricoFacturaOut, HistoricoLineaOut,
                        ImpuestoOut, LineaManualIn, ProductoImpuestosIn,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
@@ -465,6 +466,51 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims),
         neto_odoo=move.get('amount_untaxed') or 0, impuestos_odoo=move.get('amount_tax') or 0, total_odoo=move.get('amount_total') or 0,
         lineas=lineas_out,
     )
+
+
+@router.get("/proveedor/{proveedor_rut}/historico", response_model=list[HistoricoFacturaOut])
+def historico_proveedor(proveedor_rut: str, limite: int = 6, claims: dict = Depends(get_current_claims),
+                         odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Ultimas facturas REALES (account.move, ya posteadas) de un proveedor
+    por RUT, con el precio real de cada linea -- solo lectura, para poder
+    revisar a mano si el precio viene variando entre facturas antes de
+    cargar un Precio Negociado en Proveedores (no se guarda nada solo,
+    el admin decide que precio estipular con los datos que devuelve esto)."""
+    _require_lectura(claims)
+    cliente = _odoo(odoo_creds)
+    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', proveedor_rut]]],
+        {'fields': ['id', 'supplier_rank']})
+    if not partners:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No encontré ningún proveedor con RUT {proveedor_rut} en Odoo")
+    partner_id = max(partners, key=lambda p: p.get('supplier_rank') or 0)['id']
+
+    moves = cliente._call('account.move', 'search_read',
+        [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'], ['state', '=', 'posted']]],
+        {'fields': ['id', 'name', 'invoice_date'], 'order': 'invoice_date desc, id desc', 'limit': limite})
+    if not moves:
+        return []
+
+    lineas = cliente._call('account.move.line', 'search_read',
+        [[['move_id', 'in', [m['id'] for m in moves]], ['display_type', '=', 'product']]],
+        {'fields': ['move_id', 'product_id', 'quantity', 'price_unit']})
+    lineas_por_move: dict[int, list] = {}
+    for l in lineas:
+        if l.get('product_id'):
+            lineas_por_move.setdefault(l['move_id'][0], []).append(l)
+
+    return [
+        HistoricoFacturaOut(
+            invoice_name=m['name'], fecha=m.get('invoice_date'),
+            lineas=[
+                HistoricoLineaOut(
+                    product_id=l['product_id'][0], product_name=l['product_id'][1],
+                    cantidad=l['quantity'], precio_unit=l['price_unit'],
+                )
+                for l in lineas_por_move.get(m['id'], [])
+            ],
+        )
+        for m in moves
+    ]
 
 
 @router.get("/{dte_id}/simular", response_model=SimularOut)

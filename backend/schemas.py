@@ -582,6 +582,19 @@ class CompararOut(BaseModel):
     lineas: list[CompararLineaOut]
 
 
+class HistoricoLineaOut(BaseModel):
+    product_id: int
+    product_name: str
+    cantidad: float
+    precio_unit: float
+
+
+class HistoricoFacturaOut(BaseModel):
+    invoice_name: str
+    fecha: str | None = None
+    lineas: list[HistoricoLineaOut]
+
+
 class SimularImpuestoOut(BaseModel):
     nombre: str
     monto: float
