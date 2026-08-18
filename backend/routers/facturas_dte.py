@@ -703,11 +703,15 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
         if descuento_pct is None and product_id in historial_descuento_por_producto:
             descuento_pct = historial_descuento_por_producto[product_id]
             descuento_sugerido = True
-            db.table("facturas_dte_linea_descuento").upsert({
-                "dte_linea_id": l['id'], "descuento_pct": descuento_pct,
-                "proveedor_rut": doc.get("issuer_rut") or "", "odoo_product_id": product_id,
-                "actualizado_en": datetime.now(timezone.utc).isoformat(),
-            }, on_conflict="dte_linea_id").execute()
+            # Igual que el autoconfirm de mas arriba: un observador puede
+            # abrir esta pantalla y ver el descuento sugerido, pero nunca
+            # debe dejar un write real solo por mirar.
+            if claims["rol"] == "administrador":
+                db.table("facturas_dte_linea_descuento").upsert({
+                    "dte_linea_id": l['id'], "descuento_pct": descuento_pct,
+                    "proveedor_rut": doc.get("issuer_rut") or "", "odoo_product_id": product_id,
+                    "actualizado_en": datetime.now(timezone.utc).isoformat(),
+                }, on_conflict="dte_linea_id").execute()
 
         factor_conversion = (mapa[(codigo_tipo, codigo_valor)].get('factor_conversion') or 1) \
             if codigo_tipo and (codigo_tipo, codigo_valor) in mapa else 1

@@ -17,8 +17,21 @@ def _producto_de(row: dict) -> ProductoOut:
     )
 
 
+def _precio_comparacion(r: dict) -> float:
+    """Precio a usar para comparar proveedores entre si -- un precio
+    pactado real (precio_negociado) siempre le gana al campo price de uso
+    libre, mismo criterio que ya se usa para fijar el precio de la linea
+    al generar una OC (ver pedidos.py). Sin esto, productos_mas_baratos
+    podia elegir un proveedor sin ningun acuerdo (price mas bajo pero sin
+    respaldo real) por sobre uno con un precio pactado mas barato todavia,
+    justo el error que "Ahorro por Acuerdos" existe para detectar."""
+    negociado = r.get("precio_negociado")
+    return negociado if negociado is not None else (r.get("price") or 0)
+
+
 def productos_mas_baratos(db, keys: list[str]) -> dict[str, dict]:
-    """Para cada ingrediente_key, la fila de odoo_mapping con menor precio."""
+    """Para cada ingrediente_key, la fila de odoo_mapping mas barata (ver
+    _precio_comparacion)."""
     if not keys:
         return {}
     rows = db.table("odoo_mapping").select("*").in_("ingrediente_key", keys).execute().data or []
@@ -26,6 +39,6 @@ def productos_mas_baratos(db, keys: list[str]) -> dict[str, dict]:
     for r in rows:
         k = r["ingrediente_key"]
         actual = mejor.get(k)
-        if actual is None or (r.get("price") or 0) < (actual.get("price") or 0):
+        if actual is None or _precio_comparacion(r) < _precio_comparacion(actual):
             mejor[k] = r
     return mejor

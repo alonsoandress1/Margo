@@ -1520,7 +1520,7 @@ async function renderInventario(el, s) {
                 <td>${p.proveedor_nombre ? escapeHtml(p.proveedor_nombre) : '—'}</td>
                 <td>${p.invoice_name ? escapeHtml(p.invoice_name) : '—'}</td>
                 <td>${p.motivo === 'sin_local' ? 'Local sin mapeo a Odoo' : 'Producto sin insumo asociado'}</td>
-                <td>${p.motivo === 'sin_insumo' ? `<button type="button" class="btn" data-vincular-pendiente="${p.id}">Vincular</button>` : ''}</td>
+                <td>${p.motivo === 'sin_insumo' && esAdmin() ? `<button type="button" class="btn" data-vincular-pendiente="${p.id}">Vincular</button>` : ''}</td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -1621,7 +1621,12 @@ async function showVincularPendienteModal(p) {
   // Para filas de antes de este cambio (sin unidad_sugerida) se cae al
   // heuristico de texto de siempre.
   const unidadSugerida = p.unidad_sugerida || _adivinarUnidadOdoo(p.uom_odoo_nombre);
-  const hayMatch = !!p.sugerencia_ingrediente_key;
+  // Revalida que la sugerencia siga existiendo en el catalogo antes de
+  // preseleccionarla -- si el insumo se renombro/elimino entre que se
+  // listo lo pendiente y que se abrio este modal, no hay que dejar el
+  // radio en "existente" apuntando a una key que ya no aparece en la
+  // lista (el <select> caeria en la primera opcion sin avisar).
+  const hayMatch = !!p.sugerencia_ingrediente_key && insumos.some(i => i.ingrediente_key === p.sugerencia_ingrediente_key);
 
   overlay.querySelector('.modal-box').innerHTML = `
     <h3>Vincular producto de factura</h3>
