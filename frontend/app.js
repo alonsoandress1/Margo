@@ -1774,6 +1774,26 @@ async function showVincularPendienteModal(p) {
   };
 }
 
+function _filasBuscarProveedorOdoo(candidatos, filtro) {
+  const f = (filtro || '').trim().toLowerCase();
+  const filtrados = f ? candidatos.filter(c => c.nombre.toLowerCase().includes(f) || c.rut.toLowerCase().includes(f)) : candidatos;
+  if (!candidatos.length) return '<p class="placeholder">No hay proveedores nuevos para agregar -- todos los que ya te facturaron en Odoo están registrados.</p>';
+  if (!filtrados.length) return '<p class="placeholder">Sin resultados para ese filtro.</p>';
+  return `
+    <table>
+      <thead><tr><th>Proveedor</th><th>RUT</th><th>¿Genera OC real?</th><th></th></tr></thead>
+      <tbody>
+        ${filtrados.map(c => `
+          <tr>
+            <td>${escapeHtml(c.nombre)}</td>
+            <td>${escapeHtml(c.rut)}</td>
+            <td><input type="checkbox" id="bpo-usa-odoo-${c.odoo_supplier_id}"></td>
+            <td><button type="button" class="btn" data-agregar-odoo="${c.odoo_supplier_id}">Agregar</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
 async function showBuscarProveedorOdooModal() {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -1783,49 +1803,45 @@ async function showBuscarProveedorOdooModal() {
   try {
     const candidatos = await api('/proveedores/odoo/candidatos');
     overlay.querySelector('.modal-box').innerHTML = `
-      <h3>Buscar proveedor en Odoo</h3>
-      <p class="placeholder" style="margin-bottom:1rem">Proveedores que ya te facturaron alguna vez en Odoo y todavía no están registrados acá -- nombre e ID reales, sin escribir nada. Solo lectura, no se toca nada en Odoo.</p>
-      ${candidatos.length ? `
-        <table>
-          <thead><tr><th>Proveedor</th><th>RUT</th><th>¿Genera OC real?</th><th></th></tr></thead>
-          <tbody>
-            ${candidatos.map((c, i) => `
-              <tr>
-                <td>${escapeHtml(c.nombre)}</td>
-                <td>${escapeHtml(c.rut)}</td>
-                <td><input type="checkbox" id="bpo-usa-odoo-${i}"></td>
-                <td><button type="button" class="btn" data-agregar-odoo="${i}">Agregar</button></td>
-              </tr>`).join('')}
-          </tbody>
-        </table>` : '<p class="placeholder">No hay proveedores nuevos para agregar -- todos los que ya te facturaron en Odoo están registrados.</p>'}
-      <div style="margin-top:1.25rem">
+      <div class="item-row" style="justify-content:space-between;align-items:flex-start;margin-bottom:.25rem">
+        <h3 style="margin:0">Buscar proveedor en Odoo</h3>
         <button type="button" class="btn" id="bpo-cerrar">Cerrar</button>
       </div>
+      <p class="placeholder" style="margin-bottom:1rem">Proveedores que ya te facturaron alguna vez en Odoo y todavía no están registrados acá -- nombre e ID reales, sin escribir nada. Solo lectura, no se toca nada en Odoo.</p>
+      ${candidatos.length ? `<input type="text" id="bpo-filtro" class="field" style="width:100%;margin-bottom:1rem" placeholder="Filtrar por nombre o RUT...">` : ''}
+      <div id="bpo-filas">${_filasBuscarProveedorOdoo(candidatos, '')}</div>
       <p id="bpo-error" class="error-msg"></p>`;
 
-    overlay.querySelector('#bpo-cerrar').onclick = () => overlay.remove();
-    overlay.querySelectorAll('[data-agregar-odoo]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const i = btn.dataset.agregarOdoo;
-        const c = candidatos[i];
-        const errorEl = overlay.querySelector('#bpo-error');
-        btn.disabled = true;
-        try {
-          await api('/proveedores', {
-            method: 'POST',
-            body: JSON.stringify({
-              nombre: c.nombre, odoo_supplier_id: c.odoo_supplier_id,
-              usa_odoo: overlay.querySelector(`#bpo-usa-odoo-${i}`).checked,
-            }),
-          });
-          overlay.remove();
-          renderView();
-        } catch (err) {
-          btn.disabled = false;
-          errorEl.textContent = err.message;
-        }
+    const bind = () => {
+      overlay.querySelectorAll('[data-agregar-odoo]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const c = candidatos.find(x => String(x.odoo_supplier_id) === btn.dataset.agregarOdoo);
+          const errorEl = overlay.querySelector('#bpo-error');
+          btn.disabled = true;
+          try {
+            await api('/proveedores', {
+              method: 'POST',
+              body: JSON.stringify({
+                nombre: c.nombre, odoo_supplier_id: c.odoo_supplier_id,
+                usa_odoo: overlay.querySelector(`#bpo-usa-odoo-${c.odoo_supplier_id}`).checked,
+              }),
+            });
+            overlay.remove();
+            renderView();
+          } catch (err) {
+            btn.disabled = false;
+            errorEl.textContent = err.message;
+          }
+        });
       });
+    };
+
+    overlay.querySelector('#bpo-cerrar').onclick = () => overlay.remove();
+    overlay.querySelector('#bpo-filtro')?.addEventListener('input', (e) => {
+      overlay.querySelector('#bpo-filas').innerHTML = _filasBuscarProveedorOdoo(candidatos, e.target.value);
+      bind();
     });
+    bind();
   } catch (err) {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="bpo-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#bpo-cerrar-error').onclick = () => overlay.remove();
