@@ -78,6 +78,10 @@ function puedeEditar(s) { return state.usuario && s.editRoles.includes(state.usu
 // este helper evita tener que hilar ese parametro por todas ellas solo
 // para saber si hay que esconder los botones que cambian algo.
 function esAdmin() { return state.usuario && state.usuario.rol === 'administrador'; }
+// Espejo de _require_lectura del backend (administrador u observador,
+// nunca solicitante) -- para botones dentro de una pantalla que el
+// solicitante sí puede abrir pero cuyo endpoint puntual no le permite.
+function puedeLeerAvanzado() { return state.usuario && state.usuario.rol !== 'solicitante'; }
 
 const UNIDADES_CATALOGO = [
   { value: 'un', label: 'Und' },
@@ -806,7 +810,7 @@ async function renderProveedores(el, s) {
         ${proveedores.map(p => `<option value="${p.id}" ${p.id === provId ? 'selected' : ''}>${escapeHtml(p.nombre)}${p.usa_odoo ? ' (Odoo)' : ''}</option>`).join('')}
       </select>
       ${provSeleccionado ? `<p class="placeholder">${provSeleccionado.usa_odoo ? '✓ Genera Orden de Compra real en Odoo.' : 'Sin integración a Odoo — se avisa por correo al generar la OC.'}</p>` : ''}
-      ${provSeleccionado ? `<button type="button" class="btn" id="prov-ver-historico">Ver histórico de facturas en Odoo</button>` : ''}
+      ${provSeleccionado && puedeLeerAvanzado() ? `<button type="button" class="btn" id="prov-ver-historico">Ver histórico de facturas en Odoo</button>` : ''}
       ${!proveedores.length ? '<p class="placeholder">Todavía no hay proveedores — agrega uno arriba.</p>' : ''}
     </div>
     ${provId ? `
