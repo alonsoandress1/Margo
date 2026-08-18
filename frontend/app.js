@@ -852,16 +852,21 @@ async function renderProveedores(el, s) {
     ${editable ? `
       <div class="card">
         <h3>Agregar producto de este proveedor</h3>
-        <p class="placeholder" style="margin-bottom:1rem">Verifica el ID y nombre exactos en Odoo tú mismo — el sistema nunca crea productos nuevos, solo registra la referencia.</p>
+        <p class="placeholder" style="margin-bottom:1rem">Busca el producto real en Odoo por nombre o código -- el ID y nombre quedan tomados de ahí solo, no hace falta escribirlos. El sistema nunca crea productos nuevos en Odoo, solo registra la referencia.</p>
+        <label class="field-label">Buscar producto en Odoo</label>
+        <div class="item-row">
+          <input class="field" id="prod-buscar-odoo" placeholder="Nombre o código..." style="flex:2">
+          <button type="button" class="btn" id="prod-buscar-odoo-btn">Buscar</button>
+        </div>
+        <div id="prod-buscar-resultados" style="margin-bottom:.5rem"></div>
+        <p id="prod-seleccionado" class="placeholder" style="display:none;margin-bottom:.75rem"></p>
         <form id="prod-form">
           <div class="item-row">
-            <input class="field" id="prod-nombre" placeholder="Nombre del insumo" style="flex:2" required>
+            <input class="field" id="prod-nombre" placeholder="Nombre del insumo (nuestra referencia)" style="flex:2" required>
             <select class="field" id="prod-unidad" required>${unidadOptionsHtml('kg')}</select>
           </div>
           <div class="item-row">
-            <input class="field" id="prod-odoo-id" type="number" placeholder="ID producto Odoo" required>
-            <input class="field" id="prod-odoo-name" placeholder="Nombre en Odoo" style="flex:2" required>
-            <input class="field" id="prod-ref" placeholder="Referencia (opcional)">
+            <input class="field" id="prod-ref" placeholder="Referencia (opcional)" style="flex:2">
           </div>
           <div class="item-row">
             <input class="field" id="prod-precio" type="number" step="1" placeholder="Precio unitario">
@@ -878,7 +883,7 @@ async function renderProveedores(el, s) {
             <option value="un">Unidades</option>
           </select>
           <br>
-          <button type="submit" class="btn btn-primary">Agregar producto</button>
+          <button type="submit" class="btn btn-primary" id="prod-submit" disabled>Agregar producto</button>
           <p id="prod-error" class="error-msg"></p>
         </form>
       </div>` : ''}
@@ -986,9 +991,42 @@ async function renderProveedores(el, s) {
       }
     });
 
+    let productoOdooElegido = null;
+
+    document.getElementById('prod-buscar-odoo-btn')?.addEventListener('click', async () => {
+      const q = document.getElementById('prod-buscar-odoo').value.trim();
+      const resultadosEl = document.getElementById('prod-buscar-resultados');
+      if (!q) return;
+      resultadosEl.innerHTML = '<span class="placeholder">Buscando…</span>';
+      try {
+        const productos = await api(`/facturas-dte/productos/buscar?q=${encodeURIComponent(q)}`);
+        resultadosEl.innerHTML = productos.length
+          ? productos.map(p => `<button type="button" class="btn" style="margin:.2rem .2rem 0 0" data-elegir-odoo="${p.id}" data-nombre="${escapeHtml(p.name)}" data-codigo="${escapeHtml(p.default_code || '')}" data-uom="${escapeHtml(p.uom || '')}">${escapeHtml(p.name)}${p.default_code ? ' (' + escapeHtml(p.default_code) + ')' : ''}</button>`).join('')
+          : '<span class="placeholder">Sin resultados.</span>';
+        resultadosEl.querySelectorAll('[data-elegir-odoo]').forEach(pbtn => {
+          pbtn.onclick = () => {
+            productoOdooElegido = { id: parseInt(pbtn.dataset.elegirOdoo, 10), name: pbtn.dataset.nombre };
+            const seleccionadoEl = document.getElementById('prod-seleccionado');
+            seleccionadoEl.style.display = 'block';
+            seleccionadoEl.textContent = `Producto elegido en Odoo: ${productoOdooElegido.name} (ID ${productoOdooElegido.id})`;
+            document.getElementById('prod-submit').disabled = false;
+            const nombreEl = document.getElementById('prod-nombre');
+            if (!nombreEl.value.trim()) nombreEl.value = pbtn.dataset.nombre;
+            const refEl = document.getElementById('prod-ref');
+            if (!refEl.value.trim() && pbtn.dataset.codigo) refEl.value = pbtn.dataset.codigo;
+            const unidadOdoo = _adivinarUnidadOdoo(pbtn.dataset.uom);
+            if (unidadOdoo) document.getElementById('prod-unidad-odoo').value = unidadOdoo;
+          };
+        });
+      } catch (err) {
+        resultadosEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
+      }
+    });
+
     document.getElementById('prod-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const errorEl = document.getElementById('prod-error');
+      if (!productoOdooElegido) { errorEl.textContent = 'Busca y elige un producto de Odoo primero.'; return; }
       const granel = document.getElementById('prod-granel').checked;
       try {
         await api(`/proveedores/${provId}/productos`, {
@@ -996,8 +1034,8 @@ async function renderProveedores(el, s) {
           body: JSON.stringify({
             nombre: document.getElementById('prod-nombre').value.trim(),
             unidad: document.getElementById('prod-unidad').value.trim(),
-            odoo_id: parseInt(document.getElementById('prod-odoo-id').value, 10),
-            odoo_name: document.getElementById('prod-odoo-name').value.trim(),
+            odoo_id: productoOdooElegido.id,
+            odoo_name: productoOdooElegido.name,
             ref: document.getElementById('prod-ref').value.trim() || null,
             precio: parseFloat(document.getElementById('prod-precio').value) || 0,
             a_granel: granel,
