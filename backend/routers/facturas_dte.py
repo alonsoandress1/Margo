@@ -468,21 +468,19 @@ def comparar(dte_id: int, claims: dict = Depends(get_current_claims),
     )
 
 
-@router.get("/proveedor/{proveedor_rut}/historico", response_model=list[HistoricoFacturaOut])
-def historico_proveedor(proveedor_rut: str, limite: int = 6, claims: dict = Depends(get_current_claims),
+@router.get("/proveedor/{partner_id}/historico", response_model=list[HistoricoFacturaOut])
+def historico_proveedor(partner_id: int, limite: int = 6, claims: dict = Depends(get_current_claims),
                          odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Ultimas facturas REALES (account.move, ya posteadas) de un proveedor
-    por RUT, con el precio real de cada linea -- solo lectura, para poder
-    revisar a mano si el precio viene variando entre facturas antes de
-    cargar un Precio Negociado en Proveedores (no se guarda nada solo,
-    el admin decide que precio estipular con los datos que devuelve esto)."""
+    -- por su id real de Odoo (res.partner, el mismo que odoo_supplier_id
+    en nuestra tabla proveedores, para no depender de matchear por RUT --
+    ver el problema de RUTs duplicados documentado en _ejecutar_creacion),
+    con el precio real de cada linea. Solo lectura, para poder revisar a
+    mano si el precio viene variando entre facturas antes de cargar un
+    Precio Negociado en Proveedores (no se guarda nada solo, el admin
+    decide que precio estipular con los datos que devuelve esto)."""
     _require_lectura(claims)
     cliente = _odoo(odoo_creds)
-    partners = cliente._call('res.partner', 'search_read', [[['vat', '=', proveedor_rut]]],
-        {'fields': ['id', 'supplier_rank']})
-    if not partners:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No encontré ningún proveedor con RUT {proveedor_rut} en Odoo")
-    partner_id = max(partners, key=lambda p: p.get('supplier_rank') or 0)['id']
 
     moves = cliente._call('account.move', 'search_read',
         [[['partner_id', '=', partner_id], ['move_type', '=', 'in_invoice'], ['state', '=', 'posted']]],

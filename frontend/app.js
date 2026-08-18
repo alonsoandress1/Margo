@@ -817,6 +817,7 @@ async function renderProveedores(el, s) {
         ${proveedores.map(p => `<option value="${p.id}" ${p.id === provId ? 'selected' : ''}>${escapeHtml(p.nombre)}${p.usa_odoo ? ' (Odoo)' : ''}</option>`).join('')}
       </select>
       ${provSeleccionado ? `<p class="placeholder">${provSeleccionado.usa_odoo ? '✓ Genera Orden de Compra real en Odoo.' : 'Sin integración a Odoo — se avisa por correo al generar la OC.'}</p>` : ''}
+      ${provSeleccionado ? `<button type="button" class="btn" id="prov-ver-historico">Ver histórico de facturas en Odoo</button>` : ''}
       ${!proveedores.length ? '<p class="placeholder">Todavía no hay proveedores — agrega uno arriba.</p>' : ''}
     </div>
     ${provId ? `
@@ -902,6 +903,10 @@ async function renderProveedores(el, s) {
   document.getElementById('prov-sel')?.addEventListener('change', (e) => {
     state.proveedorSel = e.target.value;
     renderView();
+  });
+
+  document.getElementById('prov-ver-historico')?.addEventListener('click', () => {
+    showHistoricoProveedorModal(provSeleccionado.odoo_supplier_id, provSeleccionado.nombre);
   });
 
   if (editable) {
@@ -1713,6 +1718,39 @@ async function showVincularPendienteModal(p) {
       errorEl.textContent = err.message;
     }
   };
+}
+
+async function showHistoricoProveedorModal(partnerId, proveedorNombre) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:820px;max-width:96vw"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const facturas = await api(`/facturas-dte/proveedor/${partnerId}/historico?limite=6`);
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Histórico de facturas — ${escapeHtml(proveedorNombre)}</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Últimas ${facturas.length} facturas reales ya creadas en Odoo, con el precio real de cada línea -- revisa si un mismo producto viene variando de precio entre facturas antes de cargar su Precio Negociado (se edita en la tabla de productos de este proveedor, más abajo en esta pantalla).</p>
+      ${facturas.length ? facturas.map(f => `
+        <table style="margin-bottom:1rem">
+          <thead><tr><th colspan="3">${escapeHtml(f.invoice_name)} — ${f.fecha || '—'}</th></tr>
+          <tr><th>Producto</th><th>Cantidad</th><th>Precio unitario</th></tr></thead>
+          <tbody>
+            ${f.lineas.map(l => `
+              <tr>
+                <td>${escapeHtml(l.product_name)}</td>
+                <td>${l.cantidad}</td>
+                <td>${_fmtMonto(l.precio_unit)}</td>
+              </tr>`).join('')}
+            ${!f.lineas.length ? '<tr><td colspan="3" class="placeholder">Sin líneas de producto.</td></tr>' : ''}
+          </tbody>
+        </table>`).join('') : '<p class="placeholder">No encontré facturas posteadas para este proveedor en Odoo.</p>'}
+      <div style="margin-top:.5rem"><button type="button" class="btn" id="hist-prov-cerrar">Cerrar</button></div>`;
+    overlay.querySelector('#hist-prov-cerrar').onclick = () => overlay.remove();
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="hist-prov-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#hist-prov-cerrar-error').onclick = () => overlay.remove();
+  }
 }
 
 async function showStockInicialModal(localId, itemsLocal) {
