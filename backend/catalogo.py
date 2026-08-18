@@ -31,12 +31,21 @@ def _precio_comparacion(r: dict) -> float:
 
 def productos_mas_baratos(db, keys: list[str]) -> dict[str, dict]:
     """Para cada ingrediente_key, la fila de odoo_mapping mas barata (ver
-    _precio_comparacion)."""
+    _precio_comparacion) entre los proveedores todavia activos -- un
+    proveedor eliminado (soft-delete, ver proveedores.py::eliminar_proveedor)
+    no debe seguir siendo candidato a "mas barato" para sugerencia de
+    compra ni generar_oc, aunque sus filas de odoo_mapping sigan existiendo
+    (se conservan por el historial)."""
     if not keys:
         return {}
     rows = db.table("odoo_mapping").select("*").in_("ingrediente_key", keys).execute().data or []
+    proveedor_ids = {r["proveedor_id"] for r in rows if r.get("proveedor_id")}
+    activos = {p["id"] for p in db.table("proveedores").select("id").in_("id", list(proveedor_ids))
+               .eq("activo", True).execute().data or []} if proveedor_ids else set()
     mejor: dict[str, dict] = {}
     for r in rows:
+        if r.get("proveedor_id") and r["proveedor_id"] not in activos:
+            continue
         k = r["ingrediente_key"]
         actual = mejor.get(k)
         if actual is None or _precio_comparacion(r) < _precio_comparacion(actual):

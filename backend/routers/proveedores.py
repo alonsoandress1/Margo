@@ -1,15 +1,44 @@
+import os
+import sys
 from calendar import monthrange
 from datetime import date
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 
 from ..catalogo import _producto_de
 from ..db import get_db
-from ..deps import get_current_claims
+from ..deps import get_current_claims, get_odoo_credentials
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from odoo_connector import OdooClient  # noqa: E402
+
 from ..schemas import (AhorroMensualOut, AlertaPrecioOut, ItemAhorroOut, ProductoIn, ProductoOut,
-                       ProductoUpdateIn, ProveedorIn, ProveedorOut)
+                       ProductoUpdateIn, ProveedorIn, ProveedorOdooOut, ProveedorOut)
 
 router = APIRouter(prefix="/proveedores", tags=["proveedores"])
+
+
+def _odoo(odoo_creds: tuple[str, str]) -> OdooClient:
+    """Conecta con las credenciales de Odoo de la persona que esta usando el
+    sistema en este momento -- nunca una cuenta compartida (pedido explicito
+    del usuario). El navegador las manda en cada request (headers
+    X-Odoo-User/X-Odoo-Password, ver get_odoo_credentials en deps.py);
+    nunca se guardan en la base de datos. Mismo patron que facturas_dte.py."""
+    usuario, password = odoo_creds
+    try:
+        cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"], usuario, password)
+    except KeyError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
+    ok, msg = cliente.connect()
+    if not ok:
+        if "credenciales incorrectas" in msg.lower():
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
+    return cliente
 
 
 def _require_admin(claims: dict):
@@ -34,10 +63,75 @@ def listar_proveedores(claims: dict = Depends(get_current_claims)):
 def crear_proveedor(body: ProveedorIn, claims: dict = Depends(get_current_claims)):
     _require_admin(claims)
     db = get_db()
-    res = db.table("proveedores").insert({
-        "nombre": body.nombre, "odoo_supplier_id": body.odoo_supplier_id, "usa_odoo": body.usa_odoo,
-    }).execute()
+    try:
+        res = db.table("proveedores").insert({
+            "nombre": body.nombre, "odoo_supplier_id": body.odoo_supplier_id, "usa_odoo": body.usa_odoo,
+        }).execute()
+    except APIError as e:
+        if e.code != "23505":
+            raise
+        # Ya existia un proveedor con ese odoo_supplier_id -- probablemente
+        # se habia eliminado antes (soft-delete, ver eliminar_proveedor) y
+        # se esta volviendo a agregar, a mano o desde "Buscar en Odoo".
+        # Reactivar en vez de fallar, para que eliminar sea reversible sin
+        # arriesgar filas duplicadas para el mismo proveedor real.
+        res = db.table("proveedores").update({
+            "nombre": body.nombre, "usa_odoo": body.usa_odoo, "activo": True,
+        }).eq("odoo_supplier_id", body.odoo_supplier_id).execute()
     return res.data[0]
+
+
+@router.delete("/{proveedor_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_proveedor(proveedor_id: str, claims: dict = Depends(get_current_claims)):
+    """Elimina (desactiva) un proveedor -- no se borra de verdad porque sus
+    productos (odoo_mapping) e historial de precios/compras siguen
+    referenciandolo; solo deja de aparecer en las listas para elegir.
+    Reversible: volver a agregarlo (a mano o desde "Buscar en Odoo" con el
+    mismo proveedor real) lo reactiva en vez de duplicarlo (ver
+    crear_proveedor)."""
+    _require_admin(claims)
+    db = get_db()
+    existente = db.table("proveedores").select("id").eq("id", proveedor_id).execute()
+    if not existente.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proveedor no encontrado")
+    db.table("proveedores").update({"activo": False}).eq("id", proveedor_id).execute()
+
+
+@router.get("/odoo/candidatos", response_model=list[ProveedorOdooOut])
+def buscar_proveedores_odoo(claims: dict = Depends(get_current_claims),
+                             odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Proveedores reales que ya tienen al menos una factura (DTE) en Odoo,
+    para agregarlos sin escribir nombre/ID a mano -- solo lectura de Odoo,
+    nunca se crea ni modifica nada alla. El RUT real se cruza contra
+    res.partner (mismo criterio de matcheo por "vat" que ya usa
+    facturas_dte.py::marcar_ingresada_manual) para resolver el id interno
+    real, y se excluyen los que ya estan registrados como proveedor activo
+    en nuestra tabla."""
+    _require_admin(claims)
+    cliente = _odoo(odoo_creds)
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[]], {'fields': ['issuer_rut', 'issuer_name']})
+    nombre_por_rut: dict[str, str] = {}
+    for d in docs:
+        rut = d.get('issuer_rut')
+        if rut:
+            nombre_por_rut[rut] = d.get('issuer_name') or nombre_por_rut.get(rut, '')
+    if not nombre_por_rut:
+        return []
+
+    partners = cliente._call('res.partner', 'search_read',
+        [[['vat', 'in', list(nombre_por_rut.keys())]]], {'fields': ['id', 'vat']})
+    partner_por_rut = {p['vat']: p['id'] for p in partners if p.get('vat')}
+
+    db = get_db()
+    ya_registrados = {p["odoo_supplier_id"] for p in
+                       db.table("proveedores").select("odoo_supplier_id").eq("activo", True).execute().data or []}
+
+    resultado = [
+        ProveedorOdooOut(rut=rut, nombre=nombre, odoo_supplier_id=partner_por_rut[rut])
+        for rut, nombre in nombre_por_rut.items()
+        if rut in partner_por_rut and partner_por_rut[rut] not in ya_registrados
+    ]
+    return sorted(resultado, key=lambda p: p.nombre)
 
 
 @router.get("/{proveedor_id}/productos", response_model=list[ProductoOut])

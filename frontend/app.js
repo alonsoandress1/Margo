@@ -824,6 +824,8 @@ async function renderProveedores(el, s) {
       </div>
       <div class="card">
         <h3>Agregar proveedor</h3>
+        <p class="placeholder" style="margin-bottom:.75rem">Si ya te facturó alguna vez, buscalo en Odoo -- se auto-completa solo, sin escribir nada. Si es nuevo (todavía no factura), agrégalo a mano abajo.</p>
+        <button type="button" class="btn" id="prov-buscar-odoo" style="margin-bottom:1rem">Buscar proveedor en Odoo</button>
         <form id="prov-form">
           <div class="item-row">
             <input class="field" id="prov-nombre" placeholder="Nombre del proveedor" style="flex:2" required>
@@ -843,6 +845,7 @@ async function renderProveedores(el, s) {
       </select>
       ${provSeleccionado ? `<p class="placeholder">${provSeleccionado.usa_odoo ? '✓ Genera Orden de Compra real en Odoo.' : 'Sin integración a Odoo — se avisa por correo al generar la OC.'}</p>` : ''}
       ${provSeleccionado && puedeLeerAvanzado() ? `<button type="button" class="btn" id="prov-ver-historico">Ver histórico de facturas en Odoo</button>` : ''}
+      ${provSeleccionado && editable ? `<button type="button" class="btn btn-reject" id="prov-eliminar">Eliminar proveedor</button>` : ''}
       ${!proveedores.length ? '<p class="placeholder">Todavía no hay proveedores — agrega uno arriba.</p>' : ''}
     </div>
     ${provId ? `
@@ -932,6 +935,19 @@ async function renderProveedores(el, s) {
 
   document.getElementById('prov-ver-historico')?.addEventListener('click', () => {
     showHistoricoProveedorModal(provSeleccionado.odoo_supplier_id, provSeleccionado.nombre);
+  });
+
+  document.getElementById('prov-buscar-odoo')?.addEventListener('click', () => showBuscarProveedorOdooModal());
+
+  document.getElementById('prov-eliminar')?.addEventListener('click', async () => {
+    if (!confirm(`¿Eliminar "${provSeleccionado.nombre}"? Sus productos e historial de compras/precios se conservan -- solo deja de aparecer en las listas para elegir. Se puede revertir volviendo a agregarlo (a mano o buscándolo de nuevo en Odoo).`)) return;
+    try {
+      await api(`/proveedores/${provSeleccionado.id}`, { method: 'DELETE' });
+      state.proveedorSel = null;
+      renderView();
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
   if (editable) {
@@ -1756,6 +1772,64 @@ async function showVincularPendienteModal(p) {
       errorEl.textContent = err.message;
     }
   };
+}
+
+async function showBuscarProveedorOdooModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:640px"><p class="placeholder">Buscando en Odoo…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const candidatos = await api('/proveedores/odoo/candidatos');
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Buscar proveedor en Odoo</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Proveedores que ya te facturaron alguna vez en Odoo y todavía no están registrados acá -- nombre e ID reales, sin escribir nada. Solo lectura, no se toca nada en Odoo.</p>
+      ${candidatos.length ? `
+        <table>
+          <thead><tr><th>Proveedor</th><th>RUT</th><th>¿Genera OC real?</th><th></th></tr></thead>
+          <tbody>
+            ${candidatos.map((c, i) => `
+              <tr>
+                <td>${escapeHtml(c.nombre)}</td>
+                <td>${escapeHtml(c.rut)}</td>
+                <td><input type="checkbox" id="bpo-usa-odoo-${i}"></td>
+                <td><button type="button" class="btn" data-agregar-odoo="${i}">Agregar</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="placeholder">No hay proveedores nuevos para agregar -- todos los que ya te facturaron en Odoo están registrados.</p>'}
+      <div style="margin-top:1.25rem">
+        <button type="button" class="btn" id="bpo-cerrar">Cerrar</button>
+      </div>
+      <p id="bpo-error" class="error-msg"></p>`;
+
+    overlay.querySelector('#bpo-cerrar').onclick = () => overlay.remove();
+    overlay.querySelectorAll('[data-agregar-odoo]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const i = btn.dataset.agregarOdoo;
+        const c = candidatos[i];
+        const errorEl = overlay.querySelector('#bpo-error');
+        btn.disabled = true;
+        try {
+          await api('/proveedores', {
+            method: 'POST',
+            body: JSON.stringify({
+              nombre: c.nombre, odoo_supplier_id: c.odoo_supplier_id,
+              usa_odoo: overlay.querySelector(`#bpo-usa-odoo-${i}`).checked,
+            }),
+          });
+          overlay.remove();
+          renderView();
+        } catch (err) {
+          btn.disabled = false;
+          errorEl.textContent = err.message;
+        }
+      });
+    });
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="bpo-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#bpo-cerrar-error').onclick = () => overlay.remove();
+  }
 }
 
 async function showHistoricoProveedorModal(partnerId, proveedorNombre) {

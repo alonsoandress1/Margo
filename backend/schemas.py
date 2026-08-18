@@ -219,6 +219,12 @@ class ProveedorIn(BaseModel):
     usa_odoo: bool = False
 
 
+class ProveedorOdooOut(BaseModel):
+    rut: str
+    nombre: str
+    odoo_supplier_id: int
+
+
 class ProductoOut(BaseModel):
     id: str
     ingrediente_key: str
