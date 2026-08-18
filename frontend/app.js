@@ -503,6 +503,7 @@ function logout() {
   state.section = 'resumen';
   state.invLocal = null;
   state.proveedorSel = null;
+  state.proveedorProductoFiltro = '';
   state.dteDesde = null;
   state.dteHasta = null;
   state.dteFiltroFolio = '';
@@ -888,15 +889,20 @@ async function renderProveedores(el, s) {
         </form>
       </div>` : ''}
     <div class="card">
+      ${productos.length ? `
+      <div style="max-width:320px;margin-bottom:1rem">
+        <label class="field-label">Buscar producto</label>
+        <input type="text" id="prod-filtro" class="field" style="width:100%" placeholder="Nombre, nombre en Odoo o referencia..." value="${state.proveedorProductoFiltro || ''}">
+      </div>` : ''}
       ${editable && productos.length ? `
       <div class="item-row" style="align-items:center;margin-bottom:.75rem">
         <button type="button" class="btn btn-reject" id="prod-del-selected" disabled>Eliminar seleccionados (<span id="prod-selected-count">0</span>)</button>
       </div>` : ''}
-      <table>
+      <table id="prod-tabla">
         <thead><tr>${editable ? '<th><input type="checkbox" id="prod-check-all"></th>' : ''}<th>Insumo</th><th>Nombre Odoo</th><th>Ref</th><th>Precio</th><th title="Precio pactado en un acuerdo comercial con este proveedor para este insumo -- distinto del Precio de arriba">Precio Negociado</th><th>Formato</th><th title="Unidad que se manda a Odoo al crear la OC/factura para este producto">Unidad Odoo</th>${editable ? '<th>Acciones</th>' : ''}</tr></thead>
         <tbody>
           ${productos.map(p => `
-            <tr>
+            <tr data-prod-row data-filtro="${escapeHtml((p.nombre + ' ' + p.odoo_name + ' ' + (p.ref || '')).toLowerCase())}">
               ${editable ? `<td><input type="checkbox" class="prod-check" data-id="${p.id}"></td>` : ''}
               <td>${escapeHtml(p.nombre)}
                 ${editable
@@ -935,6 +941,7 @@ async function renderProveedores(el, s) {
 
   document.getElementById('prov-sel')?.addEventListener('change', (e) => {
     state.proveedorSel = e.target.value;
+    state.proveedorProductoFiltro = '';
     renderView();
   });
 
@@ -1093,6 +1100,18 @@ async function renderProveedores(el, s) {
           alert(err.message);
         }
       };
+    });
+
+    const aplicarFiltroProductos = (filtro) => {
+      const f = (filtro || '').trim().toLowerCase();
+      el.querySelectorAll('#prod-tabla tbody tr[data-prod-row]').forEach(tr => {
+        tr.style.display = !f || tr.dataset.filtro.includes(f) ? '' : 'none';
+      });
+    };
+    aplicarFiltroProductos(state.proveedorProductoFiltro);
+    document.getElementById('prod-filtro')?.addEventListener('input', (e) => {
+      state.proveedorProductoFiltro = e.target.value;
+      aplicarFiltroProductos(e.target.value);
     });
 
     const prodChecks = () => Array.from(el.querySelectorAll('.prod-check'));
