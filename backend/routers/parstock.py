@@ -84,6 +84,16 @@ def actualizar(body: ParStockUpdateIn, claims: dict = Depends(get_current_claims
 
 @router.delete("/par-stock", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar(local_id: str, ingrediente_key: str, claims: dict = Depends(get_current_claims)):
+    """Quita el insumo de Par Stock para este local. Si ademas ya no queda
+    en Par Stock de NINGUN otro local (un mismo insumo puede tener Par
+    Stock en varios locales -- borrarlo de uno no debe afectar a los
+    demas) y tiene un solo proveedor en el catalogo (sin ambiguedad de
+    "cual proveedor ya no lo vende"), se elimina tambien del catalogo de
+    ese proveedor -- pedido explicito del usuario: un insumo sin Par
+    Stock en ningun lado no tiene motivo para seguir en el catalogo, y no
+    quiere tener que borrarlo dos veces a mano. Si tiene 2-3 proveedores,
+    se deja como esta -- no hay forma de saber cual de ellos ya no lo
+    vende, mejor no borrar el producto equivocado."""
     _require_admin(claims)
     verificar_acceso_local(claims, local_id)
     db = get_db()
@@ -93,3 +103,9 @@ def eliminar(local_id: str, ingrediente_key: str, claims: dict = Depends(get_cur
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Insumo no encontrado para ese local")
 
     db.table("par_stock").delete().eq("local_id", local_id).eq("ingrediente_key", ingrediente_key).execute()
+
+    otros_locales = db.table("par_stock").select("local_id").eq("ingrediente_key", ingrediente_key).execute()
+    if not otros_locales.data:
+        mapeos = db.table("odoo_mapping").select("id").eq("ingrediente_key", ingrediente_key).execute().data or []
+        if len(mapeos) == 1:
+            db.table("odoo_mapping").delete().eq("id", mapeos[0]["id"]).execute()
