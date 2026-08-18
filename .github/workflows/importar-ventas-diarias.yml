@@ -13,10 +13,12 @@ name: Importar ventas diarias (TCPOS)
 jobs:
   importar:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Llamar al endpoint de importacion de ventas
         run: |
           status=$(curl -s -o /tmp/respuesta.json -w "%{http_code}" -X POST \
+            --connect-timeout 15 --max-time 300 \
             "https://margo-compras-api.onrender.com/planilla/importar-ventas-tcpos" \
             -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}")
           echo "Respuesta del servidor:"

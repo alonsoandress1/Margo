@@ -493,6 +493,19 @@ function logout() {
   localStorage.removeItem('usuario');
   state.token = null;
   state.usuario = null;
+  // En una compu compartida, si otra persona inicia sesion en la misma
+  // pestaña sin recargar, showApp() vuelve a llamar renderView() con
+  // state.section todavia en la seccion de la sesion anterior -- si esa
+  // seccion no es visible para el rol nuevo, ve un error en vez de su
+  // Resumen normal. Reset a resumen + limpieza de filtros que quedarian
+  // pegados de la sesion anterior.
+  state.section = 'resumen';
+  state.invLocal = null;
+  state.proveedorSel = null;
+  state.dteDesde = null;
+  state.dteHasta = null;
+  state.dteFiltroFolio = '';
+  state.planillaFiltroFolio = '';
   _limpiarOdooSesion();
   showLogin();
 }
@@ -643,24 +656,38 @@ function renderNav() {
 async function renderView() {
   const el = document.getElementById('view-content');
   el.innerHTML = '<p class="placeholder">Cargando…</p>';
+  // Si el usuario navega rapido (clic en una seccion, clic en otra antes de
+  // que la primera termine de cargar -- facil que pase con el arranque en
+  // frio del servidor, ver showApp mas abajo), la respuesta tardia de la
+  // primera podia pintar por encima de la segunda ya mostrada. miSection
+  // guarda a que seccion pertenece este llamado; si state.section ya
+  // cambio para cuando termina, se descarta y se vuelve a pintar la
+  // seccion correcta en vez de dejar la vieja pegada en pantalla.
+  const miSection = state.section;
   const s = seccion(state.section);
   try {
-    if (state.section === 'resumen') return renderResumen(el, s);
-    if (state.section === 'pedidos') return renderPedidos(el, s);
-    if (state.section === 'locales') return renderLocales(el, s);
-    if (state.section === 'inventario') return renderInventario(el, s);
-    if (state.section === 'mermas') return renderMermas(el, s);
-    if (state.section === 'parstock') return renderParStock(el, s);
-    if (state.section === 'proveedores') return renderProveedores(el, s);
-    if (state.section === 'recetas') return renderRecetas(el, s);
-    if (state.section === 'usuarios') return renderUsuarios(el, s);
-    if (state.section === 'facturas-dte') return renderFacturasDte(el, s);
-    if (state.section === 'planilla-compras') return renderPlanillaCompras(el, s);
-    if (state.section === 'ahorro-acuerdos') return renderAhorroAcuerdos(el, s);
-    return renderPlaceholder(el, s);
+    await _despacharVista(el, s);
   } catch (err) {
-    el.innerHTML = `<p class="error-msg">${err.message}</p>`;
+    if (state.section === miSection) el.innerHTML = `<p class="error-msg">${err.message}</p>`;
+    return;
   }
+  if (state.section !== miSection) renderView();
+}
+
+function _despacharVista(el, s) {
+  if (state.section === 'resumen') return renderResumen(el, s);
+  if (state.section === 'pedidos') return renderPedidos(el, s);
+  if (state.section === 'locales') return renderLocales(el, s);
+  if (state.section === 'inventario') return renderInventario(el, s);
+  if (state.section === 'mermas') return renderMermas(el, s);
+  if (state.section === 'parstock') return renderParStock(el, s);
+  if (state.section === 'proveedores') return renderProveedores(el, s);
+  if (state.section === 'recetas') return renderRecetas(el, s);
+  if (state.section === 'usuarios') return renderUsuarios(el, s);
+  if (state.section === 'facturas-dte') return renderFacturasDte(el, s);
+  if (state.section === 'planilla-compras') return renderPlanillaCompras(el, s);
+  if (state.section === 'ahorro-acuerdos') return renderAhorroAcuerdos(el, s);
+  return renderPlaceholder(el, s);
 }
 
 async function renderResumen(el, s) {

@@ -73,6 +73,24 @@ def actualizar(usuario_id: str, body: UsuarioUpdateIn, claims: dict = Depends(ge
     existente = db.table("usuarios").select("*").eq("id", usuario_id).execute()
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+    actual = existente.data[0]
+
+    # Si este usuario es HOY administrador activo y el cambio lo dejaria de
+    # ser (desactivarlo o bajarle el rol), hay que asegurarse de que quede
+    # al menos otro administrador activo -- si no, el sistema queda sin
+    # nadie que pueda gestionar usuarios (solo se arreglaria entrando
+    # directo a Supabase). Mismo espiritu que la proteccion de
+    # auto-eliminacion en eliminar() mas abajo.
+    deja_de_ser_admin_activo = (
+        actual["rol"] == "administrador" and actual["activo"]
+        and ((body.rol is not None and body.rol != "administrador") or body.activo is False)
+    )
+    if deja_de_ser_admin_activo:
+        otros_admins = db.table("usuarios").select("id").eq("rol", "administrador") \
+            .eq("activo", True).neq("id", usuario_id).execute()
+        if not otros_admins.data:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                "No puedes dejar el sistema sin ningún administrador activo -- agrega o reactiva otro admin primero")
 
     update = {}
     if body.nombre is not None:

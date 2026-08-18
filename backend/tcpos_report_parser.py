@@ -40,6 +40,13 @@ def parsear_article_analysis(pdf_bytes: bytes) -> list[dict]:
                     try:
                         cantidad = int(piezas_raw)
                     except ValueError:
+                        # Si TCPOS cambia el formato del reporte, esto se
+                        # descartaria en silencio y las ventas de ese
+                        # articulo quedarian subestimadas (afecta tanto el
+                        # descuento real de stock como "Ventas teoricas" de
+                        # Mermas) sin que nadie se entere -- al menos que
+                        # quede en los logs de Render.
+                        print(f"[TCPOS] fila descartada, 'Pieces Sold' no es un entero -- codigo={codigo!r} valor={piezas_raw!r}")
                         continue
                     filas.append({"codigo": codigo, "nombre": nombre, "cantidad": cantidad})
     return filas
