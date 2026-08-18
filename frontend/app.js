@@ -1071,7 +1071,7 @@ async function renderProveedores(el, s) {
           'Se va a migrar su Par Stock y todo su historial de bodega a la nueva unidad -- no se pierde nada, pero no se puede deshacer solo.'
         )) return;
         try {
-          await api(`/proveedores/${provId}/productos`, {
+          const actualizado = await api(`/proveedores/${provId}/productos`, {
             method: 'PATCH',
             body: JSON.stringify({
               ingrediente_key: key,
@@ -1083,7 +1083,21 @@ async function renderProveedores(el, s) {
               precio_negociado: precioNegociado === '' ? null : parseFloat(precioNegociado),
             }),
           });
-          renderView();
+          if (unidadNueva !== unidadActual) {
+            // Cambiar la unidad cambia el ingrediente_key -- migra Par
+            // Stock/historial de bodega, mejor refrescar todo para que
+            // quede coherente en toda la pantalla.
+            renderView();
+            return;
+          }
+          // Guardado normal (precio/precio negociado/formato/unidad Odoo):
+          // no hace falta recargar toda la pantalla por un solo campo --
+          // solo actualiza la copia en memoria y avisa en el boton.
+          const idx = productos.findIndex(p => p.ingrediente_key === key);
+          if (idx !== -1) productos[idx] = actualizado;
+          const textoOriginal = btn.textContent;
+          btn.textContent = 'Guardado ✓';
+          setTimeout(() => { btn.textContent = textoOriginal; }, 1500);
         } catch (err) {
           alert(err.message);
         }
