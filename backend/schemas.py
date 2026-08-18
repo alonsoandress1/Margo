@@ -656,12 +656,16 @@ class VentaPeriodoIn(BaseModel):
     venta_periodo: float
 
 
-class VentaPeriodoTcposOut(BaseModel):
+class VentaPeriodoJobOut(BaseModel):
+    id: str
     anio: int
     mes: int
-    venta_periodo: float
-    desde: str
-    hasta: str
+    estado: str
+    venta_periodo: float | None = None
+    desde: str | None = None
+    hasta: str | None = None
+    error_mensaje: str | None = None
+    creado_en: str
 
 
 class ProveedorTipoOut(BaseModel):

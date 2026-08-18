@@ -11,10 +11,11 @@ en silencio el dia que se agregue un local nuevo (ver _company_ids_locales)."""
 import os
 import sys
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
+from postgrest.exceptions import APIError
 
 from ..db import get_db
 from ..deps import get_current_claims, get_odoo_credentials
@@ -27,7 +28,7 @@ from odoo_connector import OdooClient  # noqa: E402
 from tcpos_connector import TcposWebReportSession, construir_parametros  # noqa: E402
 
 from ..schemas import (PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen, PlanillaFaltanteOut,
-                       ProveedorTipoIn, ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoTcposOut)
+                       ProveedorTipoIn, ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoJobOut)
 from ..tcpos_report_parser import parsear_financial_overview_cash_to_deposit
 
 _MESES_ES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO",
@@ -266,41 +267,31 @@ def fijar_venta_periodo(body: VentaPeriodoIn, claims: dict = Depends(get_current
     }, on_conflict="anio,mes").execute()
 
 
-@router.get("/venta-periodo/tcpos", response_model=VentaPeriodoTcposOut)
-def obtener_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
-    """Trae la Venta del Periodo real desde TCPOS -- reporte "Financial
-    overview", "Cash to deposit" de la fila Total (asi lo definio el
-    usuario: es el monto vendido). Rango: dia 1 del mes hasta AYER como
-    maximo -- nunca hasta hoy, el dia en curso todavia no cierra (mismo
-    criterio que el import diario de ventas en planilla.py). Solo trae el
-    valor, no lo guarda -- el admin confirma con PUT /venta-periodo."""
-    _require_lectura(claims)
-    ultimo_dia_mes = monthrange(anio, mes)[1]
-    hasta = date(anio, mes, ultimo_dia_mes)
-    ayer = date.today() - timedelta(days=1)
-    if hasta > ayer:
-        hasta = ayer
-    desde = date(anio, mes, 1)
-    if desde > hasta:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Todavía no hay ventas cerradas para ese mes")
-
+def _procesar_venta_periodo_tcpos(job_id: str, anio: int, mes: int) -> None:
+    """Corre en un hilo aparte (FastAPI BackgroundTasks) -- confirmado en
+    vivo que el reporte "Financial overview" de TCPOS para el mes corrido
+    puede tardar mas de 90s (y crece a medida que avanza el mes), muy por
+    encima de lo que un timeout de peticion HTTP sincrona puede esperar sin
+    arriesgarse a chocar con el propio limite de proxy de Render (~100s).
+    Encolar saca ese tiempo de espera de la peticion HTTP -- el frontend
+    hace polling de GET /venta-periodo/tcpos/estado en vez de quedarse
+    colgado en un solo fetch."""
+    db = get_db()
+    db.table("planilla_compras_venta_periodo_job").update({"estado": "procesando"}).eq("id", job_id).execute()
     try:
-        # timeout mas alto que el default (30s) -- a diferencia del reporte
-        # diario de ventas (un solo dia), este cubre todo el mes corrido y
-        # mientras mas avanza el mes, mas tarda TCPOS en generarlo. Con el
-        # default ya estaba dando timeout consistente a mitad de mes
-        # (confirmado en vivo: fallaba justo a los ~32s, y de nuevo justo a
-        # los ~77s con timeout=75 -- TCPOS realmente tarda mas que eso para
-        # este reporte, no es un margen chico). Subido al limite practico
-        # antes de acercarse al timeout de proxy HTTP de Render (~100s).
+        ultimo_dia_mes = monthrange(anio, mes)[1]
+        hasta = date(anio, mes, ultimo_dia_mes)
+        ayer = date.today() - timedelta(days=1)
+        if hasta > ayer:
+            hasta = ayer
+        desde = date(anio, mes, 1)
+        if desde > hasta:
+            raise RuntimeError("Todavía no hay ventas cerradas para ese mes")
+
         session = TcposWebReportSession(
             os.environ["TCPOS_URL"], os.environ["TCPOS_OPERATOR_CODE"], os.environ["TCPOS_PASSWORD"],
-            timeout=95,
+            timeout=280,  # ya no esta atado al timeout de una peticion HTTP -- margen generoso
         )
-    except KeyError as e:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
-
-    try:
         formulario = session.formulario_de_parametros(_TCPOS_REPORT_FORM_NAME, _TCPOS_REPORT_ASSEMBLY_NAME)
         overrides = {
             "edDateFrom": f"{desde.isoformat()}T00:00:00", "edDateTo": f"{hasta.isoformat()}T00:00:00",
@@ -313,11 +304,67 @@ def obtener_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_
             raise RuntimeError(f"TCPOS no devolvió un pdfUrl válido: {resultado}")
         pdf_bytes = session.descargar_archivo(pdf_url)
         venta_periodo = parsear_financial_overview_cash_to_deposit(pdf_bytes)
-    except Exception as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Error al traer la venta desde TCPOS: {e}")
 
-    return VentaPeriodoTcposOut(anio=anio, mes=mes, venta_periodo=venta_periodo,
-                                 desde=desde.isoformat(), hasta=hasta.isoformat())
+        db.table("planilla_compras_venta_periodo_job").update({
+            "estado": "completado", "venta_periodo": venta_periodo,
+            "desde": desde.isoformat(), "hasta": hasta.isoformat(),
+        }).eq("id", job_id).execute()
+    except Exception as e:
+        db.table("planilla_compras_venta_periodo_job").update({
+            "estado": "error", "error_mensaje": str(e)[:500],
+        }).eq("id", job_id).execute()
+
+
+@router.post("/venta-periodo/tcpos", response_model=VentaPeriodoJobOut, status_code=status.HTTP_202_ACCEPTED)
+def encolar_venta_periodo_tcpos(anio: int, mes: int, background_tasks: BackgroundTasks,
+                                 claims: dict = Depends(get_current_claims)):
+    """Encola traer la Venta del Periodo real desde TCPOS (reporte
+    "Financial overview", "Cash to deposit" de la fila Total) en vez de
+    esperarlo en la misma peticion -- ver _procesar_venta_periodo_tcpos.
+    El frontend hace polling de GET /venta-periodo/tcpos/estado para saber
+    cuando termino. Solo trae el valor, no lo guarda -- el admin confirma
+    con PUT /venta-periodo."""
+    _require_admin(claims)
+    db = get_db()
+    try:
+        fila = db.table("planilla_compras_venta_periodo_job").insert({
+            "anio": anio, "mes": mes, "estado": "pendiente", "creado_por": claims["sub"],
+        }).execute().data[0]
+    except APIError as e:
+        if e.code == "23505":
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                "Ya hay una consulta a TCPOS en curso para este mes -- espera a que termine") from e
+        raise
+    background_tasks.add_task(_procesar_venta_periodo_tcpos, fila["id"], anio, mes)
+    return VentaPeriodoJobOut(**fila)
+
+
+TIMEOUT_VENTA_PERIODO_JOB_MINUTOS = 6
+
+
+@router.get("/venta-periodo/tcpos/estado", response_model=VentaPeriodoJobOut | None)
+def estado_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_current_claims)):
+    """Ultimo job de este mes -- para hacer polling desde el frontend (y
+    para retomarlo solo si se recarga la pagina mientras esta en curso).
+    None si nunca se pidio para este mes.
+
+    Igual que TIMEOUT_COLA_PROCESANDO_MINUTOS en facturas_dte.py: si un job
+    lleva "procesando" mas de TIMEOUT_VENTA_PERIODO_JOB_MINUTOS, se marca
+    como error -- cubre el caso de que el servidor se reinicie a mitad de
+    camino (deploy, o que Render lo duerma/reinicie en plan Free) y el hilo
+    en segundo plano se pierda para siempre, dejando el job huerfano
+    "procesando" sin que nada lo vuelva a tocar."""
+    _require_lectura(claims)
+    db = get_db()
+    limite = (datetime.now(timezone.utc) - timedelta(minutes=TIMEOUT_VENTA_PERIODO_JOB_MINUTOS)).isoformat()
+    db.table("planilla_compras_venta_periodo_job").update({
+        "estado": "error",
+        "error_mensaje": "Se interrumpió mientras consultaba TCPOS (probablemente un reinicio del servidor) -- "
+                          "puedes reintentar.",
+    }).eq("anio", anio).eq("mes", mes).eq("estado", "procesando").lt("creado_en", limite).execute()
+    filas = db.table("planilla_compras_venta_periodo_job").select("*") \
+        .eq("anio", anio).eq("mes", mes).order("creado_en", desc=True).limit(1).execute().data
+    return VentaPeriodoJobOut(**filas[0]) if filas else None
 
 
 @router.get("/proveedores", response_model=list[ProveedorTipoOut])

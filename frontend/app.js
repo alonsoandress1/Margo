@@ -48,6 +48,7 @@ let state = {
   planillaItems: null,
   planillaResumen: null,
   planillaFiltroFolio: '',
+  pcVentaPeriodoTimer: null,
   dteCola: [],
   dteColaTimer: null,
   dteFiltroFolio: '',
@@ -506,6 +507,10 @@ function logout() {
   state.dteHasta = null;
   state.dteFiltroFolio = '';
   state.planillaFiltroFolio = '';
+  if (state.pcVentaPeriodoTimer) clearTimeout(state.pcVentaPeriodoTimer);
+  state.pcVentaPeriodoTimer = null;
+  if (state.dteColaTimer) clearTimeout(state.dteColaTimer);
+  state.dteColaTimer = null;
   _limpiarOdooSesion();
   showLogin();
 }
@@ -3404,6 +3409,71 @@ const TIPOS_PLANILLA_COMPRAS = [
   { id: 'AS', label: 'AS — Aseo' },
 ];
 
+// Trae la Venta del Periodo desde TCPOS en segundo plano (el reporte del
+// mes corrido puede tardar varios minutos) -- mismo patron de polling que
+// iniciarPollingCola para la cola de creacion de facturas en Odoo.
+async function pollVentaPeriodoTcpos(anio, mes) {
+  if (state.pcVentaPeriodoTimer) clearTimeout(state.pcVentaPeriodoTimer);
+  if (state.section !== 'planilla-compras') return;
+  const [anioActual, mesActual] = (state.planillaMes || '').split('-').map(Number);
+  if (anioActual !== anio || mesActual !== mes) return; // el usuario cambio de mes -- no pisar su pantalla
+
+  let job;
+  try {
+    job = await api(`/planilla-compras/venta-periodo/tcpos/estado?anio=${anio}&mes=${mes}`);
+  } catch (err) {
+    // Fallo puntual del polling (ej. hiccup de red) -- el job en el
+    // servidor sigue corriendo igual, así que reintenta en vez de dejar
+    // la pantalla pegada en "Consultando…" para siempre.
+    state.pcVentaPeriodoTimer = setTimeout(() => pollVentaPeriodoTcpos(anio, mes), 4000);
+    return;
+  }
+  const infoEl = document.getElementById('pc-tcpos-info');
+  const errorEl = document.getElementById('pc-error');
+  const btn = document.getElementById('pc-traer-tcpos');
+  if (job === null) {
+    // No debería pasar (recien se encoló, o verificarVentaPeriodoJobActivo
+    // ya filtró este caso antes de llamar aca) -- pero mejor no quedar
+    // esperando para siempre si de todas formas pasa.
+    if (btn) btn.disabled = false;
+    if (infoEl) infoEl.textContent = '';
+    return;
+  }
+  if (job.estado === 'pendiente' || job.estado === 'procesando') {
+    state.pcVentaPeriodoTimer = setTimeout(() => pollVentaPeriodoTcpos(anio, mes), 4000);
+    return;
+  }
+  if (btn) btn.disabled = false;
+  if (job.estado === 'completado') {
+    const valorEl = document.getElementById('pc-venta-periodo');
+    if (valorEl) valorEl.value = job.venta_periodo;
+    if (infoEl) infoEl.textContent = `TCPOS (Cash to deposit): $${Math.round(job.venta_periodo).toLocaleString('es-CL')} -- del ${job.desde} al ${job.hasta}. Revisa y hace clic en Guardar.`;
+  } else if (job.estado === 'error') {
+    if (infoEl) infoEl.textContent = '';
+    if (errorEl) errorEl.textContent = job.error_mensaje || 'Error al traer la venta desde TCPOS.';
+  }
+}
+
+// Al entrar a la pantalla, retoma el polling si ya habia un job en curso
+// para este mes (ej. se recargo la pagina mientras TCPOS todavia estaba
+// generando el reporte) -- no hace nada si nunca se pidio o ya termino.
+async function verificarVentaPeriodoJobActivo(anio, mes) {
+  if (!esAdmin()) return;
+  let job;
+  try {
+    job = await api(`/planilla-compras/venta-periodo/tcpos/estado?anio=${anio}&mes=${mes}`);
+  } catch (err) {
+    return;
+  }
+  if (job && (job.estado === 'pendiente' || job.estado === 'procesando')) {
+    const btn = document.getElementById('pc-traer-tcpos');
+    if (btn) btn.disabled = true;
+    const infoEl = document.getElementById('pc-tcpos-info');
+    if (infoEl) infoEl.textContent = 'Consultando TCPOS… puede tardar unos minutos, podés seguir usando el resto de la pantalla mientras tanto.';
+    pollVentaPeriodoTcpos(anio, mes);
+  }
+}
+
 async function renderPlanillaCompras(el, s) {
   const hoy = new Date();
   if (!state.planillaMes) state.planillaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
@@ -3519,21 +3589,27 @@ async function renderPlanillaCompras(el, s) {
     showPlanillaFaltantesModal(anio, mes);
   });
 
-  document.getElementById('pc-traer-tcpos')?.addEventListener('click', async () => {
+  document.getElementById('pc-traer-tcpos')?.addEventListener('click', async (e) => {
     const errorEl = document.getElementById('pc-error');
     const infoEl = document.getElementById('pc-tcpos-info');
     errorEl.textContent = '';
-    infoEl.textContent = 'Consultando TCPOS…';
     const [anio, mes] = state.planillaMes.split('-').map(Number);
+    e.target.disabled = true;
+    infoEl.textContent = 'Consultando TCPOS… puede tardar unos minutos, podés seguir usando el resto de la pantalla mientras tanto.';
     try {
-      const res = await api(`/planilla-compras/venta-periodo/tcpos?anio=${anio}&mes=${mes}`);
-      document.getElementById('pc-venta-periodo').value = res.venta_periodo;
-      infoEl.textContent = `TCPOS (Cash to deposit): $${Math.round(res.venta_periodo).toLocaleString('es-CL')} -- del ${res.desde} al ${res.hasta}. Revisa y hace clic en Guardar.`;
+      await api(`/planilla-compras/venta-periodo/tcpos?anio=${anio}&mes=${mes}`, { method: 'POST' });
+      pollVentaPeriodoTcpos(anio, mes);
     } catch (err) {
+      e.target.disabled = false;
       infoEl.textContent = '';
       errorEl.textContent = err.message;
     }
   });
+
+  if (state.planillaItems !== null) {
+    const [anioActual, mesActual] = state.planillaMes.split('-').map(Number);
+    verificarVentaPeriodoJobActivo(anioActual, mesActual);
+  }
 
   document.getElementById('pc-guardar-venta')?.addEventListener('click', async () => {
     const errorEl = document.getElementById('pc-error');
