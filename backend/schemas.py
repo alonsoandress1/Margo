@@ -648,7 +648,7 @@ class PlanillaComprasOut(BaseModel):
 
 class PlanillaFaltanteOut(BaseModel):
     factura_id: int  # id real de account.move en Odoo
-    dte_id: int
+    dte_id: int = 0  # 0 = no viene de un DTE (busqueda manual, ver buscar_facturas)
     proveedor_nombre: str
     folio: str
     fecha: str | None = None

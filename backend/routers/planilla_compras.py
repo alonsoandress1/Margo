@@ -241,6 +241,34 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     return faltantes
 
 
+@router.get("/facturas/buscar", response_model=list[PlanillaFaltanteOut])
+def buscar_facturas(q: str, claims: dict = Depends(get_current_claims),
+                     odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Busca facturas de proveedor YA EXISTENTES en Odoo directo por
+    nombre de proveedor o numero de documento -- para el caso de una
+    factura ingresada 100% a mano en Odoo, SIN ningun DTE asociado (por
+    eso mismo "Verificar facturas faltantes", que parte del DTE, nunca la
+    encuentra). Se agrega igual que una faltante normal, con
+    POST /faltantes/{factura_id}/agregar (ese endpoint no valida nada
+    contra un DTE, solo necesita el id real de la factura)."""
+    _require_admin(claims)
+    cliente = _odoo(odoo_creds)
+    company_ids = _company_ids_locales(get_db())
+    dominio = [['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel'], ['company_id', 'in', company_ids],
+               '|', ['partner_id.name', 'ilike', q], ['l10n_latam_document_number', 'ilike', q]]
+    moves = cliente._call('account.move', 'search_read', [dominio],
+        {'fields': ['id', 'partner_id', 'l10n_latam_document_number', 'invoice_date', 'amount_untaxed', 'amount_total'],
+         'limit': 30, 'order': 'invoice_date desc'})
+    return [
+        PlanillaFaltanteOut(
+            factura_id=m['id'], proveedor_nombre=(m.get('partner_id') or [None, ''])[1],
+            folio=m.get('l10n_latam_document_number') or '', fecha=m.get('invoice_date'),
+            subtotal=m.get('amount_untaxed') or 0, total=m.get('amount_total') or 0,
+        )
+        for m in moves
+    ]
+
+
 @router.post("/faltantes/{factura_id}/agregar", status_code=status.HTTP_204_NO_CONTENT)
 def agregar_faltante(factura_id: int, claims: dict = Depends(get_current_claims)):
     """Agrega esta factura real de Odoo a Planilla de Compras aunque no

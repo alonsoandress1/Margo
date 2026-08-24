@@ -3860,11 +3860,44 @@ function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, 
     </div>`;
 }
 
+function _tablaFacturasParaAgregar(facturas) {
+  return `
+    <table>
+      <thead><tr><th>Proveedor</th><th>Folio</th><th>Fecha</th><th>Total</th><th></th></tr></thead>
+      <tbody>
+        ${facturas.map(f => `
+          <tr>
+            <td>${escapeHtml(f.proveedor_nombre)}</td>
+            <td>${escapeHtml(f.folio)}</td>
+            <td>${f.fecha || '—'}</td>
+            <td>${_fmtMonto(f.total)}</td>
+            <td>${esAdmin() ? `<button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button>` : ''}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
 async function showPlanillaFaltantesModal(anio, mes) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = '<div class="modal-box" style="width:760px"><p class="placeholder">Buscando…</p></div>';
   document.body.appendChild(overlay);
+
+  const agregarFactura = async (facturaId, errorEl) => {
+    errorEl.textContent = '';
+    try {
+      await api(`/planilla-compras/faltantes/${facturaId}/agregar`, { method: 'POST' });
+      if (state.planillaMes === `${anio}-${String(mes).padStart(2, '0')}`) {
+        const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
+        state.planillaItems = res.items;
+        state.planillaResumen = res.resumen;
+      }
+      await cargar();
+      renderView();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  };
 
   async function cargar() {
     try {
@@ -3872,40 +3905,37 @@ async function showPlanillaFaltantesModal(anio, mes) {
       overlay.querySelector('.modal-box').innerHTML = `
         <h3>Facturas faltantes en Planilla de Compras</h3>
         <p class="placeholder" style="margin-bottom:1rem">Facturas de Facturas Odoo que ya tienen una factura real en Odoo pero no aparecen en esta planilla (normalmente porque no tienen Orden de Compra detrás, ej. ingresadas a mano). Solo informativo -- no se agrega nada hasta que apretás "Agregar".</p>
-        ${faltantes.length ? `
-          <table>
-            <thead><tr><th>Proveedor</th><th>Folio</th><th>Fecha</th><th>Total</th><th></th></tr></thead>
-            <tbody>
-              ${faltantes.map(f => `
-                <tr>
-                  <td>${escapeHtml(f.proveedor_nombre)}</td>
-                  <td>${escapeHtml(f.folio)}</td>
-                  <td>${f.fecha || '—'}</td>
-                  <td>${_fmtMonto(f.total)}</td>
-                  <td>${esAdmin() ? `<button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button>` : ''}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>` : '<p class="placeholder">No hay ninguna -- Planilla de Compras ya incluye todas las facturas de Facturas Odoo de este mes.</p>'}
+        ${faltantes.length ? _tablaFacturasParaAgregar(faltantes) : '<p class="placeholder">No hay ninguna -- Planilla de Compras ya incluye todas las facturas de Facturas Odoo de este mes.</p>'}
         <p id="pc-faltantes-error" class="error-msg"></p>
+        ${esAdmin() ? `
+        <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--b1)">
+          <h3>Buscar factura manualmente</h3>
+          <p class="placeholder" style="margin-bottom:.75rem">Para facturas ingresadas 100% a mano en Odoo, sin ningún DTE asociado -- por eso no aparecen en la lista de arriba. Búscala por proveedor o folio.</p>
+          <div class="item-row">
+            <input type="text" id="pc-buscar-factura" class="field" placeholder="Nombre del proveedor o folio..." style="flex:2">
+            <button type="button" class="btn" id="pc-buscar-factura-btn">Buscar</button>
+          </div>
+          <div id="pc-buscar-factura-resultados" style="margin-top:.75rem"></div>
+        </div>` : ''}
         <div style="margin-top:1.25rem"><button type="button" class="btn" id="pc-faltantes-cerrar">Cerrar</button></div>`;
       overlay.querySelector('#pc-faltantes-cerrar').onclick = () => overlay.remove();
       overlay.querySelectorAll('[data-agregar-faltante]').forEach(btn => {
-        btn.onclick = async () => {
-          const errorEl = overlay.querySelector('#pc-faltantes-error');
-          errorEl.textContent = '';
-          try {
-            await api(`/planilla-compras/faltantes/${btn.dataset.agregarFaltante}/agregar`, { method: 'POST' });
-            if (state.planillaMes === `${anio}-${String(mes).padStart(2, '0')}`) {
-              const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
-              state.planillaItems = res.items;
-              state.planillaResumen = res.resumen;
-            }
-            await cargar();
-            renderView();
-          } catch (err) {
-            errorEl.textContent = err.message;
-          }
-        };
+        btn.onclick = () => agregarFactura(btn.dataset.agregarFaltante, overlay.querySelector('#pc-faltantes-error'));
+      });
+      overlay.querySelector('#pc-buscar-factura-btn')?.addEventListener('click', async () => {
+        const q = overlay.querySelector('#pc-buscar-factura').value.trim();
+        const resultadosEl = overlay.querySelector('#pc-buscar-factura-resultados');
+        if (!q) return;
+        resultadosEl.innerHTML = '<span class="placeholder">Buscando…</span>';
+        try {
+          const facturas = await api(`/planilla-compras/facturas/buscar?q=${encodeURIComponent(q)}`);
+          resultadosEl.innerHTML = facturas.length ? _tablaFacturasParaAgregar(facturas) : '<span class="placeholder">Sin resultados.</span>';
+          resultadosEl.querySelectorAll('[data-agregar-faltante]').forEach(btn => {
+            btn.onclick = () => agregarFactura(btn.dataset.agregarFaltante, overlay.querySelector('#pc-faltantes-error'));
+          });
+        } catch (err) {
+          resultadosEl.innerHTML = `<span class="error-msg">${err.message}</span>`;
+        }
       });
     } catch (err) {
       overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="pc-faltantes-cerrar-error">Cerrar</button>`;
