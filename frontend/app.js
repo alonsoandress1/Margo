@@ -892,7 +892,7 @@ async function renderProveedores(el, s) {
       ${productos.length ? `
       <div style="max-width:320px;margin-bottom:1rem">
         <label class="field-label">Buscar producto</label>
-        <input type="text" id="prod-filtro" class="field" style="width:100%" placeholder="Nombre, nombre en Odoo o referencia..." value="${state.proveedorProductoFiltro || ''}">
+        <input type="text" id="prod-filtro" class="field" style="width:100%" placeholder="Nombre, nombre en Odoo o referencia..." value="${escapeHtml(state.proveedorProductoFiltro || '')}">
       </div>` : ''}
       ${editable && productos.length ? `
       <div class="item-row" style="align-items:center;margin-bottom:.75rem">
@@ -2661,7 +2661,7 @@ async function renderFacturasDte(el, s) {
     ${state.dteLista !== null ? `
       <div style="max-width:320px;margin-bottom:1rem">
         <label class="field-label">Buscar por N° de factura</label>
-        <input type="text" id="dte-filtro-folio" class="field" style="width:100%" placeholder="Ej. 95817" value="${state.dteFiltroFolio || ''}">
+        <input type="text" id="dte-filtro-folio" class="field" style="width:100%" placeholder="Ej. 95817" value="${escapeHtml(state.dteFiltroFolio || '')}">
       </div>` : ''}
     <div style="margin-bottom:1rem">
       <button type="button" class="btn" id="dte-proveedores-ocultos">Proveedores ocultos</button>
@@ -3713,7 +3713,7 @@ async function renderPlanillaCompras(el, s) {
     ${items.length ? `
       <div style="max-width:280px;margin-bottom:1rem">
         <label class="field-label">Buscar por N° de factura o proveedor</label>
-        <input type="text" id="pc-filtro-folio" class="field" style="width:100%" placeholder="Ej. 10199 o Agrofood" value="${state.planillaFiltroFolio || ''}">
+        <input type="text" id="pc-filtro-folio" class="field" style="width:100%" placeholder="Ej. 10199 o Agrofood" value="${escapeHtml(state.planillaFiltroFolio || '')}">
       </div>
       <div id="pc-tabla-card">${_renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, state.planillaFiltroFolio)}</div>` : ''}`;
 
