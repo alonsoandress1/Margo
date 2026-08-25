@@ -784,6 +784,18 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
     )
 
 
+@router.get("/{dte_id}/nota-credito/_debug/campos")
+def _debug_campos_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims),
+                                odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """TEMPORAL -- borrar apenas se use. Trae TODOS los campos crudos de
+    las lineas de un DTE (sin filtrar por 'fields') para ver si
+    l10n_cl.supplier.xml.line trae algun campo de impuesto propio del XML
+    del SII, en vez de depender del producto matcheado en Odoo."""
+    _require_admin(claims)
+    cliente = _odoo(odoo_creds)
+    return cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]], {})
+
+
 @router.get("/{dte_id}/nota-credito", response_model=DteNotaCreditoDetalleOut)
 def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims),
                           odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
