@@ -479,6 +479,18 @@ class DteDetalleOut(DteOut):
     lineas: list[DteLineaOut]
 
 
+class DteLineaSimpleOut(BaseModel):
+    id: int
+    item_name: str
+    qty: float
+    item_price: float
+    product_name: str | None = None  # si Odoo ya la matcheo a un producto -- solo informativo, no editable aca
+
+
+class DteNotaCreditoDetalleOut(DteOut):
+    lineas: list[DteLineaSimpleOut]
+
+
 class DteMarcadoManualOut(BaseModel):
     dte_id: int
     proveedor_rut: str

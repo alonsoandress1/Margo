@@ -37,7 +37,8 @@ if str(_REPO_ROOT) not in sys.path:
 from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
-                       DteDetalleOut, DteLineaOut, DteMarcadoManualOut, DteMatchLineaIn, DteOut, DteProductoOut,
+                       DteDetalleOut, DteLineaOut, DteLineaSimpleOut, DteMarcadoManualOut, DteMatchLineaIn,
+                       DteNotaCreditoDetalleOut, DteOut, DteProductoOut,
                        FactorConversionIn, HistoricoFacturaOut, HistoricoLineaOut,
                        ImpuestoOut, LineaManualIn, ProductoImpuestosIn,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
@@ -780,6 +781,42 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
         id=doc['id'], proveedor_rut=doc.get('issuer_rut') or '', proveedor_nombre=doc.get('issuer_name') or '',
         folio=doc.get('l10n_latam_document_number') or '', fecha=doc.get('date'),
         tiene_factura=bool(doc.get('invoice_id')), lineas=lineas,
+    )
+
+
+@router.get("/{dte_id}/nota-credito", response_model=DteNotaCreditoDetalleOut)
+def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims),
+                          odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Detalle de SOLO LECTURA de una Nota de Credito -- a diferencia de
+    detalle() (para facturas), esta NUNCA escribe nada en Odoo ni en
+    Supabase: sin autoconfirmar productos, sin precompletar descuentos, sin
+    tocar facturas_producto_mapa. Las NC son solo visualizacion por ahora
+    (ver listar_pendientes) -- este endpoint existe para que se pueda ver
+    QUE contiene la NC (items, cantidad, precio) sin arrastrar ninguno de
+    los efectos secundarios de detalle()."""
+    _require_lectura(claims)
+    cliente = _odoo(odoo_creds)
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date', 'amount_total',
+                    'l10n_latam_document_type_id_code']})
+    if not docs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
+    doc = docs[0]
+    if doc.get('l10n_latam_document_type_id_code') != '61':
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este documento no es una Nota de Crédito")
+
+    lineas_raw = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
+        {'fields': ['id', 'item_name', 'qty', 'item_price', 'product_id']})
+
+    return DteNotaCreditoDetalleOut(
+        id=doc['id'], proveedor_rut=doc.get('issuer_rut') or '', proveedor_nombre=doc.get('issuer_name') or '',
+        folio=doc.get('l10n_latam_document_number') or '', fecha=doc.get('date'),
+        monto_total=_monto(doc.get('amount_total')), es_nota_credito=True,
+        lineas=[DteLineaSimpleOut(
+            id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
+            item_price=float(l.get('item_price') or 0),
+            product_name=l['product_id'][1] if l.get('product_id') else None,
+        ) for l in lineas_raw],
     )
 
 

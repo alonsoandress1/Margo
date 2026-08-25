@@ -2782,7 +2782,7 @@ function renderDteResultados(dtes, filtroFolio) {
                 <td>${d.fecha || '—'}</td>
                 <td>$${Math.round(d.monto_total || 0).toLocaleString('es-CL')}</td>
                 <td>
-                  ${d.es_nota_credito ? '' : `<button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button>`}
+                  ${d.es_nota_credito ? `<button type="button" class="btn" data-ver-nc="${d.id}">Ver</button>` : `<button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button>`}
                   ${!d.es_nota_credito && esAdmin() ? `<button type="button" class="btn" data-marcar-manual-dte="${d.id}" title="Ya se ingresó esta factura a mano directo en Odoo -- la saca de esta lista sin tocar nada en Odoo">Ingresada Manualmente</button>` : ''}
                 </td>
               </tr>`).join('')}
@@ -2794,6 +2794,9 @@ function renderDteResultados(dtes, filtroFolio) {
 function bindDteResultadosBotones() {
   document.querySelectorAll('[data-revisar-dte]').forEach(btn => {
     btn.addEventListener('click', () => showDteModal(parseInt(btn.dataset.revisarDte, 10)));
+  });
+  document.querySelectorAll('[data-ver-nc]').forEach(btn => {
+    btn.addEventListener('click', () => showNotaCreditoModal(parseInt(btn.dataset.verNc, 10)));
   });
   document.querySelectorAll('[data-ocultar-proveedor]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -2879,6 +2882,41 @@ async function showProveedoresOcultosModal() {
   } catch (err) {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-ocultos-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#dte-ocultos-cerrar-error').onclick = () => overlay.remove();
+  }
+}
+
+async function showNotaCreditoModal(dteId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:760px"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const nc = await api(`/facturas-dte/${dteId}/nota-credito`);
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>${escapeHtml(nc.proveedor_nombre)} — Folio ${escapeHtml(nc.folio)} <span class="badge badge-nc">NC</span></h3>
+      <p class="placeholder" style="margin-bottom:1rem">${nc.fecha || '—'} · Solo visualización -- esta Nota de Crédito todavía no se procesa en esta pantalla.</p>
+      ${nc.lineas.length ? `
+        <table>
+          <thead><tr><th>Detalle</th><th>Cantidad</th><th>Precio</th><th>Producto en Odoo</th></tr></thead>
+          <tbody>
+            ${nc.lineas.map(l => `
+              <tr>
+                <td>${escapeHtml(l.item_name)}</td>
+                <td>${l.qty}</td>
+                <td>${_fmtMonto(l.item_price)}</td>
+                <td>${l.product_name ? escapeHtml(l.product_name) : '<span class="placeholder">—</span>'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="placeholder">Este documento no tiene líneas.</p>'}
+      <p style="margin-top:.75rem"><strong>Total: ${_fmtMonto(nc.monto_total)}</strong></p>
+      <div style="margin-top:1.25rem">
+        <button type="button" class="btn" id="dte-nc-cerrar">Cerrar</button>
+      </div>`;
+    overlay.querySelector('#dte-nc-cerrar').onclick = () => overlay.remove();
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="dte-nc-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#dte-nc-cerrar-error').onclick = () => overlay.remove();
   }
 }
 
