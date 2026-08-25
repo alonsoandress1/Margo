@@ -254,8 +254,15 @@ def buscar_facturas(q: str, claims: dict = Depends(get_current_claims),
     _require_admin(claims)
     cliente = _odoo(odoo_creds)
     company_ids = _company_ids_locales(get_db())
+    # 'partner_id.name' (dot-path a un campo relacionado) combinado con '|'
+    # no filtraba de verdad -- confirmado en vivo (devolvia todo). En vez de
+    # eso, se resuelve primero el/los partner_id que matchean por nombre
+    # (mismo patron ya probado en buscar_proveedores_odoo) y se filtra por
+    # id, que es un campo directo del modelo -- sin dot-path.
+    partners = cliente._call('res.partner', 'search_read', [[['name', 'ilike', q]]], {'fields': ['id']})
+    partner_ids = [p['id'] for p in partners] or [-1]  # -1 = ningun id real, para que el 'in' no traiga todo
     dominio = [['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel'], ['company_id', 'in', company_ids],
-               '|', ['partner_id.name', 'ilike', q], ['l10n_latam_document_number', 'ilike', q]]
+               '|', ['partner_id', 'in', partner_ids], ['l10n_latam_document_number', 'ilike', q]]
     moves = cliente._call('account.move', 'search_read', [dominio],
         {'fields': ['id', 'partner_id', 'l10n_latam_document_number', 'invoice_date', 'amount_untaxed', 'amount_total'],
          'limit': 30, 'order': 'invoice_date desc'})
