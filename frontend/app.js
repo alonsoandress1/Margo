@@ -1704,6 +1704,7 @@ async function renderInventario(el, s) {
           </tbody>
         </table>
         <button type="button" class="btn btn-primary" id="inv-conteo-guardar" style="margin-top:.75rem">Guardar conteo</button>
+        ${state.inventarioConteoFallidos?.length ? `<button type="button" class="btn" id="inv-conteo-reintentar" style="margin-top:.75rem;margin-left:.5rem">Reintentar fallidos (${state.inventarioConteoFallidos.length})</button>` : ''}
         <p id="inv-conteo-error" class="${state.inventarioConteoMensaje?.esError ? 'error-msg' : 'placeholder'}">${escapeHtml(state.inventarioConteoMensaje?.texto || '')}</p>
       </div>
       ${stockPendiente.length ? `
@@ -1745,6 +1746,7 @@ async function renderInventario(el, s) {
   document.getElementById('inv-local').addEventListener('change', (e) => {
     state.invLocal = e.target.value;
     state.inventarioConteoMensaje = null;
+    state.inventarioConteoFallidos = null;
     renderView();
   });
 
@@ -1792,51 +1794,61 @@ async function renderInventario(el, s) {
       aplicarFiltrosConteo();
     });
 
-    document.getElementById('inv-conteo-guardar')?.addEventListener('click', async () => {
-      const errorEl = document.getElementById('inv-conteo-error');
-      errorEl.textContent = '';
-      const inputs = Array.from(document.querySelectorAll('.inv-conteo-input')).filter(inp => inp.value.trim() !== '');
-      if (!inputs.length) {
-        errorEl.className = 'error-msg';
-        errorEl.textContent = 'Ingresa al menos una cantidad contada.';
-        return;
-      }
-      const btn = document.getElementById('inv-conteo-guardar');
-      btn.disabled = true;
+    // Comparte el mismo camino "Guardar conteo" (arma la lista desde los
+    // inputs escritos) y "Reintentar fallidos" (arma la lista desde
+    // state.inventarioConteoFallidos, ya con el delta calculado -- no hay
+    // que volver a tipear nada). Sigue con el resto aunque una fila falle
+    // (ej. un hipo de red a mitad de un conteo de 60+ insumos) -- antes,
+    // la primera fila que fallaba cortaba TODO el resto en silencio.
+    async function guardarAjustesConteo(itemsAGuardar, btn, textoBoton) {
       const hoy = new Date().toLocaleDateString('es-CL');
-      // Sigue con las filas restantes aunque una falle (ej. un hipo de red
-      // a mitad de un conteo de 60+ insumos) -- antes, la primera fila que
-      // fallaba cortaba TODO el resto en silencio, sin decir cuales
-      // faltaban ni cuantas ya habian quedado guardadas.
+      btn.disabled = true;
       let guardados = 0;
       const fallidos = [];
-      for (let idx = 0; idx < inputs.length; idx++) {
-        const inp = inputs[idx];
-        btn.textContent = `Guardando… (${idx + 1}/${inputs.length})`;
-        const contado = parseFloat(inp.value);
-        const actual = parseFloat(inp.dataset.stockActual) || 0;
-        const delta = contado - actual;
-        if (Math.abs(delta) < 1e-9) continue;
+      for (let idx = 0; idx < itemsAGuardar.length; idx++) {
+        const it = itemsAGuardar[idx];
+        btn.textContent = `${textoBoton} (${idx + 1}/${itemsAGuardar.length})`;
         try {
           await api('/inventario/movimiento', {
             method: 'POST',
             body: JSON.stringify({
-              local_id: localId, ingrediente_key: inp.dataset.key, tipo: 'ajuste',
-              cantidad: delta, nota: `Conteo físico (${hoy})`,
+              local_id: localId, ingrediente_key: it.key, tipo: 'ajuste',
+              cantidad: it.delta, nota: `Conteo físico (${hoy})`,
             }),
           });
           guardados++;
         } catch (err) {
-          const nombre = inp.closest('tr')?.querySelector('td')?.textContent || inp.dataset.key;
-          fallidos.push(`${nombre} (${err.message})`);
+          fallidos.push({ ...it, error: err.message });
         }
       }
-      btn.disabled = false;
-      btn.textContent = 'Guardar conteo';
+      state.inventarioConteoFallidos = fallidos.length ? fallidos : null;
       state.inventarioConteoMensaje = fallidos.length
-        ? { esError: true, texto: `Se guardaron ${guardados} de ${guardados + fallidos.length}. Fallaron: ${fallidos.join(', ')} -- volvé a intentar solo esos.` }
+        ? { esError: true, texto: `Se guardaron ${guardados} de ${guardados + fallidos.length}. Fallaron: ${fallidos.map(f => `${f.nombre} (${f.error})`).join(', ')}.` }
         : (guardados ? { esError: false, texto: `Conteo guardado (${guardados} insumo(s) ajustado(s)).` } : null);
       renderView();
+    }
+
+    document.getElementById('inv-conteo-guardar')?.addEventListener('click', () => {
+      const errorEl = document.getElementById('inv-conteo-error');
+      const inputs = Array.from(document.querySelectorAll('.inv-conteo-input')).filter(inp => inp.value.trim() !== '');
+      const itemsAGuardar = inputs.map(inp => {
+        const contado = parseFloat(inp.value);
+        const actual = parseFloat(inp.dataset.stockActual) || 0;
+        return {
+          key: inp.dataset.key, delta: contado - actual,
+          nombre: inp.closest('tr')?.querySelector('td')?.textContent || inp.dataset.key,
+        };
+      }).filter(it => Math.abs(it.delta) >= 1e-9);
+      if (!itemsAGuardar.length) {
+        errorEl.className = 'error-msg';
+        errorEl.textContent = 'Ingresa al menos una cantidad contada.';
+        return;
+      }
+      guardarAjustesConteo(itemsAGuardar, document.getElementById('inv-conteo-guardar'), 'Guardando…');
+    });
+
+    document.getElementById('inv-conteo-reintentar')?.addEventListener('click', () => {
+      guardarAjustesConteo(state.inventarioConteoFallidos, document.getElementById('inv-conteo-reintentar'), 'Reintentando…');
     });
 
     document.getElementById('inv-stock-pendiente-actualizar')?.addEventListener('click', async (e) => {
