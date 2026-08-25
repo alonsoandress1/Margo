@@ -186,21 +186,21 @@ def exportar(anio: int, mes: int, claims: dict = Depends(get_current_claims),
 @router.get("/faltantes", response_model=list[PlanillaFaltanteOut])
 def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_claims),
                       odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
-    """Busca DIRECTO en Odoo todas las facturas de proveedor del mes que
-    Planilla de Compras excluye por no tener Orden de Compra detras
-    (invoice_origin vacio) y que todavia no estan en
-    planilla_compras_factura_manual -- cubre tanto las que tienen un DTE
-    real del SII (ej. Doña Sofía ingresada a mano) como las 100%
-    manuales sin ningun DTE asociado (ej. Agrofood, caso real que motivo
-    este cambio -- antes esta funcion solo miraba DTEs, asi que una
-    factura sin DTE quedaba invisible para siempre).
+    """Compara las facturas de Facturas SII que YA tienen una factura real
+    creada en Odoo (invoice_id) contra lo que Planilla de Compras muestra
+    este mes -- solo para detectar facturas reales que quedan omitidas
+    porque no tienen Orden de Compra detras (invoice_origin vacio) y
+    todavia no estan en planilla_compras_factura_manual (mismo caso real
+    encontrado con Doña Sofía: la factura existia en Odoo pero Planilla la
+    excluia por parecer un gasto administrativo).
 
-    Se excluyen los proveedores marcados como "ocultos" (mismo criterio y
-    misma lista que ya usa Facturas Odoo -- bancos, seguros, arriendo,
-    telefonia, etc., que tampoco tienen Orden de Compra pero NO son
-    compras de mercaderia). Si aparece un proveedor administrativo nuevo
-    que todavia no esta oculto, se puede ocultar desde Facturas Odoo y
-    deja de aparecer aca tambien.
+    Exige que la factura tenga un DTE real del SII vinculado (invoice_id) --
+    eso excluye de forma natural los gastos administrativos (bancos,
+    seguros, arriendo, telefonia) que casi nunca tienen DTE asociado, sin
+    necesitar una lista de "ocultos" aparte. Una factura 100% manual sin
+    ningun DTE (ej. Agrofood) no aparece aca, pero eso esta bien: si tiene
+    Orden de Compra detras (invoice_origin, que en este Odoo toda factura
+    de proveedor tiene) ya aparece sola en la Planilla de Compras normal.
 
     NO agrega nada solo -- es puramente informativo, cada una se agrega
     a mano con POST /faltantes/{factura_id}/agregar."""
@@ -214,29 +214,38 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
 
     ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes, odoo_creds).items}
 
-    dominio = [['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel'], ['company_id', 'in', company_ids],
-               ['invoice_date', '>=', desde], ['invoice_date', '<=', hasta], ['invoice_origin', '=', False]]
-    moves = cliente._call('account.move', 'search_read', [dominio],
-        {'fields': ['id', 'partner_id', 'l10n_latam_document_number', 'invoice_date', 'amount_untaxed', 'amount_total']})
-    moves = [m for m in moves if m['id'] not in ids_en_planilla]
-    if not moves:
+    # Acotado por la fecha del DTE (con margen de 15 dias a cada lado, por si
+    # difiere un poco de la invoice_date real que usa Planilla) -- sin esto,
+    # la busqueda trae CADA DTE con invoice_id de toda la historia del
+    # sistema, cada vez que se abre "Verificar facturas faltantes" para
+    # cualquier mes, cada vez mas pesado a medida que crece el historial.
+    desde_margen = (date.fromisoformat(desde) - timedelta(days=15)).isoformat()
+    hasta_margen = (date.fromisoformat(hasta) + timedelta(days=15)).isoformat()
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
+        [[['invoice_id', '!=', False], ['date', '>=', desde_margen], ['date', '<=', hasta_margen]]],
+        {'fields': ['id', 'issuer_name', 'l10n_latam_document_number', 'invoice_id']})
+    move_ids = list({d['invoice_id'][0] for d in docs if d['invoice_id'][0] not in ids_en_planilla})
+    if not move_ids:
         return []
-
-    partner_ids = list({m['partner_id'][0] for m in moves if m.get('partner_id')})
-    partners = cliente._call('res.partner', 'read', [partner_ids], {'fields': ['vat']}) if partner_ids else []
-    rut_por_partner = {p['id']: p.get('vat') for p in partners}
-    ocultos = {r["proveedor_rut"] for r in
-               (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
+    moves = cliente._call('account.move', 'read', [move_ids],
+        {'fields': ['id', 'company_id', 'invoice_date', 'amount_untaxed', 'amount_total', 'state']})
+    moves_por_id = {m['id']: m for m in moves}
 
     faltantes = []
-    for m in moves:
-        partner_id = m['partner_id'][0] if m.get('partner_id') else None
-        if rut_por_partner.get(partner_id) in ocultos:
+    for d in docs:
+        move_id = d['invoice_id'][0]
+        move = moves_por_id.get(move_id)
+        if not move or move.get('state') == 'cancel':
+            continue
+        if not move.get('company_id') or move['company_id'][0] not in company_ids:
+            continue
+        fecha = move.get('invoice_date')
+        if not fecha or not (desde <= fecha <= hasta):
             continue
         faltantes.append(PlanillaFaltanteOut(
-            factura_id=m['id'], proveedor_nombre=(m.get('partner_id') or [None, ''])[1],
-            folio=m.get('l10n_latam_document_number') or '', fecha=m.get('invoice_date'),
-            subtotal=m.get('amount_untaxed') or 0, total=m.get('amount_total') or 0,
+            factura_id=move_id, dte_id=d['id'], proveedor_nombre=d.get('issuer_name') or '',
+            folio=d.get('l10n_latam_document_number') or '', fecha=fecha,
+            subtotal=move.get('amount_untaxed') or 0, total=move.get('amount_total') or 0,
         ))
     faltantes.sort(key=lambda f: f.fecha or '')
     return faltantes

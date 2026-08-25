@@ -3906,7 +3906,7 @@ async function showPlanillaFaltantesModal(anio, mes) {
       const faltantes = await api(`/planilla-compras/faltantes?anio=${anio}&mes=${mes}`);
       overlay.querySelector('.modal-box').innerHTML = `
         <h3>Facturas faltantes en Planilla de Compras</h3>
-        <p class="placeholder" style="margin-bottom:1rem">Facturas reales de Odoo de este mes que no aparecen en esta planilla porque no tienen Orden de Compra detrás (ej. ingresadas a mano, con o sin DTE del SII) -- se excluyen los proveedores marcados como ocultos en Facturas Odoo (bancos, seguros, arriendo, etc.). Solo informativo -- no se agrega nada hasta que apretás "Agregar".</p>
+        <p class="placeholder" style="margin-bottom:1rem">Facturas que ya tienen un DTE del SII vinculado en Odoo pero no aparecen en esta planilla porque no tienen Orden de Compra detrás. Solo informativo -- no se agrega nada hasta que apretás "Agregar".</p>
         ${faltantes.length ? _tablaFacturasParaAgregar(faltantes) : '<p class="placeholder">No hay ninguna -- Planilla de Compras ya incluye todas las facturas de este mes.</p>'}
         <p id="pc-faltantes-error" class="error-msg"></p>
         <div style="margin-top:1.25rem"><button type="button" class="btn" id="pc-faltantes-cerrar">Cerrar</button></div>`;
