@@ -1648,9 +1648,10 @@ async function renderInventario(el, s) {
   const localId = state.invLocal && locales.some(l => l.id === state.invLocal) ? state.invLocal : locales[0].id;
   state.invLocal = localId;
 
-  const [items, stockPendiente] = await Promise.all([
+  const [items, stockPendiente, proveedores] = await Promise.all([
     api(`/inventario?local_id=${localId}`),
     editable ? api('/inventario/stock-pendiente').catch(() => []) : Promise.resolve([]),
+    editable ? api('/proveedores').catch(() => []) : Promise.resolve([]),
   ]);
 
   el.innerHTML = `
@@ -1680,20 +1681,21 @@ async function renderInventario(el, s) {
           <p id="mov-error" class="error-msg"></p>
         </form>
       </div>
-      <div style="margin-bottom:1rem">
-        <button type="button" class="btn" id="inv-stock-inicial-btn">Cargar stock inicial por proveedor</button>
-      </div>
       <div class="card" style="margin-bottom:1.25rem">
         <h3>Conteo de Inventario</h3>
         <p class="placeholder" style="margin-bottom:.75rem">Ingresa la cantidad real contada -- el sistema calcula solo la diferencia contra el Stock Bodega actual y la guarda como ajuste. Los insumos que dejes en blanco no se tocan.</p>
-        <div style="max-width:280px;margin-bottom:.75rem">
-          <input type="text" id="inv-conteo-filtro" class="field" style="width:100%" placeholder="Buscar insumo...">
+        <div class="item-row" style="margin-bottom:.75rem">
+          <input type="text" id="inv-conteo-filtro" class="field" style="flex:1;max-width:280px" placeholder="Buscar insumo...">
+          <select id="inv-conteo-proveedor" class="field" style="max-width:240px">
+            <option value="">Todos los proveedores</option>
+            ${proveedores.map(p => `<option value="${p.id}">${escapeHtml(p.nombre)}</option>`).join('')}
+          </select>
         </div>
         <table>
           <thead><tr><th>Insumo</th><th>Unidad</th><th>Stock Bodega actual</th><th>Cantidad contada</th></tr></thead>
           <tbody>
             ${items.map(i => `
-              <tr data-conteo-row data-conteo-nombre="${escapeHtml(i.nombre.toLowerCase())}">
+              <tr data-conteo-row data-conteo-nombre="${escapeHtml(i.nombre.toLowerCase())}" data-conteo-key="${escapeHtml(i.ingrediente_key)}">
                 <td>${escapeHtml(i.nombre)}</td>
                 <td>${formatUnidad(i.unidad)}</td>
                 <td>${i.stock_bodega}</td>
@@ -1766,15 +1768,27 @@ async function renderInventario(el, s) {
       }
     });
 
-    document.getElementById('inv-stock-inicial-btn').addEventListener('click', () => {
-      showStockInicialModal(localId, items);
-    });
-
-    document.getElementById('inv-conteo-filtro')?.addEventListener('input', (e) => {
-      const filtro = e.target.value.trim().toLowerCase();
+    let keysProveedorFiltro = null;
+    const aplicarFiltrosConteo = () => {
+      const filtroTexto = document.getElementById('inv-conteo-filtro').value.trim().toLowerCase();
       document.querySelectorAll('[data-conteo-row]').forEach(tr => {
-        tr.style.display = !filtro || tr.dataset.conteoNombre.includes(filtro) ? '' : 'none';
+        const pasaTexto = !filtroTexto || tr.dataset.conteoNombre.includes(filtroTexto);
+        const pasaProveedor = !keysProveedorFiltro || keysProveedorFiltro.has(tr.dataset.conteoKey);
+        tr.style.display = pasaTexto && pasaProveedor ? '' : 'none';
       });
+    };
+
+    document.getElementById('inv-conteo-filtro')?.addEventListener('input', aplicarFiltrosConteo);
+
+    document.getElementById('inv-conteo-proveedor')?.addEventListener('change', async (e) => {
+      const proveedorId = e.target.value;
+      if (proveedorId) {
+        const productos = await api(`/proveedores/${proveedorId}/productos`);
+        keysProveedorFiltro = new Set(productos.map(p => p.ingrediente_key));
+      } else {
+        keysProveedorFiltro = null;
+      }
+      aplicarFiltrosConteo();
     });
 
     document.getElementById('inv-conteo-guardar')?.addEventListener('click', async () => {
@@ -2054,103 +2068,6 @@ async function showHistoricoProveedorModal(partnerId, proveedorNombre) {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="hist-prov-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#hist-prov-cerrar-error').onclick = () => overlay.remove();
   }
-}
-
-async function showStockInicialModal(localId, itemsLocal) {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = '<div class="modal-box" style="width:640px"><p class="placeholder">Cargando…</p></div>';
-  document.body.appendChild(overlay);
-
-  const proveedores = await api('/proveedores');
-
-  async function renderPaso(proveedorId) {
-    const box = overlay.querySelector('.modal-box');
-    if (!proveedorId) {
-      box.innerHTML = `
-        <h3>Cargar stock inicial por proveedor</h3>
-        <p class="placeholder" style="margin-bottom:1rem">Elige el proveedor -- se muestran solo sus insumos que ya tienen Par Stock definido en este local.</p>
-        <label class="field-label">Proveedor</label>
-        <select id="stock-inicial-proveedor" class="field" style="width:100%;margin-bottom:1rem">
-          <option value="">Elige un proveedor…</option>
-          ${proveedores.map(p => `<option value="${p.id}">${escapeHtml(p.nombre)}</option>`).join('')}
-        </select>
-        <button type="button" class="btn" id="stock-inicial-cancelar">Cancelar</button>`;
-      box.querySelector('#stock-inicial-cancelar').onclick = () => overlay.remove();
-      box.querySelector('#stock-inicial-proveedor').addEventListener('change', (e) => {
-        if (e.target.value) renderPaso(e.target.value);
-      });
-      return;
-    }
-
-    box.innerHTML = '<p class="placeholder">Buscando insumos del proveedor…</p>';
-    const productos = await api(`/proveedores/${proveedorId}/productos`);
-    const keysProveedor = new Set(productos.map(p => p.ingrediente_key));
-    const filas = itemsLocal.filter(i => keysProveedor.has(i.ingrediente_key));
-
-    if (!filas.length) {
-      box.innerHTML = `
-        <h3>Cargar stock inicial por proveedor</h3>
-        <p class="placeholder" style="margin-bottom:1rem">Ninguno de los insumos de este proveedor tiene Par Stock definido en este local todavía -- primero hay que agregarlos en Par Stock.</p>
-        <button type="button" class="btn" id="stock-inicial-cerrar">Cerrar</button>`;
-      box.querySelector('#stock-inicial-cerrar').onclick = () => overlay.remove();
-      return;
-    }
-
-    box.innerHTML = `
-      <h3>Cargar stock inicial por proveedor</h3>
-      <p class="placeholder" style="margin-bottom:1rem">Ingresa la cantidad contada de cada insumo -- se guarda como un "Ajuste" (se suma al stock actual, que hoy es el que se ve acá). Deja en blanco los que no quieras tocar.</p>
-      <div style="max-height:360px;overflow-y:auto">
-        <table>
-          <thead><tr><th>Insumo</th><th>Unidad</th><th>Stock actual</th><th>Cantidad inicial</th></tr></thead>
-          <tbody>
-            ${filas.map(i => `
-              <tr>
-                <td>${escapeHtml(i.nombre)}</td>
-                <td>${formatUnidad(i.unidad)}</td>
-                <td>${i.stock_bodega}</td>
-                <td><input type="number" step="0.01" class="field stock-inicial-input" data-key="${i.ingrediente_key}" style="width:110px"></td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      <p class="error-msg" id="stock-inicial-error"></p>
-      <div style="margin-top:1rem">
-        <button type="button" class="btn btn-primary" id="stock-inicial-guardar">Guardar</button>
-        <button type="button" class="btn" id="stock-inicial-cancelar">Cancelar</button>
-      </div>`;
-
-    box.querySelector('#stock-inicial-cancelar').onclick = () => overlay.remove();
-    box.querySelector('#stock-inicial-guardar').addEventListener('click', async () => {
-      const errorEl = box.querySelector('#stock-inicial-error');
-      errorEl.textContent = '';
-      const inputs = Array.from(box.querySelectorAll('.stock-inicial-input'))
-        .filter(inp => inp.value.trim() !== '');
-      if (!inputs.length) { errorEl.textContent = 'Ingresa al menos una cantidad.'; return; }
-      const btn = box.querySelector('#stock-inicial-guardar');
-      btn.disabled = true;
-      btn.textContent = 'Guardando…';
-      try {
-        for (const inp of inputs) {
-          await api('/inventario/movimiento', {
-            method: 'POST',
-            body: JSON.stringify({
-              local_id: localId, ingrediente_key: inp.dataset.key, tipo: 'ajuste',
-              cantidad: parseFloat(inp.value) || 0, nota: 'Stock inicial',
-            }),
-          });
-        }
-        overlay.remove();
-        renderView();
-      } catch (err) {
-        btn.disabled = false;
-        btn.textContent = 'Guardar';
-        errorEl.textContent = err.message;
-      }
-    });
-  }
-
-  await renderPaso(null);
 }
 
 async function renderMermas(el, s) {
