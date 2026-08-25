@@ -3876,7 +3876,7 @@ function _tablaFacturasParaAgregar(facturas) {
             <td>${escapeHtml(f.folio)}</td>
             <td>${f.fecha || '—'}</td>
             <td>${_fmtMonto(f.total)}</td>
-            <td>${esAdmin() ? `<button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}">Agregar</button>` : ''}</td>
+            <td>${esAdmin() ? `<button type="button" class="btn btn-primary" data-agregar-faltante="${f.factura_id}" data-fecha="${escapeHtml(f.fecha || '')}">Agregar</button>` : ''}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -3888,10 +3888,10 @@ async function showPlanillaFaltantesModal(anio, mes) {
   overlay.innerHTML = '<div class="modal-box" style="width:760px"><p class="placeholder">Buscando…</p></div>';
   document.body.appendChild(overlay);
 
-  const agregarFactura = async (facturaId, errorEl) => {
+  const agregarFactura = async (facturaId, fecha, errorEl) => {
     errorEl.textContent = '';
     try {
-      await api(`/planilla-compras/faltantes/${facturaId}/agregar`, { method: 'POST' });
+      await api(`/planilla-compras/faltantes/${facturaId}/agregar`, { method: 'POST', body: JSON.stringify({ fecha: fecha || null }) });
       if (state.planillaMes === `${anio}-${String(mes).padStart(2, '0')}`) {
         const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
         state.planillaItems = res.items;
@@ -3915,7 +3915,7 @@ async function showPlanillaFaltantesModal(anio, mes) {
         <div style="margin-top:1.25rem"><button type="button" class="btn" id="pc-faltantes-cerrar">Cerrar</button></div>`;
       overlay.querySelector('#pc-faltantes-cerrar').onclick = () => overlay.remove();
       overlay.querySelectorAll('[data-agregar-faltante]').forEach(btn => {
-        btn.onclick = () => agregarFactura(btn.dataset.agregarFaltante, overlay.querySelector('#pc-faltantes-error'));
+        btn.onclick = () => agregarFactura(btn.dataset.agregarFaltante, btn.dataset.fecha, overlay.querySelector('#pc-faltantes-error'));
       });
     } catch (err) {
       overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="pc-faltantes-cerrar-error">Cerrar</button>`;
