@@ -656,6 +656,10 @@ class PlanillaFaltanteOut(BaseModel):
     total: float
 
 
+class AgregarFaltanteIn(BaseModel):
+    fecha: str | None = None  # invoice_date de la factura -- ver agregar_faltante
+
+
 class VentaPeriodoIn(BaseModel):
     anio: int
     mes: int

@@ -27,8 +27,8 @@ if str(_REPO_ROOT) not in sys.path:
 from odoo_connector import OdooClient  # noqa: E402
 from tcpos_connector import TcposWebReportSession, construir_parametros  # noqa: E402
 
-from ..schemas import (PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen, PlanillaFaltanteOut,
-                       ProveedorTipoIn, ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoJobOut)
+from ..schemas import (AgregarFaltanteIn, PlanillaComprasItem, PlanillaComprasOut, PlanillaComprasResumen,
+                       PlanillaFaltanteOut, ProveedorTipoIn, ProveedorTipoOut, VentaPeriodoIn, VentaPeriodoJobOut)
 from ..tcpos_report_parser import parsear_financial_overview_cash_to_deposit
 
 _MESES_ES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO",
@@ -124,8 +124,14 @@ def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str] = 
     # mano directo en Odoo (boton "Ingresada Manualmente" en Facturas SII)
     # que por eso mismo no tienen invoice_origin, pero SI son una compra
     # real y deben aparecer igual (ver marcar_ingresada_manual en
-    # facturas_dte.py).
-    ids_manual = [f["factura_id"] for f in (db.table("planilla_compras_factura_manual").select("factura_id").execute().data or [])]
+    # facturas_dte.py). Se filtra por invoice_date para no mandarle a Odoo
+    # un "id IN (...)" que crece para siempre con TODA la historia de la
+    # tabla en cada consulta de cualquier mes -- las filas viejas sin
+    # invoice_date (de antes de que se empezara a guardar) se incluyen
+    # igual, sin filtrar, para no perderlas.
+    filas_manual = db.table("planilla_compras_factura_manual").select("factura_id,invoice_date").execute().data or []
+    ids_manual = [f["factura_id"] for f in filas_manual
+                  if not f.get("invoice_date") or desde <= f["invoice_date"] <= hasta]
     # Dominio de Odoo (notacion Polaca) -- el operador '|' va SUELTO en la
     # lista plana, aplicando a los dos terminos que le siguen; no se puede
     # anidar como un elemento normal o Odoo lo interpreta mal.
@@ -271,15 +277,22 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
 
 
 @router.post("/faltantes/{factura_id}/agregar", status_code=status.HTTP_204_NO_CONTENT)
-def agregar_faltante(factura_id: int, claims: dict = Depends(get_current_claims)):
+def agregar_faltante(factura_id: int, body: AgregarFaltanteIn = AgregarFaltanteIn(),
+                      claims: dict = Depends(get_current_claims)):
     """Agrega esta factura real de Odoo a Planilla de Compras aunque no
     tenga Orden de Compra detras -- mismo mecanismo que "Ingresada
     Manualmente" en Facturas SII. Upsert sobre factura_id (clave primaria)
-    -- no puede quedar duplicada aunque se apriete mas de una vez."""
+    -- no puede quedar duplicada aunque se apriete mas de una vez.
+
+    body.fecha (la invoice_date de la factura, que el frontend ya trae del
+    listado de "faltantes") se guarda para poder filtrar por mes despues --
+    ver el comentario de ids_manual en _obtener_items_y_resumen. Si no
+    viene, queda null y esa fila simplemente no se filtra nunca (seguro,
+    solo menos optimo)."""
     _require_admin(claims)
     db = get_db()
     db.table("planilla_compras_factura_manual").upsert({
-        "factura_id": factura_id, "agregado_por": claims["sub"],
+        "factura_id": factura_id, "agregado_por": claims["sub"], "invoice_date": body.fecha,
     }).execute()
 
 

@@ -205,7 +205,7 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
             facturas = cliente._call('account.move', 'search_read',
                 [[['partner_id', 'in', partner_ids], ['company_id', '=', doc['company_id'][0]],
                   ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
-                {'fields': ['id', 'l10n_latam_document_number', 'invoice_origin']})
+                {'fields': ['id', 'l10n_latam_document_number', 'invoice_origin', 'invoice_date']})
             candidatas = [f for f in facturas if _normalizar_folio(f.get('l10n_latam_document_number')) == folio]
             if len(candidatas) == 1:
                 factura = candidatas[0]
@@ -214,6 +214,7 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
                 if not factura.get('invoice_origin'):
                     db.table("planilla_compras_factura_manual").upsert({
                         "factura_id": factura['id'], "agregado_por": claims["sub"],
+                        "invoice_date": factura.get('invoice_date') or None,
                     }).execute()
 
     db.table("facturas_dte_ingresado_manual").upsert({
