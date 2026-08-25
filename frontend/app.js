@@ -3562,13 +3562,15 @@ async function showCompararModal(dteId) {
   }
 }
 
-const TIPOS_PLANILLA_COMPRAS = [
-  { id: 'AL', label: 'AL — Alimentos' },
-  { id: 'BA', label: 'BA — Barra' },
-  { id: 'GF', label: 'GF — Gastos Fijos' },
-  { id: 'OT', label: 'OT — Otros' },
-  { id: 'AS', label: 'AS — Aseo' },
-];
+// Ya no se hardcodea aca -- se trae de GET /planilla-compras/tipos (unica
+// fuente de verdad, ver TIPOS_PLANILLA_COMPRAS en planilla_compras.py) y
+// se cachea en state.tiposPlanillaCompras la primera vez que se necesita.
+async function tiposPlanillaCompras() {
+  if (!state.tiposPlanillaCompras) {
+    state.tiposPlanillaCompras = await api('/planilla-compras/tipos');
+  }
+  return state.tiposPlanillaCompras;
+}
 
 // Trae la Venta del Periodo desde TCPOS en segundo plano (el reporte del
 // mes corrido puede tardar varios minutos) -- mismo patron de polling que
@@ -3636,6 +3638,7 @@ async function verificarVentaPeriodoJobActivo(anio, mes) {
 }
 
 async function renderPlanillaCompras(el, s) {
+  const tipos = await tiposPlanillaCompras();
   const hoy = new Date();
   if (!state.planillaMes) state.planillaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
   const items = state.planillaItems || [];
@@ -3648,7 +3651,7 @@ async function renderPlanillaCompras(el, s) {
   // Los totales (por Tipo y % Costo Venta) siempre son del mes completo --
   // el filtro es solo para ubicar una factura puntual mas rapido en la
   // tabla, no para recalcular el resumen.
-  const totalesPorTipo = TIPOS_PLANILLA_COMPRAS.reduce((acc, t) => { acc[t.id] = 0; return acc; }, {});
+  const totalesPorTipo = tipos.reduce((acc, t) => { acc[t.id] = 0; return acc; }, {});
   let totalGeneral = 0;
   let sinTipo = 0;
   items.forEach(it => {
@@ -3715,7 +3718,7 @@ async function renderPlanillaCompras(el, s) {
         <label class="field-label">Buscar por N° de factura o proveedor</label>
         <input type="text" id="pc-filtro-folio" class="field" style="width:100%" placeholder="Ej. 10199 o Agrofood" value="${escapeHtml(state.planillaFiltroFolio || '')}">
       </div>
-      <div id="pc-tabla-card">${_renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, state.planillaFiltroFolio)}</div>` : ''}`;
+      <div id="pc-tabla-card">${_renderPlanillaTablaCard(tipos, itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, state.planillaFiltroFolio)}</div>` : ''}`;
 
   document.getElementById('pc-mes').addEventListener('change', (e) => { state.planillaMes = e.target.value; });
 
@@ -3801,7 +3804,7 @@ async function renderPlanillaCompras(el, s) {
       ? items.filter(it => (it.num_factura || '').toLowerCase().includes(nuevoFiltro) || (it.proveedor_nombre || '').toLowerCase().includes(nuevoFiltro))
       : items;
     document.getElementById('pc-tabla-card').innerHTML =
-      _renderPlanillaTablaCard(nuevosItemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, nuevoFiltro, state.planillaFiltroFolio);
+      _renderPlanillaTablaCard(tipos, nuevosItemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, nuevoFiltro, state.planillaFiltroFolio);
     bindPlanillaTipoSelects();
   });
 
@@ -3829,7 +3832,7 @@ function bindPlanillaTipoSelects() {
   });
 }
 
-function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, filtroTexto) {
+function _renderPlanillaTablaCard(tipos, itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, filtroTexto) {
   return `
     <div class="card">
       ${sinTipo ? `<p class="error-msg" style="margin-bottom:.75rem">${sinTipo} factura(s) de proveedores sin Tipo asignado -- clasifícalos en "Categorías de proveedores".</p>` : ''}
@@ -3849,13 +3852,13 @@ function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, 
                 ${esAdmin() ? `
                 <select class="field" data-tipo-proveedor="${it.proveedor_id}" data-nombre-proveedor="${escapeHtml(it.proveedor_nombre || '')}">
                   <option value="">— Sin asignar —</option>
-                  ${TIPOS_PLANILLA_COMPRAS.map(t => `<option value="${t.id}" ${it.tipo === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
-                </select>` : (TIPOS_PLANILLA_COMPRAS.find(t => t.id === it.tipo)?.label || '<span class="placeholder">— Sin asignar —</span>')}
+                  ${tipos.map(t => `<option value="${t.id}" ${it.tipo === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}
+                </select>` : (tipos.find(t => t.id === it.tipo)?.label || '<span class="placeholder">— Sin asignar —</span>')}
               </td>
             </tr>`).join('')}
         </tbody>
         <tfoot>
-          ${TIPOS_PLANILLA_COMPRAS.map(t => `<tr><td colspan="5" style="text-align:right">${t.label}</td><td colspan="2">$${Math.round(totalesPorTipo[t.id]).toLocaleString('es-CL')}</td></tr>`).join('')}
+          ${tipos.map(t => `<tr><td colspan="5" style="text-align:right">${t.label}</td><td colspan="2">$${Math.round(totalesPorTipo[t.id]).toLocaleString('es-CL')}</td></tr>`).join('')}
           <tr><td colspan="5" style="text-align:right"><strong>Total</strong></td><td colspan="2"><strong>$${Math.round(totalGeneral).toLocaleString('es-CL')}</strong></td></tr>
         </tfoot>
       </table>
@@ -3929,7 +3932,7 @@ async function showCatalogoProveedoresTipo() {
   document.body.appendChild(overlay);
 
   try {
-    const proveedores = await api('/planilla-compras/proveedores');
+    const [proveedores, tipos] = await Promise.all([api('/planilla-compras/proveedores'), tiposPlanillaCompras()]);
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>Categorías de proveedores</h3>
       <p class="placeholder" style="margin-bottom:1rem">Cada proveedor tiene un Tipo fijo (ej. Paltas Royal = Alimentos). Se asigna la primera vez desde la Planilla de Compras y queda guardado acá.</p>
@@ -3937,7 +3940,7 @@ async function showCatalogoProveedoresTipo() {
         <table>
           <thead><tr><th>Proveedor</th><th>Tipo</th></tr></thead>
           <tbody>
-            ${proveedores.map(p => `<tr><td>${escapeHtml(p.proveedor_nombre)}</td><td>${TIPOS_PLANILLA_COMPRAS.find(t => t.id === p.tipo)?.label || p.tipo}</td></tr>`).join('')}
+            ${proveedores.map(p => `<tr><td>${escapeHtml(p.proveedor_nombre)}</td><td>${tipos.find(t => t.id === p.tipo)?.label || p.tipo}</td></tr>`).join('')}
           </tbody>
         </table>` : '<p class="placeholder">Todavía no hay proveedores clasificados.</p>'}
       <div style="margin-top:1.25rem">

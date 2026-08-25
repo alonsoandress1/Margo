@@ -36,8 +36,21 @@ _MESES_ES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AG
 
 router = APIRouter(prefix="/planilla-compras", tags=["planilla-compras"])
 
-TIPOS_VALIDOS = {"AL", "BA", "GF", "OT", "AS"}
-TIPOS_COSTO_VENTA = {"AL", "BA"}  # igual que el Excel real: Costo Venta = N6+O6 (solo Alimentos + Barra)
+# Unica fuente de verdad de los Tipos -- antes vivian duplicados a mano
+# como dos sets de Python (TIPOS_VALIDOS/TIPOS_COSTO_VENTA) MAS una copia
+# hardcodeada en frontend/app.js, sin nada que avisara si se
+# desincronizaban (ej. agregar un Tipo nuevo y olvidar sumarlo en algun
+# lado). El frontend ahora trae esta lista con GET /planilla-compras/tipos
+# en vez de tener su propia copia -- ver listar_tipos.
+TIPOS_PLANILLA_COMPRAS = [
+    {"id": "AL", "label": "AL — Alimentos", "costo_venta": True},
+    {"id": "BA", "label": "BA — Barra", "costo_venta": True},
+    {"id": "GF", "label": "GF — Gastos Fijos", "costo_venta": False},
+    {"id": "OT", "label": "OT — Otros", "costo_venta": False},
+    {"id": "AS", "label": "AS — Aseo", "costo_venta": False},
+]
+TIPOS_VALIDOS = {t["id"] for t in TIPOS_PLANILLA_COMPRAS}
+TIPOS_COSTO_VENTA = {t["id"] for t in TIPOS_PLANILLA_COMPRAS if t["costo_venta"]}  # Excel real: Costo Venta = N6+O6
 
 # Reporte "Financial overview" de TCPOS -- confirmados via el endpoint de
 # descubrimiento (ya borrado). Mismo outlet que el import diario de ventas
@@ -84,14 +97,20 @@ def _company_ids_locales(db) -> list[int]:
     return list({r["odoo_company_id"] for r in rows if r.get("odoo_company_id")})
 
 
-def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str]) -> PlanillaComprasOut:
-    cliente = _odoo(odoo_creds)
+def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str] = None,
+                              cliente: OdooClient = None, company_ids: list[int] = None) -> PlanillaComprasOut:
+    """cliente/company_ids son opcionales -- permiten reusar una conexion a
+    Odoo y un _company_ids_locales() ya resueltos por el llamador (ver
+    listar_faltantes) en vez de repetirlos, si es que ya los tiene."""
+    if cliente is None:
+        cliente = _odoo(odoo_creds)
     ultimo_dia = monthrange(anio, mes)[1]
     desde = f"{anio:04d}-{mes:02d}-01"
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
 
     db = get_db()
-    company_ids = _company_ids_locales(db)
+    if company_ids is None:
+        company_ids = _company_ids_locales(db)
     if not company_ids:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
             "Ningún local tiene odoo_company_id configurado -- no hay ninguna empresa que escanear")
@@ -212,7 +231,7 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     desde = f"{anio:04d}-{mes:02d}-01"
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
 
-    ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes, odoo_creds).items}
+    ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes, cliente=cliente, company_ids=company_ids).items}
 
     # Acotado por la fecha del DTE (con margen de 15 dias a cada lado, por si
     # difiere un poco de la invoice_date real que usa Planilla) -- sin esto,
@@ -249,36 +268,6 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
         ))
     faltantes.sort(key=lambda f: f.fecha or '')
     return faltantes
-
-
-@router.get("/facturas/{factura_id}/detalle")
-def detalle_factura(factura_id: int, claims: dict = Depends(get_current_claims),
-                     odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
-    """Diagnostico -- trae los campos crudos de Odoo de UNA factura puntual
-    (company, invoice_origin real, estado, proveedor) para entender por
-    que no aparece en Planilla de Compras ni en "faltantes" cuando a
-    simple vista debería. Nunca escribe nada, solo lectura."""
-    _require_admin(claims)
-    cliente = _odoo(odoo_creds)
-    moves = cliente._call('account.move', 'read', [[factura_id]],
-        {'fields': ['id', 'company_id', 'partner_id', 'move_type', 'state', 'invoice_origin',
-                    'invoice_date', 'l10n_latam_document_number', 'amount_total']})
-    if not moves:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No se encontró esa factura en Odoo")
-    m = moves[0]
-    company_ids_esperados = _company_ids_locales(get_db())
-    return {
-        "factura_id": m['id'],
-        "company_id": m.get('company_id'),
-        "company_id_esperado_por_locales": company_ids_esperados,
-        "partner_id": m.get('partner_id'),
-        "move_type": m.get('move_type'),
-        "state": m.get('state'),
-        "invoice_origin": m.get('invoice_origin'),
-        "invoice_date": m.get('invoice_date'),
-        "folio": m.get('l10n_latam_document_number'),
-        "total": m.get('amount_total'),
-    }
 
 
 @router.post("/faltantes/{factura_id}/agregar", status_code=status.HTTP_204_NO_CONTENT)
@@ -405,6 +394,14 @@ def estado_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_c
     filas = db.table("planilla_compras_venta_periodo_job").select("*") \
         .eq("anio", anio).eq("mes", mes).order("creado_en", desc=True).limit(1).execute().data
     return VentaPeriodoJobOut(**filas[0]) if filas else None
+
+
+@router.get("/tipos")
+def listar_tipos(claims: dict = Depends(get_current_claims)):
+    """Catalogo de Tipos (id + label) -- unica fuente de verdad, ver
+    TIPOS_PLANILLA_COMPRAS."""
+    _require_lectura(claims)
+    return [{"id": t["id"], "label": t["label"]} for t in TIPOS_PLANILLA_COMPRAS]
 
 
 @router.get("/proveedores", response_model=list[ProveedorTipoOut])
