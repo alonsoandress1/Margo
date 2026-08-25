@@ -296,8 +296,15 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     # cualquier mes, cada vez mas pesado a medida que crece el historial.
     desde_margen = (date.fromisoformat(desde) - timedelta(days=15)).isoformat()
     hasta_margen = (date.fromisoformat(hasta) + timedelta(days=15)).isoformat()
+    # Tipo 33 (Factura Electronica) solamente -- una Nota de Credito (61) con
+    # invoice_id ya vinculado no necesita agregarse a mano aca, ya la trae
+    # sola _obtener_items_y_resumen (ver notas_credito ahi); sin este filtro,
+    # una NC justo en el borde del mes podia listarse igual como "faltante"
+    # pero su "Agregar" no hacia nada (el mecanismo de ids_manual solo
+    # aplica al dominio de facturas, move_type=in_invoice).
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
-        [[['invoice_id', '!=', False], ['date', '>=', desde_margen], ['date', '<=', hasta_margen]]],
+        [[['invoice_id', '!=', False], ['date', '>=', desde_margen], ['date', '<=', hasta_margen],
+          ['l10n_latam_document_type_id_code', '=', '33']]],
         {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'invoice_id']})
     docs = [d for d in docs if (d.get('issuer_rut') or '') not in ocultos]
     move_ids = list({d['invoice_id'][0] for d in docs if d['invoice_id'][0] not in ids_en_planilla})
@@ -462,10 +469,12 @@ def estado_venta_periodo_tcpos(anio: int, mes: int, claims: dict = Depends(get_c
 
 @router.get("/tipos")
 def listar_tipos(claims: dict = Depends(get_current_claims)):
-    """Catalogo de Tipos (id + label) -- unica fuente de verdad, ver
-    TIPOS_PLANILLA_COMPRAS."""
+    """Catalogo de Tipos (id + label + costo_venta) -- unica fuente de
+    verdad, ver TIPOS_PLANILLA_COMPRAS. costo_venta se expone para que el
+    frontend pueda recalcular el % Costo Venta al vuelo (ej. al asignar un
+    Tipo nuevo) sin tener que volver a pedirle todo el mes a Odoo."""
     _require_lectura(claims)
-    return [{"id": t["id"], "label": t["label"]} for t in TIPOS_PLANILLA_COMPRAS]
+    return TIPOS_PLANILLA_COMPRAS
 
 
 @router.get("/proveedores", response_model=list[ProveedorTipoOut])

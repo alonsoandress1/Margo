@@ -3861,6 +3861,14 @@ function bindPlanillaTipoSelects() {
           body: JSON.stringify({ odoo_partner_id: proveedorId, proveedor_nombre: sel.dataset.nombreProveedor, tipo: sel.value }),
         });
         state.planillaItems = state.planillaItems.map(it => it.proveedor_id === proveedorId ? { ...it, tipo: sel.value } : it);
+        // Recalcula Costo Venta/% Costo Venta al vuelo (sin volver a
+        // pedirle todo el mes a Odoo) -- mismo criterio que el backend,
+        // usando el flag costo_venta que ahora trae GET /planilla-compras/tipos.
+        const tiposCostoVenta = new Set((state.tiposPlanillaCompras || []).filter(t => t.costo_venta).map(t => t.id));
+        const costoVenta = state.planillaItems.reduce((acc, it) => acc + (tiposCostoVenta.has(it.tipo) ? it.subtotal : 0), 0);
+        const ventaNeta = state.planillaResumen?.venta_neta;
+        state.planillaResumen = { ...state.planillaResumen, costo_venta: costoVenta,
+          pct_costo_venta: ventaNeta ? costoVenta / ventaNeta : null };
         renderView();
       } catch (err) {
         errorEl.textContent = err.message;
@@ -3879,7 +3887,10 @@ function bindPlanillaTipoSelects() {
           method: 'POST',
           body: JSON.stringify({ proveedor_rut: rut, proveedor_nombre: nombre }),
         });
-        state.planillaItems = state.planillaItems.filter(it => it.proveedor_rut !== rut);
+        const [anio, mes] = state.planillaMes.split('-').map(Number);
+        const res = await api(`/planilla-compras?anio=${anio}&mes=${mes}`);
+        state.planillaItems = res.items;
+        state.planillaResumen = res.resumen;
         renderView();
       } catch (err) {
         errorEl.textContent = err.message;
