@@ -472,6 +472,7 @@ class DteOut(BaseModel):
     fecha: str | None = None
     monto_total: float = 0
     tiene_factura: bool = False
+    es_nota_credito: bool = False  # tipo SII 61 -- solo visualizacion por ahora, ver listar_pendientes
 
 
 class DteDetalleOut(DteOut):

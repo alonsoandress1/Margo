@@ -127,11 +127,14 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
                        odoo_creds: tuple[str, str] = Depends(get_odoo_credentials),
                        x_odoo_company_id: str | None = Header(default=None)):
     """DTE recibidos del SII en el rango de fechas que TODAVIA no tienen
-    una factura borrador creada en Odoo (invoice_id vacio). Solo Factura
-    Electrónica (tipo SII 33) -- otros tipos (Notas de Crédito, Guías de
-    Despacho, Facturas Exentas, etc.) nunca se pueden procesar en esta
-    pantalla y solo generaban confusión mezclados en la lista (confirmado
-    revisando datos reales: 94 de 704 pendientes eran de otro tipo). No
+    una factura borrador creada en Odoo (invoice_id vacio). Factura
+    Electrónica (tipo SII 33) y Nota de Crédito Electrónica (tipo 61,
+    marcada con es_nota_credito=True) -- las NC son SOLO VISUALIZACION por
+    ahora (el frontend no expone "Revisar" ni "Ingresada Manualmente" para
+    ellas, ver renderDteResultados). Otros tipos (Guías de Despacho,
+    Facturas Exentas, etc.) siguen sin poder procesarse en esta pantalla y
+    quedan excluidos (confirmado revisando datos reales: 94 de 704
+    pendientes eran de otro tipo, de las cuales 68 eran NC). No
     incluye proveedores marcados como ocultos (facturas_proveedor_oculto)
     ni DTE marcados como ingresados a mano (facturas_dte_ingresado_manual --
     alguien ya creo la factura real en Odoo por fuera de esta pantalla,
@@ -161,9 +164,10 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     return [
         DteOut(id=d['id'], proveedor_rut=d.get('issuer_rut') or '', proveedor_nombre=d.get('issuer_name') or '',
                folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'),
-               monto_total=_monto(d.get('amount_total')), tiene_factura=False)
+               monto_total=_monto(d.get('amount_total')), tiene_factura=False,
+               es_nota_credito=d.get('l10n_latam_document_type_id_code') == '61')
         for d in docs
-        if d.get('l10n_latam_document_type_id_code') == '33'
+        if d.get('l10n_latam_document_type_id_code') in ('33', '61')
         and (d.get('issuer_rut') or '') not in ocultos and d['id'] not in marcados_manual
     ]
 

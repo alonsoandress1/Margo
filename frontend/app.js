@@ -2778,12 +2778,12 @@ function renderDteResultados(dtes, filtroFolio) {
           <tbody>
             ${lista.map(d => `
               <tr>
-                <td>${escapeHtml(d.folio)}</td>
+                <td>${escapeHtml(d.folio)}${d.es_nota_credito ? ' <span class="badge badge-nc" title="Nota de Crédito">NC</span>' : ''}</td>
                 <td>${d.fecha || '—'}</td>
                 <td>$${Math.round(d.monto_total || 0).toLocaleString('es-CL')}</td>
                 <td>
-                  <button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button>
-                  ${esAdmin() ? `<button type="button" class="btn" data-marcar-manual-dte="${d.id}" title="Ya se ingresó esta factura a mano directo en Odoo -- la saca de esta lista sin tocar nada en Odoo">Ingresada Manualmente</button>` : ''}
+                  ${d.es_nota_credito ? '' : `<button type="button" class="btn" data-revisar-dte="${d.id}">Revisar</button>`}
+                  ${!d.es_nota_credito && esAdmin() ? `<button type="button" class="btn" data-marcar-manual-dte="${d.id}" title="Ya se ingresó esta factura a mano directo en Odoo -- la saca de esta lista sin tocar nada en Odoo">Ingresada Manualmente</button>` : ''}
                 </td>
               </tr>`).join('')}
           </tbody>

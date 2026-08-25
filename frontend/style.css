@@ -191,6 +191,7 @@ tbody tr:hover{background:rgba(201,169,122,.03)}
 .badge-aprobado{background:var(--good-bg);color:var(--good)}
 .badge-rechazado{background:var(--danger-bg);color:var(--danger)}
 .badge-editado{background:rgba(255,255,255,.06);color:var(--t2)}
+.badge-nc{background:var(--g12);color:var(--gold)}
 
 /* ---------- Buttons ---------- */
 .btn{
