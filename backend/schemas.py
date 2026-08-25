@@ -484,7 +484,6 @@ class DteLineaSimpleOut(BaseModel):
     item_name: str
     qty: float
     item_price: float
-    impuesto_nombres: list[str] = []  # impuestos actuales del producto matcheado (ver _impuestos_actuales_por_producto), [] si no hay producto matcheado
 
 
 class DteNotaCreditoDetalleOut(DteOut):

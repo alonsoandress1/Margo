@@ -784,18 +784,6 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
     )
 
 
-@router.get("/{dte_id}/nota-credito/_debug/campos")
-def _debug_campos_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims),
-                                odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
-    """TEMPORAL -- borrar apenas se use. Trae TODOS los campos crudos de
-    las lineas de un DTE (sin filtrar por 'fields') para ver si
-    l10n_cl.supplier.xml.line trae algun campo de impuesto propio del XML
-    del SII, en vez de depender del producto matcheado en Odoo."""
-    _require_admin(claims)
-    cliente = _odoo(odoo_creds)
-    return cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]], {})
-
-
 @router.get("/{dte_id}/nota-credito", response_model=DteNotaCreditoDetalleOut)
 def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims),
                           odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
@@ -804,8 +792,8 @@ def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims)
     Supabase: sin autoconfirmar productos, sin precompletar descuentos, sin
     tocar facturas_producto_mapa. Las NC son solo visualizacion por ahora
     (ver listar_pendientes) -- este endpoint existe para que se pueda ver
-    QUE contiene la NC (items, cantidad, precio) sin arrastrar ninguno de
-    los efectos secundarios de detalle()."""
+    QUE contiene la NC (items, cantidad, precio) tal como viene en el DTE,
+    sin depender de que este matcheada a un producto de Odoo."""
     _require_lectura(claims)
     cliente = _odoo(odoo_creds)
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
@@ -818,11 +806,7 @@ def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este documento no es una Nota de Crédito")
 
     lineas_raw = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
-        {'fields': ['id', 'item_name', 'qty', 'item_price', 'product_id']})
-
-    db = get_db()
-    product_ids = list({l['product_id'][0] for l in lineas_raw if l.get('product_id')})
-    nombres_por_producto = _impuestos_actuales_por_producto(cliente, db, product_ids)
+        {'fields': ['id', 'item_name', 'qty', 'item_price']})
 
     return DteNotaCreditoDetalleOut(
         id=doc['id'], proveedor_rut=doc.get('issuer_rut') or '', proveedor_nombre=doc.get('issuer_name') or '',
@@ -831,7 +815,6 @@ def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims)
         lineas=[DteLineaSimpleOut(
             id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
             item_price=float(l.get('item_price') or 0),
-            impuesto_nombres=nombres_por_producto.get(l['product_id'][0], []) if l.get('product_id') else [],
         ) for l in lineas_raw],
     )
 

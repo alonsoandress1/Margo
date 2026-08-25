@@ -2898,14 +2898,13 @@ async function showNotaCreditoModal(dteId) {
       <p class="placeholder" style="margin-bottom:1rem">${nc.fecha || '—'} · Solo visualización -- esta Nota de Crédito todavía no se procesa en esta pantalla.</p>
       ${nc.lineas.length ? `
         <table>
-          <thead><tr><th>Detalle</th><th>Cantidad</th><th>Precio</th><th>Impuestos</th></tr></thead>
+          <thead><tr><th>Detalle</th><th>Cantidad</th><th>Precio</th></tr></thead>
           <tbody>
             ${nc.lineas.map(l => `
               <tr>
                 <td>${escapeHtml(l.item_name)}</td>
                 <td>${l.qty}</td>
                 <td>${_fmtMonto(l.item_price)}</td>
-                <td>${(l.impuesto_nombres || []).length ? (l.impuesto_nombres || []).map(escapeHtml).join(', ') : '<span class="placeholder">—</span>'}</td>
               </tr>`).join('')}
           </tbody>
         </table>` : '<p class="placeholder">Este documento no tiene líneas.</p>'}
