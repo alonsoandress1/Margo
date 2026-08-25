@@ -643,6 +643,7 @@ class PlanillaComprasItem(BaseModel):
     iva: float
     total: float
     tipo: str | None = None
+    es_nota_credito: bool = False  # monto ya viene NEGATIVO -- resta del Costo Venta, no es una compra
 
 
 class PlanillaComprasResumen(BaseModel):

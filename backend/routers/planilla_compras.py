@@ -158,9 +158,39 @@ def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str] = 
             tipo=tipo_por_partner.get(partner_id),
         ))
 
+    # Notas de Credito de proveedor YA CONFIRMADAS en Odoo (move_type
+    # in_refund) -- a diferencia de facturas, aca no se exige
+    # invoice_origin: una NC solo existe porque hubo una compra real detras,
+    # no hay equivalente al ruido de gastos administrativos que justificaba
+    # ese filtro. Pedido explicito del usuario: una NC es un descuento real
+    # sobre lo comprado, tiene que restar del Costo Venta igual que una
+    # factura suma -- se agregan como items con monto NEGATIVO (mismo Tipo
+    # del proveedor, resuelto por partner_id igual que las facturas) para
+    # que se noten en la tabla y se netean solas en los totales por Tipo y
+    # en Costo Venta, sin logica aparte. Las NC que todavia son solo un DTE
+    # pendiente (ver Facturas Odoo) NO cuentan -- esas ni siquiera son un
+    # documento contable real todavia.
+    condiciones_nc = [['move_type', '=', 'in_refund'], ['company_id', 'in', company_ids],
+                       ['invoice_date', '>=', desde], ['invoice_date', '<=', hasta], ['state', '!=', 'cancel']]
+    notas_credito = cliente._call('account.move', 'search_read',
+        [condiciones_nc],
+        {'fields': ['id', 'partner_id', 'l10n_latam_document_number', 'invoice_date', 'amount_untaxed', 'amount_total']})
+    for m in notas_credito:
+        partner_id, partner_nombre = m.get('partner_id') or [None, '']
+        subtotal = -(m.get('amount_untaxed') or 0)
+        total = -(m.get('amount_total') or 0)
+        items.append(PlanillaComprasItem(
+            factura_id=m['id'], proveedor_id=partner_id, proveedor_nombre=partner_nombre,
+            num_factura=m.get('l10n_latam_document_number') or '', fecha=m.get('invoice_date'),
+            subtotal=subtotal, iva=total - subtotal, total=total,
+            tipo=tipo_por_partner.get(partner_id), es_nota_credito=True,
+        ))
+    items.sort(key=lambda it: it.fecha or '')
+
     # % Costo Venta -- misma formula del Excel real: Costo Venta = compras
     # Tipo AL+BA del mes (subtotal, sin IVA); Venta Neta = Venta del Periodo
-    # (ingresada a mano, igual que en el Excel) / 1.19.
+    # (ingresada a mano, igual que en el Excel) / 1.19. Las NC (subtotal
+    # negativo) ya quedan netadas aca solas, sin caso especial.
     costo_venta = sum(it.subtotal for it in items if it.tipo in TIPOS_COSTO_VENTA)
     fila_venta = db.table("planilla_compras_venta_periodo").select("venta_periodo") \
         .eq("anio", anio).eq("mes", mes).execute().data

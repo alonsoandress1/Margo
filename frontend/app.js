@@ -3881,7 +3881,7 @@ function _renderPlanillaTablaCard(tipos, itemsFiltrados, totalesPorTipo, totalGe
             <tr>
               <td>${it.fecha || '—'}</td>
               <td>${escapeHtml(it.proveedor_nombre)}</td>
-              <td>${it.num_factura ? escapeHtml(it.num_factura) : '—'}</td>
+              <td>${it.num_factura ? escapeHtml(it.num_factura) : '—'}${it.es_nota_credito ? ' <span class="badge badge-nc" title="Nota de Crédito -- resta del Costo Venta">NC</span>' : ''}</td>
               <td>$${Math.round(it.subtotal).toLocaleString('es-CL')}</td>
               <td>$${Math.round(it.iva).toLocaleString('es-CL')}</td>
               <td>$${Math.round(it.total).toLocaleString('es-CL')}</td>
