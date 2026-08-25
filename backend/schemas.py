@@ -38,6 +38,8 @@ class SugerenciaItem(BaseModel):
     precio: float = 0
     proveedor: str | None = None
     tamano_empaque: float | None = None
+    consumo_proyectado: float = 0  # consumo promedio estimado mientras llega el pedido (dias_entrega)
+    dias_entrega: int = 0
 
 
 class MovimientoIn(BaseModel):
@@ -211,12 +213,19 @@ class ProveedorOut(BaseModel):
     odoo_supplier_id: int
     usa_odoo: bool
     activo: bool
+    dias_entrega: int = 0  # dias entre generar la OC y que llegue -- 0 = no afecta la sugerencia
+    dias_pedido: list[int] = []  # 0=Lunes..6=Domingo -- dias de la semana en que corresponde pedirle
 
 
 class ProveedorIn(BaseModel):
     nombre: str
     odoo_supplier_id: int
     usa_odoo: bool = False
+
+
+class ProveedorConfigIn(BaseModel):
+    dias_entrega: int
+    dias_pedido: list[int]
 
 
 class ProveedorOdooOut(BaseModel):

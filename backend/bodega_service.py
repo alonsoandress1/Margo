@@ -1,4 +1,59 @@
+from datetime import date, timedelta
+
 from postgrest.exceptions import APIError
+
+
+DIAS_HISTORIAL_PRONOSTICO = 84  # ~12 semanas -- acota la consulta a medida que crece el historial
+
+
+def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[str, dict[int, float]]:
+    """Para cada insumo, promedio de egresos de bodega_movimientos (entrega_cocina
+    + venta_tcpos, cualquier origen -- son las mismas fuentes que ya restan del
+    Stock de Bodega calculado, ver stock_bodega_por_insumo) agrupado por dia de
+    la semana (0=Lunes..6=Domingo, misma convencion que date.weekday() ya usada
+    en mermas.py). Usado para sumar consumo proyectado a la sugerencia de
+    compra mientras llega un pedido (ver dias_entrega en proveedores).
+
+    Si varios egresos caen el mismo dia para el mismo insumo (ej.
+    entrega_cocina Y venta_tcpos el mismo dia), se suman antes de promediar --
+    un dia con dos origenes cuenta como UNA muestra, no dos.
+
+    Si un dia de la semana puntual no tiene ninguna muestra, se usa el
+    promedio general del insumo (todas las muestras, cualquier dia) en vez de
+    0 -- con solo 1-2 semanas de historial real (venta_tcpos empezo el
+    2026-08-18, entrega_cocina el 2026-08-11), la mayoria de los dias van a
+    caer en este fallback por ahora, y va a mejorar solo con el tiempo. Un
+    insumo sin ninguna muestra en absoluto no aparece en el resultado -- el
+    llamador debe tratar eso como 0 (mismo comportamiento que antes de este
+    pronostico)."""
+    if not keys:
+        return {}
+    desde = (date.today() - timedelta(days=DIAS_HISTORIAL_PRONOSTICO)).isoformat()
+    rows = db.table("bodega_movimientos").select("ingrediente_key,cantidad,fecha") \
+        .eq("local_id", local_id).eq("tipo", "egreso").in_("ingrediente_key", keys) \
+        .gte("fecha", f"{desde}T00:00:00+00:00").execute().data or []
+
+    por_dia: dict[tuple[str, str], float] = {}
+    for r in rows:
+        k = (r["ingrediente_key"], r["fecha"][:10])
+        por_dia[k] = por_dia.get(k, 0) + r["cantidad"]
+
+    suma_por_dow: dict[str, dict[int, float]] = {}
+    cuenta_por_dow: dict[str, dict[int, int]] = {}
+    for (key, dia), cantidad in por_dia.items():
+        dow = date.fromisoformat(dia).weekday()
+        suma_por_dow.setdefault(key, {})[dow] = suma_por_dow.setdefault(key, {}).get(dow, 0) + cantidad
+        cuenta_por_dow.setdefault(key, {})[dow] = cuenta_por_dow.setdefault(key, {}).get(dow, 0) + 1
+
+    promedios: dict[str, dict[int, float]] = {}
+    for key, suma in suma_por_dow.items():
+        cuenta = cuenta_por_dow[key]
+        promedio_general = sum(suma.values()) / sum(cuenta.values())
+        promedios[key] = {
+            dow: (suma[dow] / cuenta[dow]) if dow in cuenta else promedio_general
+            for dow in range(7)
+        }
+    return promedios
 
 
 def stock_bodega_por_insumo(db, local_id: str, keys: list[str]) -> dict[str, float]:

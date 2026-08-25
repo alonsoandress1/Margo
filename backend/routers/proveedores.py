@@ -17,7 +17,7 @@ if str(_REPO_ROOT) not in sys.path:
 from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (AhorroMensualOut, AlertaPrecioOut, ItemAhorroOut, ProductoIn, ProductoOut,
-                       ProductoUpdateIn, ProveedorIn, ProveedorOdooOut, ProveedorOut)
+                       ProductoUpdateIn, ProveedorConfigIn, ProveedorIn, ProveedorOdooOut, ProveedorOut)
 
 router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 
@@ -95,6 +95,42 @@ def eliminar_proveedor(proveedor_id: str, claims: dict = Depends(get_current_cla
     if not existente.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Proveedor no encontrado")
     db.table("proveedores").update({"activo": False}).eq("id", proveedor_id).execute()
+
+
+@router.patch("/{proveedor_id}/config", response_model=ProveedorOut)
+def actualizar_config_proveedor(proveedor_id: str, body: ProveedorConfigIn, claims: dict = Depends(get_current_claims)):
+    """Agenda del proveedor -- dias_entrega (cuanto tarda en llegar el
+    pedido, se suma como consumo proyectado a la sugerencia de compra) y
+    dias_pedido (que dias de la semana corresponde pedirle, dispara la
+    tarjeta de recordatorio en Vista Resumen). Los dos campos se mandan
+    siempre juntos -- no hay edicion parcial de uno solo."""
+    _require_admin(claims)
+    if body.dias_entrega < 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "dias_entrega no puede ser negativo")
+    if any(d < 0 or d > 6 for d in body.dias_pedido):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "dias_pedido debe ser 0 (Lunes) a 6 (Domingo)")
+    db = get_db()
+    existente = db.table("proveedores").select("id").eq("id", proveedor_id).execute()
+    if not existente.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proveedor no encontrado")
+    res = db.table("proveedores").update({
+        "dias_entrega": body.dias_entrega, "dias_pedido": body.dias_pedido,
+    }).eq("id", proveedor_id).execute()
+    return res.data[0]
+
+
+@router.get("/alerta-pedido-hoy", response_model=list[ProveedorOut])
+def alerta_pedido_hoy(claims: dict = Depends(get_current_claims)):
+    """Proveedores activos a los que corresponde pedirles hoy (dias_pedido
+    incluye el dia de hoy) -- puramente informativo para la tarjeta de
+    recordatorio en Vista Resumen, nunca genera nada solo. No verifica si
+    el pedido de hoy ya se generó -- simplificacion consciente, se puede
+    agregar despues cruzando contra po_tracking si en la practica molesta."""
+    _require_lectura(claims)
+    db = get_db()
+    hoy = date.today().weekday()  # 0=Lunes..6=Domingo
+    proveedores = db.table("proveedores").select("*").eq("activo", True).execute().data or []
+    return [p for p in proveedores if hoy in (p.get("dias_pedido") or [])]
 
 
 @router.get("/odoo/candidatos", response_model=list[ProveedorOdooOut])

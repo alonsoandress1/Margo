@@ -1,13 +1,13 @@
 import math
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from postgrest.exceptions import APIError
 
-from ..bodega_service import stock_bodega_por_insumo
+from ..bodega_service import consumo_promedio_por_dia_semana, stock_bodega_por_insumo
 from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, get_odoo_credentials, locales_permitidos, verificar_acceso_local
@@ -62,11 +62,17 @@ def _con_po_tracking(db, pedidos: list[dict]) -> list[dict]:
 
 @router.get("/sugerencia", response_model=list[SugerenciaItem])
 def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims)):
-    """Sugerencia basada en Par Stock - stock actual (bodega + cocina).
-    Elige automaticamente el proveedor mas barato entre los registrados
-    para cada insumo. Todavia no incluye demanda proyectada por
-    pronostico de ventas (fase 2: requiere migrar el historial de ventas
-    a Supabase)."""
+    """Sugerencia basada en Par Stock - stock actual (bodega + cocina) +
+    consumo proyectado mientras llega el pedido. Elige automaticamente el
+    proveedor mas barato entre los registrados para cada insumo.
+
+    consumo_proyectado = suma del consumo promedio (por dia de la semana,
+    ver consumo_promedio_por_dia_semana) de los proximos dias_entrega dias
+    del proveedor mas barato de ese insumo -- sin esto, un pedido con dias
+    de espera real (ej. Doña Sofia, 2 dias) llegaria corto porque solo
+    miraria el stock de HOY, ignorando lo que se va a consumir mientras
+    tanto. dias_entrega=0 (default de cualquier proveedor sin configurar)
+    deja la formula identica a como era antes de este cambio."""
     verificar_acceso_local(claims, local_id)
     db = get_db()
 
@@ -75,6 +81,7 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
         return []
     keys = [r["ingrediente_key"] for r in par_rows]
     stock_bodega = stock_bodega_por_insumo(db, local_id, keys)
+    consumo_promedio = consumo_promedio_por_dia_semana(db, local_id, keys)
 
     cocina_rows = db.table("stock_cocina").select("ingrediente_key,fecha,cantidad_informada") \
         .eq("local_id", local_id).in_("ingrediente_key", keys) \
@@ -84,7 +91,13 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
         stock_cocina.setdefault(c["ingrediente_key"], c["cantidad_informada"])  # primera = mas reciente (ya ordenado)
 
     mapping = productos_mas_baratos(db, keys)
+    proveedor_ids = list({m["proveedor_id"] for m in mapping.values() if m.get("proveedor_id")})
+    dias_entrega_por_proveedor = {
+        p["id"]: p["dias_entrega"]
+        for p in (db.table("proveedores").select("id,dias_entrega").in_("id", proveedor_ids).execute().data or [])
+    } if proveedor_ids else {}
 
+    hoy = date.today()
     resultado = []
     for r in par_rows:
         key = r["ingrediente_key"]
@@ -92,14 +105,21 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
         en_bodega = stock_bodega.get(key, 0)
         en_cocina = stock_cocina.get(key, 0)
         disponible = en_bodega + en_cocina
-        sugerido = max(0.0, r["par_cantidad"] - disponible)
         m = mapping.get(key, {})
+        dias_entrega = dias_entrega_por_proveedor.get(m.get("proveedor_id"), 0)
+        promedios_insumo = consumo_promedio.get(key, {})
+        consumo_proyectado = sum(
+            promedios_insumo.get((hoy + timedelta(days=i)).weekday(), 0)
+            for i in range(dias_entrega)
+        )
+        sugerido = max(0.0, r["par_cantidad"] - disponible + consumo_proyectado)
         sugerido = _redondear_a_empaque(sugerido, m.get("tamano_empaque"))
         resultado.append(SugerenciaItem(
             ingrediente_key=key, nombre=nombre, unidad=r["unidad"], categoria=r["categoria"],
             par=r["par_cantidad"], stock_bodega=en_bodega, stock_cocina=en_cocina,
             sugerido=sugerido, precio=m.get("price", 0), proveedor=m.get("supplier_name"),
             tamano_empaque=m.get("tamano_empaque"),
+            consumo_proyectado=round(consumo_proyectado, 3), dias_entrega=dias_entrega,
         ))
     return resultado
 

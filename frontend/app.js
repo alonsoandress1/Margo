@@ -698,6 +698,7 @@ function _despacharVista(el, s) {
 
 async function renderResumen(el, s) {
   const locales = await api('/locales');
+  const alertaPedidos = await api('/proveedores/alerta-pedido-hoy').catch(() => []);
 
   const mermasPorLocal = await Promise.all(locales.map(l =>
     api(`/mermas?local_id=${l.id}`).then(items => ({ local: l.nombre, items })).catch(() => ({ local: l.nombre, items: [] }))
@@ -733,6 +734,11 @@ async function renderResumen(el, s) {
     <h2>Resumen</h2>
     <p class="placeholder" style="margin-bottom:1.25rem">Lo que conviene revisar hoy, de un vistazo.</p>
     <div class="resumen-grid">
+      ${alertaPedidos.length ? `
+      <div class="resumen-card" data-ir="pedidos" tabindex="0" role="button">
+        <div class="resumen-card-label">Hoy corresponde generar pedido</div>
+        ${alertaPedidos.map(p => `<div class="resumen-card-sub"><span class="resumen-valor-gold">${escapeHtml(p.nombre)}</span></div>`).join('')}
+      </div>` : ''}
       <div class="resumen-card" data-ir="mermas" tabindex="0" role="button">
         <div class="resumen-card-label">Mermas de ayer</div>
         ${mermasResumen.length
@@ -848,6 +854,18 @@ async function renderProveedores(el, s) {
       ${provSeleccionado && puedeLeerAvanzado() ? `<button type="button" class="btn" id="prov-ver-historico">Ver histórico de facturas en Odoo</button>` : ''}
       ${provSeleccionado && editable ? `<button type="button" class="btn btn-reject" id="prov-eliminar">Eliminar proveedor</button>` : ''}
       ${!proveedores.length ? '<p class="placeholder">Todavía no hay proveedores — agrega uno arriba.</p>' : ''}
+      ${provSeleccionado && editable ? `
+      <div style="margin-top:1rem">
+        <label class="field-label">Días de entrega <span class="placeholder">(desde que se genera el pedido hasta que llega -- se suma como consumo proyectado a la sugerencia de compra)</span></label>
+        <input type="number" id="prov-dias-entrega" class="field" min="0" step="1" style="width:100px" value="${provSeleccionado.dias_entrega ?? 0}">
+      </div>
+      <div style="margin-top:.75rem">
+        <label class="field-label">Días de pedido <span class="placeholder">(en qué días de la semana corresponde pedirle -- dispara el recordatorio en Vista Resumen)</span></label>
+        <div style="display:flex;gap:.3rem" id="prov-dias-pedido-chips">
+          ${DIAS_SEMANA.map((d, i) => `<button type="button" class="btn ${(provSeleccionado.dias_pedido || []).includes(i) ? 'btn-primary' : ''}" data-dia-pedido="${i}" style="padding:.25rem .55rem">${d}</button>`).join('')}
+        </div>
+      </div>
+      <p id="prov-config-error" class="error-msg"></p>` : ''}
     </div>
     ${provId ? `
     ${editable ? `
@@ -960,6 +978,33 @@ async function renderProveedores(el, s) {
     } catch (err) {
       alert(err.message);
     }
+  });
+
+  async function guardarConfigProveedor() {
+    const errorEl = document.getElementById('prov-config-error');
+    errorEl.textContent = '';
+    const diasEntrega = parseInt(document.getElementById('prov-dias-entrega').value, 10) || 0;
+    const diasPedido = Array.from(document.querySelectorAll('#prov-dias-pedido-chips [data-dia-pedido].btn-primary'))
+      .map(btn => parseInt(btn.dataset.diaPedido, 10));
+    try {
+      await api(`/proveedores/${provSeleccionado.id}/config`, {
+        method: 'PATCH',
+        body: JSON.stringify({ dias_entrega: diasEntrega, dias_pedido: diasPedido }),
+      });
+      provSeleccionado.dias_entrega = diasEntrega;
+      provSeleccionado.dias_pedido = diasPedido;
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  }
+
+  document.getElementById('prov-dias-entrega')?.addEventListener('blur', guardarConfigProveedor);
+
+  document.querySelectorAll('#prov-dias-pedido-chips [data-dia-pedido]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('btn-primary');
+      guardarConfigProveedor();
+    });
   });
 
   if (editable) {
@@ -1638,6 +1683,27 @@ async function renderInventario(el, s) {
       <div style="margin-bottom:1rem">
         <button type="button" class="btn" id="inv-stock-inicial-btn">Cargar stock inicial por proveedor</button>
       </div>
+      <div class="card" style="margin-bottom:1.25rem">
+        <h3>Conteo de Inventario</h3>
+        <p class="placeholder" style="margin-bottom:.75rem">Ingresa la cantidad real contada -- el sistema calcula solo la diferencia contra el Stock Bodega actual y la guarda como ajuste. Los insumos que dejes en blanco no se tocan.</p>
+        <div style="max-width:280px;margin-bottom:.75rem">
+          <input type="text" id="inv-conteo-filtro" class="field" style="width:100%" placeholder="Buscar insumo...">
+        </div>
+        <table>
+          <thead><tr><th>Insumo</th><th>Unidad</th><th>Stock Bodega actual</th><th>Cantidad contada</th></tr></thead>
+          <tbody>
+            ${items.map(i => `
+              <tr data-conteo-row data-conteo-nombre="${escapeHtml(i.nombre.toLowerCase())}">
+                <td>${escapeHtml(i.nombre)}</td>
+                <td>${formatUnidad(i.unidad)}</td>
+                <td>${i.stock_bodega}</td>
+                <td><input type="number" step="0.01" class="field inv-conteo-input" data-key="${i.ingrediente_key}" data-stock-actual="${i.stock_bodega}" style="width:110px"></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        <button type="button" class="btn btn-primary" id="inv-conteo-guardar" style="margin-top:.75rem">Guardar conteo</button>
+        <p id="inv-conteo-error" class="error-msg"></p>
+      </div>
       ${stockPendiente.length ? `
       <div class="card" style="margin-bottom:1.25rem">
         <h3>Stock pendiente de sumar (${stockPendiente.length})</h3>
@@ -1702,6 +1768,44 @@ async function renderInventario(el, s) {
 
     document.getElementById('inv-stock-inicial-btn').addEventListener('click', () => {
       showStockInicialModal(localId, items);
+    });
+
+    document.getElementById('inv-conteo-filtro')?.addEventListener('input', (e) => {
+      const filtro = e.target.value.trim().toLowerCase();
+      document.querySelectorAll('[data-conteo-row]').forEach(tr => {
+        tr.style.display = !filtro || tr.dataset.conteoNombre.includes(filtro) ? '' : 'none';
+      });
+    });
+
+    document.getElementById('inv-conteo-guardar')?.addEventListener('click', async () => {
+      const errorEl = document.getElementById('inv-conteo-error');
+      errorEl.textContent = '';
+      const inputs = Array.from(document.querySelectorAll('.inv-conteo-input')).filter(inp => inp.value.trim() !== '');
+      if (!inputs.length) { errorEl.textContent = 'Ingresa al menos una cantidad contada.'; return; }
+      const btn = document.getElementById('inv-conteo-guardar');
+      btn.disabled = true;
+      btn.textContent = 'Guardando…';
+      const hoy = new Date().toLocaleDateString('es-CL');
+      try {
+        for (const inp of inputs) {
+          const contado = parseFloat(inp.value);
+          const actual = parseFloat(inp.dataset.stockActual) || 0;
+          const delta = contado - actual;
+          if (Math.abs(delta) < 1e-9) continue;
+          await api('/inventario/movimiento', {
+            method: 'POST',
+            body: JSON.stringify({
+              local_id: localId, ingrediente_key: inp.dataset.key, tipo: 'ajuste',
+              cantidad: delta, nota: `Conteo físico (${hoy})`,
+            }),
+          });
+        }
+        renderView();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Guardar conteo';
+        errorEl.textContent = err.message;
+      }
     });
 
     document.getElementById('inv-stock-pendiente-actualizar')?.addEventListener('click', async (e) => {
@@ -2479,6 +2583,7 @@ async function renderPedidos(el, s) {
           <button type="button" id="sugerencia-btn" class="btn">Cargar sugerencia (Par Stock)</button>
           <br><br>
           <button type="submit" class="btn btn-primary">Crear pedido</button>
+          <p id="sugerencia-info" class="placeholder"></p>
           <p id="pedido-error" class="error-msg"></p>
         </form>
       </div>` : ''}
@@ -2553,13 +2658,13 @@ async function renderPedidos(el, s) {
 
   if (editable) {
     const rowsEl = document.getElementById('items-rows');
-    const addRow = (nombre = '', cantidad = '', unidad = '', key = '') => {
+    const addRow = (nombre = '', cantidad = '', unidad = '', key = '', title = '') => {
       const row = document.createElement('div');
       row.className = 'item-row';
       row.dataset.key = key;
       row.innerHTML = `
         <input placeholder="Insumo" class="item-nombre field" style="flex:2" value="${escapeHtml(nombre)}">
-        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field" value="${escapeHtml(String(cantidad))}">
+        <input placeholder="Cantidad" type="number" step="0.01" class="item-cantidad field" value="${escapeHtml(String(cantidad))}" title="${escapeHtml(title)}">
         <input placeholder="Unidad (g/kg/un)" class="item-unidad field" value="${escapeHtml(unidad)}">`;
       rowsEl.appendChild(row);
     };
@@ -2569,7 +2674,9 @@ async function renderPedidos(el, s) {
     document.getElementById('sugerencia-btn').onclick = async () => {
       const local_id = document.getElementById('pedido-local').value;
       const errorEl = document.getElementById('pedido-error');
+      const infoEl = document.getElementById('sugerencia-info');
       errorEl.textContent = '';
+      infoEl.textContent = '';
       try {
         const sugerencia = await api(`/pedidos/sugerencia?local_id=${local_id}`);
         const conCompra = sugerencia.filter(i => i.sugerido > 0);
@@ -2578,7 +2685,13 @@ async function renderPedidos(el, s) {
           return;
         }
         rowsEl.innerHTML = '';
-        conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad, i.ingrediente_key));
+        conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad, i.ingrediente_key,
+          `Par ${i.par} − disponible ${(i.stock_bodega + i.stock_cocina).toFixed(2)} + consumo proyectado ${i.consumo_proyectado} (${i.dias_entrega} día(s) de espera) = ${i.sugerido}`));
+        const conPronostico = conCompra.filter(i => i.consumo_proyectado > 0);
+        if (conPronostico.length) {
+          infoEl.textContent = `Incluye consumo proyectado mientras llega el pedido (pasa el mouse sobre la cantidad para ver el detalle): ` +
+            conPronostico.map(i => `${i.nombre} (+${i.consumo_proyectado})`).join(', ');
+        }
       } catch (err) {
         errorEl.textContent = err.message;
       }
