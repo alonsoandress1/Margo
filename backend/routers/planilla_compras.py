@@ -242,6 +242,36 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     return faltantes
 
 
+@router.get("/facturas/{factura_id}/detalle")
+def detalle_factura(factura_id: int, claims: dict = Depends(get_current_claims),
+                     odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Diagnostico -- trae los campos crudos de Odoo de UNA factura puntual
+    (company, invoice_origin real, estado, proveedor) para entender por
+    que no aparece en Planilla de Compras ni en "faltantes" cuando a
+    simple vista debería. Nunca escribe nada, solo lectura."""
+    _require_admin(claims)
+    cliente = _odoo(odoo_creds)
+    moves = cliente._call('account.move', 'read', [[factura_id]],
+        {'fields': ['id', 'company_id', 'partner_id', 'move_type', 'state', 'invoice_origin',
+                    'invoice_date', 'l10n_latam_document_number', 'amount_total']})
+    if not moves:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No se encontró esa factura en Odoo")
+    m = moves[0]
+    company_ids_esperados = _company_ids_locales(get_db())
+    return {
+        "factura_id": m['id'],
+        "company_id": m.get('company_id'),
+        "company_id_esperado_por_locales": company_ids_esperados,
+        "partner_id": m.get('partner_id'),
+        "move_type": m.get('move_type'),
+        "state": m.get('state'),
+        "invoice_origin": m.get('invoice_origin'),
+        "invoice_date": m.get('invoice_date'),
+        "folio": m.get('l10n_latam_document_number'),
+        "total": m.get('amount_total'),
+    }
+
+
 @router.post("/faltantes/{factura_id}/agregar", status_code=status.HTTP_204_NO_CONTENT)
 def agregar_faltante(factura_id: int, claims: dict = Depends(get_current_claims)):
     """Agrega esta factura real de Odoo a Planilla de Compras aunque no
