@@ -3641,7 +3641,9 @@ async function renderPlanillaCompras(el, s) {
   const items = state.planillaItems || [];
   const resumen = state.planillaResumen || {};
   const filtro = (state.planillaFiltroFolio || '').trim().toLowerCase();
-  const itemsFiltrados = filtro ? items.filter(it => (it.num_factura || '').toLowerCase().includes(filtro)) : items;
+  const itemsFiltrados = filtro
+    ? items.filter(it => (it.num_factura || '').toLowerCase().includes(filtro) || (it.proveedor_nombre || '').toLowerCase().includes(filtro))
+    : items;
 
   // Los totales (por Tipo y % Costo Venta) siempre son del mes completo --
   // el filtro es solo para ubicar una factura puntual mas rapido en la
@@ -3710,8 +3712,8 @@ async function renderPlanillaCompras(el, s) {
     ${state.planillaItems && !items.length ? '<div class="card"><p class="placeholder">No hay facturas ingresadas en Odoo para ese mes.</p></div>' : ''}
     ${items.length ? `
       <div style="max-width:280px;margin-bottom:1rem">
-        <label class="field-label">Buscar por N° de factura</label>
-        <input type="text" id="pc-filtro-folio" class="field" style="width:100%" placeholder="Ej. 10199" value="${state.planillaFiltroFolio || ''}">
+        <label class="field-label">Buscar por N° de factura o proveedor</label>
+        <input type="text" id="pc-filtro-folio" class="field" style="width:100%" placeholder="Ej. 10199 o Agrofood" value="${state.planillaFiltroFolio || ''}">
       </div>
       <div id="pc-tabla-card">${_renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, state.planillaFiltroFolio)}</div>` : ''}`;
 
@@ -3796,7 +3798,7 @@ async function renderPlanillaCompras(el, s) {
     state.planillaFiltroFolio = e.target.value;
     const nuevoFiltro = state.planillaFiltroFolio.trim().toLowerCase();
     const nuevosItemsFiltrados = nuevoFiltro
-      ? items.filter(it => (it.num_factura || '').toLowerCase().includes(nuevoFiltro))
+      ? items.filter(it => (it.num_factura || '').toLowerCase().includes(nuevoFiltro) || (it.proveedor_nombre || '').toLowerCase().includes(nuevoFiltro))
       : items;
     document.getElementById('pc-tabla-card').innerHTML =
       _renderPlanillaTablaCard(nuevosItemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, nuevoFiltro, state.planillaFiltroFolio);
@@ -3831,7 +3833,7 @@ function _renderPlanillaTablaCard(itemsFiltrados, totalesPorTipo, totalGeneral, 
   return `
     <div class="card">
       ${sinTipo ? `<p class="error-msg" style="margin-bottom:.75rem">${sinTipo} factura(s) de proveedores sin Tipo asignado -- clasifícalos en "Categorías de proveedores".</p>` : ''}
-      ${filtro && !itemsFiltrados.length ? `<p class="placeholder" style="margin-bottom:.75rem">Ningún N° de factura coincide con "${escapeHtml(filtroTexto)}".</p>` : ''}
+      ${filtro && !itemsFiltrados.length ? `<p class="placeholder" style="margin-bottom:.75rem">Ninguna factura o proveedor coincide con "${escapeHtml(filtroTexto)}".</p>` : ''}
       <table>
         <thead><tr><th>Fecha</th><th>Proveedor</th><th>N° Factura</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Tipo</th></tr></thead>
         <tbody>
