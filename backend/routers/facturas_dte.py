@@ -808,6 +808,10 @@ def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims)
     lineas_raw = cliente._call('l10n_cl.supplier.xml.line', 'search_read', [[['invoice_id', '=', dte_id]]],
         {'fields': ['id', 'item_name', 'qty', 'item_price', 'product_id']})
 
+    db = get_db()
+    product_ids = list({l['product_id'][0] for l in lineas_raw if l.get('product_id')})
+    nombres_por_producto = _impuestos_actuales_por_producto(cliente, db, product_ids)
+
     return DteNotaCreditoDetalleOut(
         id=doc['id'], proveedor_rut=doc.get('issuer_rut') or '', proveedor_nombre=doc.get('issuer_name') or '',
         folio=doc.get('l10n_latam_document_number') or '', fecha=doc.get('date'),
@@ -815,7 +819,7 @@ def detalle_nota_credito(dte_id: int, claims: dict = Depends(get_current_claims)
         lineas=[DteLineaSimpleOut(
             id=l['id'], item_name=l.get('item_name') or '', qty=l.get('qty') or 0,
             item_price=float(l.get('item_price') or 0),
-            product_name=l['product_id'][1] if l.get('product_id') else None,
+            impuesto_nombres=nombres_por_producto.get(l['product_id'][0], []) if l.get('product_id') else [],
         ) for l in lineas_raw],
     )
 
