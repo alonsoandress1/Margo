@@ -185,6 +185,20 @@ def _obtener_items_y_resumen(anio: int, mes: int, odoo_creds: tuple[str, str] = 
             subtotal=subtotal, iva=total - subtotal, total=total,
             tipo=tipo_por_partner.get(partner_id), es_nota_credito=True,
         ))
+
+    # Proveedores "ocultos" -- mismo mecanismo y misma tabla que ya usa
+    # Facturas Odoo (facturas_proveedor_oculto), ahora tambien respetado
+    # aca: pedido explicito del usuario para sacar de la planilla
+    # proveedores que no son compras de mercaderia real (ej. Delivery Hero /
+    # PedidosYa) aunque tengan invoice_origin o sean una NC confirmada.
+    partner_ids = list({it.proveedor_id for it in items if it.proveedor_id})
+    partners = cliente._call('res.partner', 'read', [partner_ids], {'fields': ['vat']}) if partner_ids else []
+    rut_por_partner = {p['id']: p.get('vat') for p in partners}
+    ocultos = {r["proveedor_rut"] for r in
+               (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
+    for it in items:
+        it.proveedor_rut = rut_por_partner.get(it.proveedor_id)
+    items = [it for it in items if it.proveedor_rut not in ocultos]
     items.sort(key=lambda it: it.fecha or '')
 
     # % Costo Venta -- misma formula del Excel real: Costo Venta = compras
@@ -251,8 +265,9 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
 
     Exige que la factura tenga un DTE real del SII vinculado (invoice_id) --
     eso excluye de forma natural los gastos administrativos (bancos,
-    seguros, arriendo, telefonia) que casi nunca tienen DTE asociado, sin
-    necesitar una lista de "ocultos" aparte. Una factura 100% manual sin
+    seguros, arriendo, telefonia) que casi nunca tienen DTE asociado.
+    Tambien respeta facturas_proveedor_oculto (mismo criterio que Planilla
+    de Compras y Facturas Odoo). Una factura 100% manual sin
     ningun DTE (ej. Agrofood) no aparece aca, pero eso esta bien: si tiene
     Orden de Compra detras (invoice_origin, que en este Odoo toda factura
     de proveedor tiene) ya aparece sola en la Planilla de Compras normal.
@@ -268,6 +283,11 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     hasta = f"{anio:04d}-{mes:02d}-{ultimo_dia:02d}"
 
     ids_en_planilla = {it.factura_id for it in _obtener_items_y_resumen(anio, mes, cliente=cliente, company_ids=company_ids).items}
+    # Mismo filtro de ocultos que ya respeta _obtener_items_y_resumen --
+    # sin esto, un proveedor recien ocultado de Planilla reaparece aca como
+    # si le faltara agregarse (ids_en_planilla ya no lo cuenta).
+    ocultos = {r["proveedor_rut"] for r in
+               (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
 
     # Acotado por la fecha del DTE (con margen de 15 dias a cada lado, por si
     # difiere un poco de la invoice_date real que usa Planilla) -- sin esto,
@@ -278,7 +298,8 @@ def listar_faltantes(anio: int, mes: int, claims: dict = Depends(get_current_cla
     hasta_margen = (date.fromisoformat(hasta) + timedelta(days=15)).isoformat()
     docs = cliente._call('l10n_cl.supplier.xml', 'search_read',
         [[['invoice_id', '!=', False], ['date', '>=', desde_margen], ['date', '<=', hasta_margen]]],
-        {'fields': ['id', 'issuer_name', 'l10n_latam_document_number', 'invoice_id']})
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'invoice_id']})
+    docs = [d for d in docs if (d.get('issuer_rut') or '') not in ocultos]
     move_ids = list({d['invoice_id'][0] for d in docs if d['invoice_id'][0] not in ids_en_planilla})
     if not move_ids:
         return []

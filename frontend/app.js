@@ -3867,6 +3867,25 @@ function bindPlanillaTipoSelects() {
       }
     });
   });
+  document.querySelectorAll('[data-ocultar-proveedor-pc]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const rut = decodeURIComponent(btn.dataset.ocultarProveedorPc);
+      const nombre = decodeURIComponent(btn.dataset.ocultarProveedorPcNombre);
+      if (!confirm(`¿Ocultar todas las facturas y notas de crédito de "${nombre}" de Planilla de Compras (y de Facturas Odoo)? Reversible desde "Proveedores ocultos" en Facturas Odoo.`)) return;
+      const errorEl = document.getElementById('pc-error');
+      errorEl.textContent = '';
+      try {
+        await api('/facturas-dte/proveedores/ocultar', {
+          method: 'POST',
+          body: JSON.stringify({ proveedor_rut: rut, proveedor_nombre: nombre }),
+        });
+        state.planillaItems = state.planillaItems.filter(it => it.proveedor_rut !== rut);
+        renderView();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  });
 }
 
 function _renderPlanillaTablaCard(tipos, itemsFiltrados, totalesPorTipo, totalGeneral, sinTipo, filtro, filtroTexto) {
@@ -3880,7 +3899,7 @@ function _renderPlanillaTablaCard(tipos, itemsFiltrados, totalesPorTipo, totalGe
           ${itemsFiltrados.map(it => `
             <tr>
               <td>${it.fecha || '—'}</td>
-              <td>${escapeHtml(it.proveedor_nombre)}</td>
+              <td>${escapeHtml(it.proveedor_nombre)}${esAdmin() && it.proveedor_rut ? ` <button type="button" class="btn" style="font-size:.68rem;padding:.05rem .3rem" data-ocultar-proveedor-pc="${encodeURIComponent(it.proveedor_rut)}" data-ocultar-proveedor-pc-nombre="${encodeURIComponent(it.proveedor_nombre)}" title="Ocultar este proveedor de Planilla de Compras (y de Facturas Odoo)">Ocultar</button>` : ''}</td>
               <td>${it.num_factura ? escapeHtml(it.num_factura) : '—'}${it.es_nota_credito ? ' <span class="badge badge-nc" title="Nota de Crédito -- resta del Costo Venta">NC</span>' : ''}</td>
               <td>$${Math.round(it.subtotal).toLocaleString('es-CL')}</td>
               <td>$${Math.round(it.iva).toLocaleString('es-CL')}</td>

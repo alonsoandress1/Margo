@@ -636,6 +636,7 @@ class ColaFacturaOut(BaseModel):
 class PlanillaComprasItem(BaseModel):
     factura_id: int
     proveedor_id: int | None = None
+    proveedor_rut: str | None = None  # para poder ocultar el proveedor desde esta pantalla (facturas_proveedor_oculto)
     proveedor_nombre: str
     num_factura: str
     fecha: str | None = None
