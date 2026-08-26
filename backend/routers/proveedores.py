@@ -205,7 +205,12 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo verificar contra Odoo: {type(e).__name__}: {e}")
+        # xmlrpc.client.Fault (la excepcion real que tira Odoo del lado
+        # servidor, ej. AccessError) no trae el mensaje util en str(e) --
+        # vive en .faultString (mismo campo que ya usa OdooClient.connect()
+        # en odoo_connector.py).
+        detalle = getattr(e, 'faultString', None) or str(e)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo verificar contra Odoo: {type(e).__name__}: {detalle}")
 
 
 @router.get("/odoo/candidatos", response_model=list[ProveedorOdooOut])
