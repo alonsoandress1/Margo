@@ -1072,7 +1072,18 @@ async function renderProveedores(el, s) {
             const refEl = document.getElementById('prod-ref');
             if (!refEl.value.trim() && pbtn.dataset.codigo) refEl.value = pbtn.dataset.codigo;
             const unidadOdoo = _adivinarUnidadOdoo(pbtn.dataset.uom);
-            if (unidadOdoo) document.getElementById('prod-unidad-odoo').value = unidadOdoo;
+            if (unidadOdoo) {
+              document.getElementById('prod-unidad-odoo').value = unidadOdoo;
+              // Precarga tambien la unidad BASE del insumo con la real de
+              // Odoo -- antes solo sugeria el campo secundario "Unidad de
+              // compra en Odoo" y dejaba la unidad base en su default fijo
+              // (kg), asi que si alguien no la corregia a mano quedaba mal
+              // (caso real: "Filete para Churrascos" cargado como "un"
+              // estando en Odoo por kg). Sigue siendo editable por si el
+              // insumo es de un tercer tipo (ej. porcion) que esta
+              // heuristica no cubre.
+              document.getElementById('prod-unidad').value = unidadOdoo;
+            }
           };
         });
       } catch (err) {
