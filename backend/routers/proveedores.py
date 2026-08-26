@@ -154,7 +154,10 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
     # poder diagnosticar sin tener que adivinar.
     try:
         cliente = _odoo(odoo_creds)
-        productos = db.table("odoo_mapping").select("ingrediente_key,odoo_id,unidad") \
+        # odoo_mapping no tiene columna "unidad" propia -- vive en el sufijo
+        # del ingrediente_key ("nombre||unidad", mismo formato que usa todo
+        # el resto del sistema, ver par_stock).
+        productos = db.table("odoo_mapping").select("ingrediente_key,odoo_id") \
             .eq("proveedor_id", proveedor_id).execute().data or []
         if not productos:
             return []
@@ -189,12 +192,13 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
 
         discrepancias = []
         for p in productos:
+            nombre, _, unidad_actual = p["ingrediente_key"].partition("||")
             unidad_real = unidad_real_por_odoo_id.get(p["odoo_id"])
-            if unidad_real and unidad_real != p["unidad"]:
+            if unidad_real and unidad_real != unidad_actual:
                 discrepancias.append({
                     "ingrediente_key": p["ingrediente_key"],
-                    "nombre": p["ingrediente_key"].split("||")[0],
-                    "unidad_actual": p["unidad"],
+                    "nombre": nombre,
+                    "unidad_actual": unidad_actual,
                     "unidad_real_odoo": unidad_real,
                 })
         return sorted(discrepancias, key=lambda d: d["nombre"])
