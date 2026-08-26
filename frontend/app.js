@@ -2679,7 +2679,7 @@ async function renderPedidos(el, s) {
         }
         rowsEl.innerHTML = '';
         conCompra.forEach(i => addRow(i.nombre, i.sugerido, i.unidad, i.ingrediente_key,
-          `Par ${i.par} − disponible ${(i.stock_bodega + i.stock_cocina).toFixed(2)} + consumo proyectado ${i.consumo_proyectado} (${i.dias_entrega} día(s) de espera) = ${i.sugerido}`));
+          `Par ${i.par} − disponible ${(i.stock_bodega + i.stock_cocina).toFixed(2)} + consumo proyectado ${i.consumo_proyectado} (cubre ${i.dias_cobertura} día(s) hasta el próximo pedido, ${i.dias_entrega} de espera) = ${i.sugerido}`));
         const conPronostico = conCompra.filter(i => i.consumo_proyectado > 0);
         if (conPronostico.length) {
           infoEl.textContent = `Incluye consumo proyectado mientras llega el pedido (pasa el mouse sobre la cantidad para ver el detalle): ` +

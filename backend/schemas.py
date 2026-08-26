@@ -38,8 +38,9 @@ class SugerenciaItem(BaseModel):
     precio: float = 0
     proveedor: str | None = None
     tamano_empaque: float | None = None
-    consumo_proyectado: float = 0  # consumo promedio estimado mientras llega el pedido (dias_entrega)
-    dias_entrega: int = 0
+    consumo_proyectado: float = 0  # consumo promedio proyectado durante dias_cobertura
+    dias_entrega: int = 0  # dias entre generar la OC y que llegue
+    dias_cobertura: int = 0  # dias que este pedido debe durar: hasta que llegue el SIGUIENTE (no solo este)
 
 
 class MovimientoIn(BaseModel):

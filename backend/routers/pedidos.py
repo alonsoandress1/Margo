@@ -44,6 +44,25 @@ def _redondear_a_empaque(cantidad: float, tamano_empaque: float | None) -> float
     return round(paquetes * tamano_empaque, 3)
 
 
+def _dias_cobertura(dias_entrega: int, dias_pedido: list[int], hoy_wd: int) -> int:
+    """Cuantos dias de consumo tiene que cubrir un pedido hecho HOY: desde
+    hoy hasta que llegue el SIGUIENTE pedido (no solo hasta que llegue
+    este). Ej. Doña Sofia pide Lunes/Miercoles/Sabado con 2 dias de
+    espera -- un pedido de Miercoles llega el Viernes, pero recien se
+    repone de nuevo cuando llegue el del Sabado, el Lunes -- tiene que
+    durar 5 dias (Mie,Jue,Vie,Sab,Dom), no solo los 2 de espera.
+
+    Sin dias_pedido configurado (proveedor sin agenda definida todavia),
+    se usa solo dias_entrega -- mismo comportamiento que antes de esto."""
+    if not dias_pedido:
+        return dias_entrega
+    dias_pedido_set = set(dias_pedido)
+    for d in range(1, 8):
+        if (hoy_wd + d) % 7 in dias_pedido_set:
+            return d + dias_entrega
+    return dias_entrega  # dias_pedido vacio de hecho pese al chequeo -- no deberia pasar
+
+
 def _con_po_tracking(db, pedidos: list[dict]) -> list[dict]:
     if not pedidos:
         return pedidos
@@ -63,16 +82,19 @@ def _con_po_tracking(db, pedidos: list[dict]) -> list[dict]:
 @router.get("/sugerencia", response_model=list[SugerenciaItem])
 def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims)):
     """Sugerencia basada en Par Stock - stock actual (bodega + cocina) +
-    consumo proyectado mientras llega el pedido. Elige automaticamente el
-    proveedor mas barato entre los registrados para cada insumo.
+    consumo proyectado. Elige automaticamente el proveedor mas barato
+    entre los registrados para cada insumo.
 
-    consumo_proyectado = suma del consumo promedio (por dia de la semana,
-    ver consumo_promedio_por_dia_semana) de los proximos dias_entrega dias
-    del proveedor mas barato de ese insumo -- sin esto, un pedido con dias
-    de espera real (ej. Doña Sofia, 2 dias) llegaria corto porque solo
-    miraria el stock de HOY, ignorando lo que se va a consumir mientras
-    tanto. dias_entrega=0 (default de cualquier proveedor sin configurar)
-    deja la formula identica a como era antes de este cambio."""
+    consumo_proyectado cubre desde HOY hasta que llegue el SIGUIENTE
+    pedido (no solo hasta que llegue este) -- si los pedidos no son
+    diarios (ej. Doña Sofia: Lunes/Miercoles/Sabado, 2 dias de espera),
+    un pedido hecho hoy Miercoles llega el Viernes, pero tiene que durar
+    hasta que llegue el del Sabado (el Lunes siguiente) -- 5 dias, no 2.
+    Mirar solo dias_entrega dejaba el pedido corto para el fin de semana.
+    Ver _dias_cobertura. Sin dias_pedido configurado, se usa solo
+    dias_entrega (mismo comportamiento que antes para proveedores sin
+    agenda definida); dias_entrega=0 deja la formula identica a como era
+    antes de sumar el consumo proyectado."""
     verificar_acceso_local(claims, local_id)
     db = get_db()
 
@@ -92,9 +114,9 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
 
     mapping = productos_mas_baratos(db, keys)
     proveedor_ids = list({m["proveedor_id"] for m in mapping.values() if m.get("proveedor_id")})
-    dias_entrega_por_proveedor = {
-        p["id"]: p["dias_entrega"]
-        for p in (db.table("proveedores").select("id,dias_entrega").in_("id", proveedor_ids).execute().data or [])
+    proveedores_info = {
+        p["id"]: p
+        for p in (db.table("proveedores").select("id,dias_entrega,dias_pedido").in_("id", proveedor_ids).execute().data or [])
     } if proveedor_ids else {}
 
     hoy = date.today()
@@ -106,11 +128,13 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
         en_cocina = stock_cocina.get(key, 0)
         disponible = en_bodega + en_cocina
         m = mapping.get(key, {})
-        dias_entrega = dias_entrega_por_proveedor.get(m.get("proveedor_id"), 0)
+        prov_info = proveedores_info.get(m.get("proveedor_id"), {})
+        dias_entrega = prov_info.get("dias_entrega", 0)
+        dias_cobertura = _dias_cobertura(dias_entrega, prov_info.get("dias_pedido") or [], hoy.weekday())
         promedios_insumo = consumo_promedio.get(key, {})
         consumo_proyectado = sum(
             promedios_insumo.get((hoy + timedelta(days=i)).weekday(), 0)
-            for i in range(dias_entrega)
+            for i in range(dias_cobertura)
         )
         sugerido = max(0.0, r["par_cantidad"] - disponible + consumo_proyectado)
         sugerido = _redondear_a_empaque(sugerido, m.get("tamano_empaque"))
@@ -120,6 +144,7 @@ def sugerencia_compra(local_id: str, claims: dict = Depends(get_current_claims))
             sugerido=sugerido, precio=m.get("price", 0), proveedor=m.get("supplier_name"),
             tamano_empaque=m.get("tamano_empaque"),
             consumo_proyectado=round(consumo_proyectado, 3), dias_entrega=dias_entrega,
+            dias_cobertura=dias_cobertura,
         ))
     return resultado
 
