@@ -146,64 +146,62 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
     product_uom_kgm/product_uom_unit). Solo lectura, no cambia nada --
     la correccion se sigue haciendo a mano en la tabla de productos."""
     _require_lectura(claims)
-    cliente = _odoo(odoo_creds)
     db = get_db()
 
-    productos = db.table("odoo_mapping").select("ingrediente_key,odoo_id,unidad") \
-        .eq("proveedor_id", proveedor_id).execute().data or []
-    if not productos:
-        return []
-    odoo_ids = list({p["odoo_id"] for p in productos})
-
-    # ir.model.data es un modelo tecnico -- algunas cuentas de Odoo (no
-    # administradoras) no tienen permiso de lectura sobre el, y esto tira
-    # una excepcion real de Odoo (no un resultado vacio). Mismo riesgo ya
-    # documentado en facturas_dte.py para esta misma consulta -- ahi se
-    # protege con try/except, aca se convierte en un mensaje claro en vez
-    # de un 500 opaco.
+    # Red de seguridad -- envuelve TODO lo que sigue (conexion a Odoo
+    # incluida) para que un error inesperado cualquiera nunca vuelva un 500
+    # en blanco -- siempre un mensaje con el texto real del error, para
+    # poder diagnosticar sin tener que adivinar.
     try:
+        cliente = _odoo(odoo_creds)
+        productos = db.table("odoo_mapping").select("ingrediente_key,odoo_id,unidad") \
+            .eq("proveedor_id", proveedor_id).execute().data or []
+        if not productos:
+            return []
+        odoo_ids = list({p["odoo_id"] for p in productos})
+
         ids_uom = cliente._call('ir.model.data', 'search_read',
             [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
             {'fields': ['name', 'res_id']})
+        uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
+        unidad_por_uom_id: dict[int, str] = {}
+        if uom_por_nombre.get('product_uom_kgm'):
+            unidad_por_uom_id[uom_por_nombre['product_uom_kgm']] = 'kg'
+        if uom_por_nombre.get('product_uom_unit'):
+            unidad_por_uom_id[uom_por_nombre['product_uom_unit']] = 'un'
+
+        # Productos cuyo odoo_id ya no existe en Odoo (eliminado despues de
+        # agregarlo aca) tiran MissingError en 'read' -- se leen de a uno
+        # en ese caso para no perder la verificacion completa por un id malo.
+        try:
+            productos_odoo = cliente._call('product.product', 'read', [odoo_ids], {'fields': ['uom_po_id']})
+        except Exception:
+            productos_odoo = []
+            for odoo_id in odoo_ids:
+                try:
+                    productos_odoo.extend(cliente._call('product.product', 'read', [[odoo_id]], {'fields': ['uom_po_id']}))
+                except Exception:
+                    continue
+        unidad_real_por_odoo_id = {
+            p['id']: unidad_por_uom_id.get(p['uom_po_id'][0]) if p.get('uom_po_id') else None
+            for p in productos_odoo
+        }
+
+        discrepancias = []
+        for p in productos:
+            unidad_real = unidad_real_por_odoo_id.get(p["odoo_id"])
+            if unidad_real and unidad_real != p["unidad"]:
+                discrepancias.append({
+                    "ingrediente_key": p["ingrediente_key"],
+                    "nombre": p["ingrediente_key"].split("||")[0],
+                    "unidad_actual": p["unidad"],
+                    "unidad_real_odoo": unidad_real,
+                })
+        return sorted(discrepancias, key=lambda d: d["nombre"])
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
-            f"No se pudo consultar las unidades estandar en Odoo con tu cuenta -- probablemente no tiene "
-            f"permiso de lectura sobre datos tecnicos ({e})")
-    uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
-    unidad_por_uom_id: dict[int, str] = {}
-    if uom_por_nombre.get('product_uom_kgm'):
-        unidad_por_uom_id[uom_por_nombre['product_uom_kgm']] = 'kg'
-    if uom_por_nombre.get('product_uom_unit'):
-        unidad_por_uom_id[uom_por_nombre['product_uom_unit']] = 'un'
-
-    # Productos cuyo odoo_id ya no existe en Odoo (eliminado despues de
-    # agregarlo aca) tiran MissingError en 'read' -- se leen de a uno en
-    # ese caso para no perder la verificacion completa por un solo id malo.
-    try:
-        productos_odoo = cliente._call('product.product', 'read', [odoo_ids], {'fields': ['uom_po_id']})
-    except Exception:
-        productos_odoo = []
-        for odoo_id in odoo_ids:
-            try:
-                productos_odoo.extend(cliente._call('product.product', 'read', [[odoo_id]], {'fields': ['uom_po_id']}))
-            except Exception:
-                continue
-    unidad_real_por_odoo_id = {
-        p['id']: unidad_por_uom_id.get(p['uom_po_id'][0]) if p.get('uom_po_id') else None
-        for p in productos_odoo
-    }
-
-    discrepancias = []
-    for p in productos:
-        unidad_real = unidad_real_por_odoo_id.get(p["odoo_id"])
-        if unidad_real and unidad_real != p["unidad"]:
-            discrepancias.append({
-                "ingrediente_key": p["ingrediente_key"],
-                "nombre": p["ingrediente_key"].split("||")[0],
-                "unidad_actual": p["unidad"],
-                "unidad_real_odoo": unidad_real,
-            })
-    return sorted(discrepancias, key=lambda d: d["nombre"])
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo verificar contra Odoo: {type(e).__name__}: {e}")
 
 
 @router.get("/odoo/candidatos", response_model=list[ProveedorOdooOut])
