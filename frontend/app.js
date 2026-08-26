@@ -852,6 +852,7 @@ async function renderProveedores(el, s) {
       </select>
       ${provSeleccionado ? `<p class="placeholder">${provSeleccionado.usa_odoo ? '✓ Genera Orden de Compra real en Odoo.' : 'Sin integración a Odoo — se avisa por correo al generar la OC.'}</p>` : ''}
       ${provSeleccionado && puedeLeerAvanzado() ? `<button type="button" class="btn" id="prov-ver-historico">Ver histórico de facturas en Odoo</button>` : ''}
+      ${provSeleccionado && puedeLeerAvanzado() ? `<button type="button" class="btn" id="prov-verificar-unidades">Verificar unidades con Odoo</button>` : ''}
       ${provSeleccionado && editable ? `<button type="button" class="btn btn-reject" id="prov-eliminar">Eliminar proveedor</button>` : ''}
       ${!proveedores.length ? '<p class="placeholder">Todavía no hay proveedores — agrega uno arriba.</p>' : ''}
       ${provSeleccionado && editable ? `
@@ -965,6 +966,10 @@ async function renderProveedores(el, s) {
 
   document.getElementById('prov-ver-historico')?.addEventListener('click', () => {
     showHistoricoProveedorModal(provSeleccionado.odoo_supplier_id, provSeleccionado.nombre);
+  });
+
+  document.getElementById('prov-verificar-unidades')?.addEventListener('click', () => {
+    showVerificarUnidadesModal(provSeleccionado.id, provSeleccionado.nombre);
   });
 
   document.getElementById('prov-buscar-odoo')?.addEventListener('click', () => showBuscarProveedorOdooModal());
@@ -2096,6 +2101,37 @@ async function showHistoricoProveedorModal(partnerId, proveedorNombre) {
   } catch (err) {
     overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="hist-prov-cerrar-error">Cerrar</button>`;
     overlay.querySelector('#hist-prov-cerrar-error').onclick = () => overlay.remove();
+  }
+}
+
+async function showVerificarUnidadesModal(proveedorId, proveedorNombre) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:640px;max-width:96vw"><p class="placeholder">Comparando contra Odoo…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const discrepancias = await api(`/proveedores/${proveedorId}/verificar-unidades`);
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Verificar unidades — ${escapeHtml(proveedorNombre)}</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Compara la unidad guardada de cada producto contra la unidad de compra real que tiene configurada en Odoo (product.product) -- no cambia nada solo, la corrección se hace a mano en la tabla de productos más abajo.</p>
+      ${discrepancias.length ? `
+        <table>
+          <thead><tr><th>Insumo</th><th>Unidad guardada</th><th>Unidad real en Odoo</th></tr></thead>
+          <tbody>
+            ${discrepancias.map(d => `
+              <tr>
+                <td>${escapeHtml(d.nombre)}</td>
+                <td>${formatUnidad(d.unidad_actual)}</td>
+                <td><strong>${formatUnidad(d.unidad_real_odoo)}</strong></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="placeholder">No encontré diferencias -- todo lo que Odoo tiene configurado calza con lo guardado acá.</p>'}
+      <div style="margin-top:1rem"><button type="button" class="btn" id="verif-unidades-cerrar">Cerrar</button></div>`;
+    overlay.querySelector('#verif-unidades-cerrar').onclick = () => overlay.remove();
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${err.message}</p><button type="button" class="btn" id="verif-unidades-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#verif-unidades-cerrar-error').onclick = () => overlay.remove();
   }
 }
 

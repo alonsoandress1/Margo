@@ -133,6 +133,57 @@ def alerta_pedido_hoy(claims: dict = Depends(get_current_claims)):
     return [p for p in proveedores if hoy in (p.get("dias_pedido") or [])]
 
 
+@router.get("/{proveedor_id}/verificar-unidades")
+def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_claims),
+                        odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Compara la unidad base guardada de cada producto de este proveedor
+    contra la unidad de COMPRA real que ese producto tiene configurada en
+    Odoo (product.product.uom_po_id) -- para encontrar insumos cargados
+    con la unidad equivocada (ej. "Filete para Churrascos" guardado como
+    "un" cuando en Odoo se compra por "kg") sin adivinar por el nombre.
+    Mismo mecanismo de resolucion kg/un que ya usa facturas_dte.py al
+    sugerir la unidad de una linea de factura (ids estandar de Odoo
+    product_uom_kgm/product_uom_unit). Solo lectura, no cambia nada --
+    la correccion se sigue haciendo a mano en la tabla de productos."""
+    _require_lectura(claims)
+    cliente = _odoo(odoo_creds)
+    db = get_db()
+
+    productos = db.table("odoo_mapping").select("ingrediente_key,odoo_id,unidad") \
+        .eq("proveedor_id", proveedor_id).execute().data or []
+    if not productos:
+        return []
+    odoo_ids = list({p["odoo_id"] for p in productos})
+
+    ids_uom = cliente._call('ir.model.data', 'search_read',
+        [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
+        {'fields': ['name', 'res_id']})
+    uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
+    unidad_por_uom_id: dict[int, str] = {}
+    if uom_por_nombre.get('product_uom_kgm'):
+        unidad_por_uom_id[uom_por_nombre['product_uom_kgm']] = 'kg'
+    if uom_por_nombre.get('product_uom_unit'):
+        unidad_por_uom_id[uom_por_nombre['product_uom_unit']] = 'un'
+
+    productos_odoo = cliente._call('product.product', 'read', [odoo_ids], {'fields': ['uom_po_id']})
+    unidad_real_por_odoo_id = {
+        p['id']: unidad_por_uom_id.get(p['uom_po_id'][0]) if p.get('uom_po_id') else None
+        for p in productos_odoo
+    }
+
+    discrepancias = []
+    for p in productos:
+        unidad_real = unidad_real_por_odoo_id.get(p["odoo_id"])
+        if unidad_real and unidad_real != p["unidad"]:
+            discrepancias.append({
+                "ingrediente_key": p["ingrediente_key"],
+                "nombre": p["ingrediente_key"].split("||")[0],
+                "unidad_actual": p["unidad"],
+                "unidad_real_odoo": unidad_real,
+            })
+    return sorted(discrepancias, key=lambda d: d["nombre"])
+
+
 @router.get("/odoo/candidatos", response_model=list[ProveedorOdooOut])
 def buscar_proveedores_odoo(claims: dict = Depends(get_current_claims),
                              odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
