@@ -140,11 +140,15 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
     contra la unidad de COMPRA real que ese producto tiene configurada en
     Odoo (product.product.uom_po_id) -- para encontrar insumos cargados
     con la unidad equivocada (ej. "Filete para Churrascos" guardado como
-    "un" cuando en Odoo se compra por "kg") sin adivinar por el nombre.
-    Mismo mecanismo de resolucion kg/un que ya usa facturas_dte.py al
-    sugerir la unidad de una linea de factura (ids estandar de Odoo
-    product_uom_kgm/product_uom_unit). Solo lectura, no cambia nada --
-    la correccion se sigue haciendo a mano en la tabla de productos."""
+    "un" cuando en Odoo se compra por "kg") sin adivinar por el nombre del
+    INSUMO. Se adivina kg/un por el nombre de la UNIDAD que Odoo ya
+    devuelve junto al producto (mismo criterio ya usado en
+    _adivinarUnidadOdoo del frontend y en buscar_producto de
+    facturas_dte.py) -- deliberadamente NO se usa ir.model.data (resolver
+    los ids estandar de Odoo por ahi exige permiso de Administracion, que
+    una cuenta de compras normal no tiene -- confirmado en vivo). Solo
+    lectura, no cambia nada -- la correccion se sigue haciendo a mano en
+    la tabla de productos."""
     _require_lectura(claims)
     db = get_db()
 
@@ -163,16 +167,6 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
             return []
         odoo_ids = list({p["odoo_id"] for p in productos})
 
-        ids_uom = cliente._call('ir.model.data', 'search_read',
-            [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
-            {'fields': ['name', 'res_id']})
-        uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
-        unidad_por_uom_id: dict[int, str] = {}
-        if uom_por_nombre.get('product_uom_kgm'):
-            unidad_por_uom_id[uom_por_nombre['product_uom_kgm']] = 'kg'
-        if uom_por_nombre.get('product_uom_unit'):
-            unidad_por_uom_id[uom_por_nombre['product_uom_unit']] = 'un'
-
         # Productos cuyo odoo_id ya no existe en Odoo (eliminado despues de
         # agregarlo aca) tiran MissingError en 'read' -- se leen de a uno
         # en ese caso para no perder la verificacion completa por un id malo.
@@ -185,8 +179,24 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
                     productos_odoo.extend(cliente._call('product.product', 'read', [[odoo_id]], {'fields': ['uom_po_id']}))
                 except Exception:
                     continue
+
+        # uom_po_id viene como [id, "nombre"] (many2one estandar, igual que
+        # partner_id/product_id en el resto del codigo) -- el nombre ya
+        # alcanza para adivinar kg/un por texto, sin necesitar leer
+        # ir.model.data (modelo tecnico que exige permiso de Administracion,
+        # confirmado en vivo: la cuenta de compras normal no lo tiene).
+        # Mismo criterio ya usado en _adivinarUnidadOdoo (frontend) y en
+        # buscar_producto (facturas_dte.py).
+        def _adivinar_unidad(nombre_uom: str | None) -> str | None:
+            n = (nombre_uom or '').lower()
+            if 'kg' in n or 'kilo' in n:
+                return 'kg'
+            if 'unid' in n:
+                return 'un'
+            return None
+
         unidad_real_por_odoo_id = {
-            p['id']: unidad_por_uom_id.get(p['uom_po_id'][0]) if p.get('uom_po_id') else None
+            p['id']: _adivinar_unidad(p['uom_po_id'][1]) if p.get('uom_po_id') else None
             for p in productos_odoo
         }
 
