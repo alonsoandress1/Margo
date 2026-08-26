@@ -155,9 +155,20 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
         return []
     odoo_ids = list({p["odoo_id"] for p in productos})
 
-    ids_uom = cliente._call('ir.model.data', 'search_read',
-        [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
-        {'fields': ['name', 'res_id']})
+    # ir.model.data es un modelo tecnico -- algunas cuentas de Odoo (no
+    # administradoras) no tienen permiso de lectura sobre el, y esto tira
+    # una excepcion real de Odoo (no un resultado vacio). Mismo riesgo ya
+    # documentado en facturas_dte.py para esta misma consulta -- ahi se
+    # protege con try/except, aca se convierte en un mensaje claro en vez
+    # de un 500 opaco.
+    try:
+        ids_uom = cliente._call('ir.model.data', 'search_read',
+            [[['module', '=', 'uom'], ['name', 'in', ['product_uom_kgm', 'product_uom_unit']]]],
+            {'fields': ['name', 'res_id']})
+    except Exception as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+            f"No se pudo consultar las unidades estandar en Odoo con tu cuenta -- probablemente no tiene "
+            f"permiso de lectura sobre datos tecnicos ({e})")
     uom_por_nombre = {u['name']: u['res_id'] for u in ids_uom}
     unidad_por_uom_id: dict[int, str] = {}
     if uom_por_nombre.get('product_uom_kgm'):
@@ -165,7 +176,18 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
     if uom_por_nombre.get('product_uom_unit'):
         unidad_por_uom_id[uom_por_nombre['product_uom_unit']] = 'un'
 
-    productos_odoo = cliente._call('product.product', 'read', [odoo_ids], {'fields': ['uom_po_id']})
+    # Productos cuyo odoo_id ya no existe en Odoo (eliminado despues de
+    # agregarlo aca) tiran MissingError en 'read' -- se leen de a uno en
+    # ese caso para no perder la verificacion completa por un solo id malo.
+    try:
+        productos_odoo = cliente._call('product.product', 'read', [odoo_ids], {'fields': ['uom_po_id']})
+    except Exception:
+        productos_odoo = []
+        for odoo_id in odoo_ids:
+            try:
+                productos_odoo.extend(cliente._call('product.product', 'read', [[odoo_id]], {'fields': ['uom_po_id']}))
+            except Exception:
+                continue
     unidad_real_por_odoo_id = {
         p['id']: unidad_por_uom_id.get(p['uom_po_id'][0]) if p.get('uom_po_id') else None
         for p in productos_odoo
