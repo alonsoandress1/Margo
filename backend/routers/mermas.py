@@ -355,12 +355,18 @@ def listar_recetas_venta(local_id: str, claims: dict = Depends(get_current_claim
         .eq("local_id", local_id).gte("fecha", desde).execute().data or []
     nombre_por_sku: dict[str, str] = {}
     for v in ventas:
-        nombre_por_sku.setdefault(v["plato_sku"], v["plato_nombre"])
+        nombre_por_sku.setdefault(v["plato_sku"], v.get("plato_nombre") or v["plato_sku"])
 
     recetas = db.table("ventas_recetas").select("plato_sku,ingrediente_key,cantidad") \
         .eq("local_id", local_id).execute().data or []
     lineas_por_plato: dict[str, list[RecetaVentaLineaOut]] = {}
     for r in recetas:
+        # ingrediente_key puede venir nulo -- lineas sembradas del Excel
+        # para un insumo que todavia no estaba en el seguimiento de Mermas
+        # (mismo caso ya documentado en planilla.py::importar_ventas_tcpos).
+        # No se puede editar/mostrar sin un insumo real, se omiten aca.
+        if not r.get("ingrediente_key"):
+            continue
         lineas_por_plato.setdefault(r["plato_sku"], []).append(RecetaVentaLineaOut(
             ingrediente_key=r["ingrediente_key"], ingrediente_nombre=r["ingrediente_key"].split("||")[0],
             cantidad=r["cantidad"],
