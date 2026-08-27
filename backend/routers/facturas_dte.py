@@ -1001,7 +1001,9 @@ def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[
     filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
         .in_("odoo_product_id", product_ids).execute().data or []
     for f in filas_impuestos:
-        nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
+        lista = nombres_por_producto.setdefault(f["odoo_product_id"], [])
+        if f["impuesto_nombre"] not in lista:
+            lista.append(f["impuesto_nombre"])
     sin_override = [pid for pid in product_ids if pid not in nombres_por_producto]
     if sin_override:
         productos_tax = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
@@ -1228,7 +1230,9 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         .in_("odoo_product_id", product_ids).execute().data or []
     nombres_por_producto: dict[int, list[str]] = {}
     for f in filas_impuestos:
-        nombres_por_producto.setdefault(f["odoo_product_id"], []).append(f["impuesto_nombre"])
+        lista = nombres_por_producto.setdefault(f["odoo_product_id"], [])
+        if f["impuesto_nombre"] not in lista:
+            lista.append(f["impuesto_nombre"])
 
     tax_id_por_nombre: dict[str, int] = {}
     if nombres_por_producto:
