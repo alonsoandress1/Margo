@@ -1005,8 +1005,6 @@ def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[
         if f["impuesto_nombre"] not in lista:
             lista.append(f["impuesto_nombre"])
     sin_override = [pid for pid in product_ids if pid not in nombres_por_producto]
-    if 13272 in product_ids or 13891 in product_ids:
-        raise HTTPException(500, f"DEBUG filas_impuestos={filas_impuestos} sin_override={sin_override} nombres_por_producto={nombres_por_producto}")
     if sin_override:
         productos_tax = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
         tax_ids_defecto = list({t for p in productos_tax for t in (p.get('supplier_taxes_id') or [])})
@@ -1015,8 +1013,22 @@ def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[
             taxes = cliente._call('account.tax', 'read', [tax_ids_defecto], {'fields': ['name']})
             nombre_por_tax_id = {t['id']: t['name'] for t in taxes}
         for p in productos_tax:
-            ids_unicos = list(dict.fromkeys(p.get('supplier_taxes_id') or []))
-            nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in ids_unicos if t in nombre_por_tax_id]
+            # supplier_taxes_id puede traer varios tax_id DISTINTOS que
+            # resuelven al MISMO nombre -- caso real confirmado: un producto
+            # compartido entre empresas quedo vinculado al impuesto "IVA 19%
+            # Compra" de 8 empresas distintas (8 registros account.tax con
+            # ids distintos, mismo nombre), inflando el IVA calculado 8x
+            # (Alca Spa / Doña Estela, folio 401229: $254.387 calculado vs
+            # $31.798 real). El nombre es lo que importa para el calculo
+            # (se resuelve la tasa POR NOMBRE dentro de la empresa correcta
+            # en simular()/_ejecutar_creacion), asi que se dedupea por
+            # nombre resuelto, no por id crudo.
+            nombres = []
+            for t in (p.get('supplier_taxes_id') or []):
+                nombre = nombre_por_tax_id.get(t)
+                if nombre and nombre not in nombres:
+                    nombres.append(nombre)
+            nombres_por_producto[p['id']] = nombres
     return nombres_por_producto
 
 
