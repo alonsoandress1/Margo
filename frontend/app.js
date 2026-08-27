@@ -2545,12 +2545,29 @@ async function showVincularInsumosModal(localId) {
   ]);
 
   let soloSinVincular = false;
+  let agregarAbierto = false;
 
   function render() {
     const filas = soloSinVincular ? vinculos.filter(v => !v.compras_ingrediente_key) : vinculos;
     overlay.querySelector('.modal-box').innerHTML = `
       <h3>Vincular insumos</h3>
       <p class="placeholder" style="margin-bottom:.75rem">Conecta cada insumo de Mermas con su equivalente real de Compras/Odoo -- son dos catálogos independientes, sin este vínculo tus entregas a cocina no alimentan el pronóstico de consumo de la sugerencia de compra. Ningún insumo se vincula solo -- confírmalos uno por uno, aunque el nombre se vea igual.</p>
+
+      <details style="margin-bottom:1rem" ${agregarAbierto ? 'open' : ''}>
+        <summary style="cursor:pointer;font-weight:600">Agregar insumo nuevo a Mermas</summary>
+        <p class="placeholder" style="margin:.5rem 0">Para insumos que compras pero que no estaban en la planilla original (ej. salsas o bases como Demi Glace) -- no requiere que cocina informe un conteo diario, solo sirve para registrar sus Entregas a Cocina.</p>
+        <div class="item-row" style="flex-wrap:wrap;gap:.5rem">
+          <input type="text" id="seguimiento-nombre" class="field" placeholder="Nombre del insumo" style="flex:2;min-width:180px">
+          <select id="seguimiento-unidad" class="field" style="flex:1;min-width:100px">${unidadOptionsHtml('kg')}</select>
+          <select id="seguimiento-tramo" class="field" style="flex:1;min-width:140px">
+            <option value="kg">Por peso (kg)</option>
+            <option value="unidades">Por unidad</option>
+          </select>
+          <button type="button" class="btn" id="seguimiento-agregar">Agregar</button>
+        </div>
+        <p class="error-msg" id="seguimiento-error" style="margin-top:.4rem"></p>
+      </details>
+
       <label class="item-row" style="margin-bottom:.75rem;cursor:pointer">
         <input type="checkbox" id="vinculos-solo-sin-vincular" ${soloSinVincular ? 'checked' : ''}>
         Solo mostrar sin vincular (${vinculos.filter(v => !v.compras_ingrediente_key).length} de ${vinculos.length})
@@ -2581,6 +2598,33 @@ async function showVincularInsumosModal(localId) {
     overlay.querySelector('#vinculos-solo-sin-vincular').addEventListener('change', (e) => {
       soloSinVincular = e.target.checked;
       render();
+    });
+    overlay.querySelector('details').addEventListener('toggle', (e) => { agregarAbierto = e.target.open; });
+
+    overlay.querySelector('#seguimiento-agregar').addEventListener('click', async () => {
+      const errorEl = overlay.querySelector('#seguimiento-error');
+      errorEl.textContent = '';
+      const nombre = overlay.querySelector('#seguimiento-nombre').value.trim();
+      const unidad = overlay.querySelector('#seguimiento-unidad').value;
+      const tramo = overlay.querySelector('#seguimiento-tramo').value;
+      if (!nombre) {
+        errorEl.textContent = 'Escribe un nombre.';
+        return;
+      }
+      try {
+        await api('/mermas/seguimiento', {
+          method: 'POST',
+          body: JSON.stringify({ local_id: localId, nombre, unidad, tramo }),
+        });
+        vinculos.push({
+          mermas_ingrediente_key: `${nombre}||${unidad}`, mermas_nombre: nombre, mermas_unidad: unidad,
+          compras_ingrediente_key: null, compras_nombre: null,
+        });
+        vinculos.sort((a, b) => a.mermas_nombre.localeCompare(b.mermas_nombre, 'es'));
+        render();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
     });
 
     overlay.querySelectorAll('.vinculo-select').forEach(select => {

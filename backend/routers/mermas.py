@@ -8,9 +8,9 @@ from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..excel_exporter import exportar_dia
-from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, MermaItem, PasteleriaIn, PasteleriaOut,
-                       ProteinaProduccionIn, ProteinaProduccionOut, ResumenDiferenciaItem, StockCocinaIn,
-                       VinculoIn, VinculoOut)
+from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, MermaItem, MermaSeguimientoIn, PasteleriaIn,
+                       PasteleriaOut, ProteinaProduccionIn, ProteinaProduccionOut, ResumenDiferenciaItem,
+                       StockCocinaIn, VinculoIn, VinculoOut)
 
 router = APIRouter(prefix="/mermas", tags=["mermas"])
 
@@ -236,6 +236,47 @@ def registrar_entrega(body: EntregaIn, claims: dict = Depends(get_current_claims
 def _requiere_editor(claims: dict, accion: str):
     if claims["rol"] == "observador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"El rol observador no puede {accion}")
+
+
+@router.post("/seguimiento", status_code=status.HTTP_201_CREATED)
+def agregar_seguimiento(body: MermaSeguimientoIn, claims: dict = Depends(get_current_claims)):
+    """Agrega un insumo nuevo al catalogo fijo de Mermas (mermas_seguimiento)
+    -- hasta ahora esa lista era de solo lectura en la app (sembrada una
+    sola vez desde el Excel real), asi que insumos que Doña Sofía vende
+    pero que no estaban en la planilla original (ej. Demi Glace, Pastelera
+    Elaborada -- bases/salsas, no proteinas ni platos de pasteleria) no
+    tenian donde registrar su entrega a cocina. No requiere que cocina
+    informe un "Stock Informado" diario para este insumo -- eso es
+    independiente de Entregas a Cocina, y si nunca se completa el reporte
+    de Mermas/Diferencias simplemente lo omite (ver _diferencias_del_dia),
+    sin romper nada. Tampoco rompe el Excel real -- exportar_dia solo
+    escribe en las filas que existen en la plantilla fisica, cualquier
+    insumo nuevo sin fila mapeada se omite ahi tambien."""
+    _requiere_editor(claims, "agregar insumos a Mermas")
+    verificar_acceso_local(claims, body.local_id)
+    if body.tramo not in ("kg", "unidades"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "tramo debe ser 'kg' o 'unidades'")
+    db = get_db()
+    ingrediente_key = f"{body.nombre}||{body.unidad}"
+    existente = db.table("mermas_seguimiento").select("ingrediente_key") \
+        .eq("local_id", body.local_id).eq("ingrediente_key", ingrediente_key).execute().data
+    if existente:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ese insumo ya existe en el catálogo de Mermas")
+    db.table("mermas_seguimiento").insert({
+        "local_id": body.local_id, "ingrediente_key": ingrediente_key, "unidad": body.unidad,
+        "tramo": body.tramo, "categoria": body.categoria,
+    }).execute()
+    return {"ok": True}
+
+
+@router.delete("/seguimiento", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_seguimiento(local_id: str, ingrediente_key: str, claims: dict = Depends(get_current_claims)):
+    """Quita un insumo agregado por error -- no toca ningun historico ya
+    guardado en stock_cocina/bodega_movimientos para ese insumo."""
+    _requiere_editor(claims, "quitar insumos de Mermas")
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    db.table("mermas_seguimiento").delete().eq("local_id", local_id).eq("ingrediente_key", ingrediente_key).execute()
 
 
 @router.get("/vinculos", response_model=list[VinculoOut])

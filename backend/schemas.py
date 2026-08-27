@@ -157,6 +157,14 @@ class EntregaIn(BaseModel):
     cantidad: float
 
 
+class MermaSeguimientoIn(BaseModel):
+    local_id: str
+    nombre: str
+    unidad: str
+    tramo: str = "kg"  # 'kg' (tiene Reutilizar) o 'unidades' (no tiene) -- igual que el Excel
+    categoria: str | None = None
+
+
 class ResumenDiferenciaItem(BaseModel):
     ingrediente_key: str
     nombre: str
