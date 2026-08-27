@@ -342,10 +342,13 @@ def _ejecutar_limpieza_masiva(job_id: str, company_id: int, desde: str, hasta: s
                 errores += 1
             procesados += 1
             if procesados % 25 == 0 or procesados == total:
-                db.table("facturas_dte_limpieza_masiva").update({
-                    "procesados": procesados, "vinculados": vinculados, "ambiguos": ambiguos, "errores": errores,
-                    "actualizado_en": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", job_id).execute()
+                try:
+                    db.table("facturas_dte_limpieza_masiva").update({
+                        "procesados": procesados, "vinculados": vinculados, "ambiguos": ambiguos, "errores": errores,
+                        "actualizado_en": datetime.now(timezone.utc).isoformat(),
+                    }).eq("id", job_id).execute()
+                except Exception:
+                    pass  # un hipo de red en el update de avance no debe tirar abajo el job entero
 
         db.table("facturas_dte_limpieza_masiva").update({
             "estado": "completado", "actualizado_en": datetime.now(timezone.utc).isoformat(),

@@ -44,6 +44,7 @@ class OdooClient:
         self.password = password
         self.timeout  = timeout
         self.uid: Optional[int] = None
+        self._proxy_object: Optional[xmlrpc.client.ServerProxy] = None
 
     # ── Conexión ──────────────────────────────────────────────────────────────
 
@@ -78,14 +79,23 @@ class OdooClient:
             socket.setdefaulttimeout(prev_to)
 
     def _call(self, model: str, method: str, args: list, kw: dict | None = None):
+        # Reusa el mismo ServerProxy (y su conexion HTTP subyacente) entre
+        # llamadas -- antes se creaba uno nuevo en CADA _call(), lo que abre
+        # un socket nuevo cada vez y nunca lo cierra explicitamente. Con
+        # cientos/miles de llamadas seguidas (ej. un job en segundo plano
+        # que procesa una lista larga) esto agota los file descriptors del
+        # contenedor -- confirmado en produccion: "[Errno 11] Resource
+        # temporarily unavailable" a los ~525 llamadas seguidas en un job de
+        # limpieza masiva de facturas.
         if not self.uid:
             raise RuntimeError("No autenticado — llama connect() primero.")
         prev_to = socket.getdefaulttimeout()
         try:
             socket.setdefaulttimeout(self.timeout)
-            proxy = xmlrpc.client.ServerProxy(
-                f'{self.url}/xmlrpc/2/object', allow_none=True)
-            return proxy.execute_kw(
+            if self._proxy_object is None:
+                self._proxy_object = xmlrpc.client.ServerProxy(
+                    f'{self.url}/xmlrpc/2/object', allow_none=True)
+            return self._proxy_object.execute_kw(
                 self.db, self.uid, self.password,
                 model, method, args, kw or {})
         finally:
