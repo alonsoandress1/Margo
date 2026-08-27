@@ -509,6 +509,29 @@ class DteMarcadoManualOut(BaseModel):
     fecha: str | None = None
     marcado_en: str
     factura_vinculada: bool = False
+    stock_cargado: bool = False
+
+
+class MarcarManualLineaOut(BaseModel):
+    product_id: int
+    product_name: str
+    cantidad: float  # lo facturado en la factura real ya vinculada -- default de "cantidad recibida"
+    price_unit: float
+
+
+class MarcarManualOut(BaseModel):
+    factura_vinculada: bool = False
+    invoice_name: str | None = None
+    lineas: list[MarcarManualLineaOut] = []
+
+
+class CargarStockManualLineaIn(BaseModel):
+    product_id: int
+    cantidad_recibida: float = Field(ge=0)
+
+
+class CargarStockManualIn(BaseModel):
+    lineas: list[CargarStockManualLineaIn]
 
 
 class DteMatchLineaIn(BaseModel):

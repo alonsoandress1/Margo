@@ -36,11 +36,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import (CantidadRecibidaIn, ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
-                       DteDetalleOut, DteLineaOut, DteLineaSimpleOut, DteMarcadoManualOut, DteMatchLineaIn,
-                       DteNotaCreditoDetalleOut, DteOut, DteProductoOut,
+from ..schemas import (CantidadRecibidaIn, CargarStockManualIn, ColaFacturaOut, CompararOut, CompararLineaOut,
+                       DescuentoLineaIn, DteDetalleOut, DteLineaOut, DteLineaSimpleOut, DteMarcadoManualOut,
+                       DteMatchLineaIn, DteNotaCreditoDetalleOut, DteOut, DteProductoOut,
                        FactorConversionIn, HistoricoFacturaOut, HistoricoLineaOut,
-                       ImpuestoOut, LineaManualIn, ProductoImpuestosIn,
+                       ImpuestoOut, LineaManualIn, MarcarManualOut, MarcarManualLineaOut, ProductoImpuestosIn,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
 router = APIRouter(prefix="/facturas-dte", tags=["facturas-dte"])
@@ -173,7 +173,7 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
     ]
 
 
-@router.post("/{dte_id}/marcar-manual", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{dte_id}/marcar-manual", response_model=MarcarManualOut)
 def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_claims),
                              odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
     """Marca este DTE como ya ingresado a mano en Odoo (por fuera de esta
@@ -187,10 +187,18 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
        Odoo, sin pasar por OC), agregarla a planilla_compras_factura_manual
        para que igual aparezca en la Planilla de Compras -- que de otra
        forma la excluye por parecer un gasto administrativo (arriendo,
-       seguro), ver planilla_compras.py.
+       seguro), ver planilla_compras.py,
+    3) devolver sus lineas reales (producto + cantidad facturada) para que
+       el frontend pueda mostrar el modal de "Cantidad recibida" y cargar
+       Bodega automatico (ver cargar_stock_manual, mas abajo) -- este
+       camino nunca pasa por _ejecutar_creacion, asi que sin esto Bodega
+       quedaria sin cargar (antes se compensaba a mano con "Registrar
+       movimiento" en Inventario, pedido explicito del usuario integrarlo
+       aca tambien).
     Si no se encuentra una factura real que calce sola (0 o 2+
     candidatas), se marca igual como resuelta pero sin vincular ni agregar
-    a la planilla -- revisar a mano despues."""
+    a la planilla -- revisar a mano despues (factura_vinculada=False, sin
+    lineas -- el frontend no muestra el modal de cargar stock)."""
     _require_admin(claims)
     cliente = _odoo(odoo_creds)
     db = get_db()
@@ -202,6 +210,8 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
     doc = docs[0]
 
     factura_id_vinculada = None
+    invoice_name = None
+    lineas_out: list[MarcarManualLineaOut] = []
     folio = _normalizar_folio(doc.get('l10n_latam_document_number'))
     if folio and doc.get('issuer_rut') and doc.get('company_id'):
         partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
@@ -210,11 +220,12 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
             facturas = cliente._call('account.move', 'search_read',
                 [[['partner_id', 'in', partner_ids], ['company_id', '=', doc['company_id'][0]],
                   ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
-                {'fields': ['id', 'l10n_latam_document_number', 'invoice_origin', 'invoice_date']})
+                {'fields': ['id', 'name', 'l10n_latam_document_number', 'invoice_origin', 'invoice_date']})
             candidatas = [f for f in facturas if _normalizar_folio(f.get('l10n_latam_document_number')) == folio]
             if len(candidatas) == 1:
                 factura = candidatas[0]
                 factura_id_vinculada = factura['id']
+                invoice_name = factura.get('name')
                 cliente._call('l10n_cl.supplier.xml', 'write', [[dte_id], {'invoice_id': factura['id']}])
                 if not factura.get('invoice_origin'):
                     db.table("planilla_compras_factura_manual").upsert({
@@ -222,9 +233,93 @@ def marcar_ingresada_manual(dte_id: int, claims: dict = Depends(get_current_clai
                         "invoice_date": factura.get('invoice_date') or None,
                     }).execute()
 
+                move_lineas = cliente._call('account.move.line', 'search_read',
+                    [[['move_id', '=', factura['id']], ['display_type', '=', 'product']]],
+                    {'fields': ['product_id', 'quantity', 'price_unit']})
+                lineas_out = [
+                    MarcarManualLineaOut(product_id=ml['product_id'][0], product_name=ml['product_id'][1],
+                                          cantidad=ml['quantity'], price_unit=ml.get('price_unit') or 0)
+                    for ml in move_lineas if ml.get('product_id')
+                ]
+
     db.table("facturas_dte_ingresado_manual").upsert({
         "dte_id": dte_id, "marcado_por": claims["sub"], "factura_id_vinculada": factura_id_vinculada,
     }, on_conflict="dte_id").execute()
+
+    return MarcarManualOut(factura_vinculada=factura_id_vinculada is not None, invoice_name=invoice_name, lineas=lineas_out)
+
+
+@router.post("/{dte_id}/marcar-manual/cargar-stock", status_code=status.HTTP_204_NO_CONTENT)
+def cargar_stock_manual(dte_id: int, body: CargarStockManualIn, claims: dict = Depends(get_current_claims),
+                         odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Carga Bodega desde la factura real que "Ingresada Manualmente" ya
+    vinculo (ver marcar_ingresada_manual) -- mismo mecanismo que la
+    creacion automatica de factura (_alimentar_stock_bodega), pero para el
+    camino en que la OC/recepcion/factura se armaron 100% a mano en Odoo.
+
+    Nunca confia en lo que mando el cliente salvo cantidad_recibida por
+    producto -- vuelve a leer la factura real, sus lineas y sus productos
+    frescos desde Odoo (mismo patron que _procesar_item_cola). cantidad_recibida
+    reemplaza a la cantidad facturada SOLO para lo que se acredita a
+    Bodega -- la factura real en Odoo nunca se toca."""
+    _require_admin(claims)
+    db = get_db()
+
+    fila = db.table("facturas_dte_ingresado_manual").select("*").eq("dte_id", dte_id).execute().data
+    if not fila:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Esta factura todavía no se marcó como ingresada a mano")
+    fila = fila[0]
+    if fila.get("stock_cargado"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El stock de esta factura ya se cargó a Bodega")
+    if not fila.get("factura_id_vinculada"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+            "Esta factura no tiene una factura real vinculada en Odoo -- no se puede cargar stock automático, "
+            "usa Registrar movimiento en Inventario")
+
+    cliente = _odoo(odoo_creds)
+    docs = cliente._call('l10n_cl.supplier.xml', 'search_read', [[['id', '=', dte_id]]],
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'company_id']})
+    if not docs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DTE no encontrado")
+    doc = docs[0]
+    move_id = fila["factura_id_vinculada"]
+
+    move = cliente._call('account.move', 'read', [[move_id]], {'fields': ['name']})[0]
+    move_lineas = cliente._call('account.move.line', 'search_read',
+        [[['move_id', '=', move_id], ['display_type', '=', 'product']]],
+        {'fields': ['product_id', 'quantity', 'price_unit']})
+    move_lineas = [ml for ml in move_lineas if ml.get('product_id')]
+    if not move_lineas:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La factura vinculada no tiene líneas con producto -- nada que cargar")
+
+    product_ids = list({ml['product_id'][0] for ml in move_lineas})
+    productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id']})
+    uom_por_producto = {p['id']: p['uom_id'] for p in productos if p.get('uom_id')}
+    uom_nombre_por_producto = {pid: uom[1] for pid, uom in uom_por_producto.items()}
+
+    partner_id = None
+    if doc.get('issuer_rut'):
+        partners = cliente._call('res.partner', 'search_read', [[['vat', '=', doc['issuer_rut']]]], {'fields': ['id']})
+        if partners:
+            partner_id = partners[0]['id']
+
+    cantidad_recibida_por_producto = {l.product_id: l.cantidad_recibida for l in body.lineas}
+    lineas = []
+    for ml in move_lineas:
+        pid = ml['product_id'][0]
+        cantidad_facturada = ml['quantity']
+        lineas.append({
+            'product_id': pid, 'name': ml['product_id'][1], 'price_unit': ml.get('price_unit'),
+            'product_uom': uom_por_producto.get(pid, [None])[0],
+            'cantidad_facturada': cantidad_facturada,
+            'cantidad_bodega': cantidad_recibida_por_producto.get(pid, cantidad_facturada),
+        })
+
+    _creditar_stock_bodega(db, cliente, doc['company_id'][0], dte_id, move_id, move['name'],
+                            doc.get('issuer_name') or '', doc.get('issuer_rut') or '', partner_id,
+                            uom_nombre_por_producto, lineas, origen="factura_manual")
+
+    db.table("facturas_dte_ingresado_manual").update({"stock_cargado": True}).eq("dte_id", dte_id).execute()
 
 
 @router.delete("/{dte_id}/marcar-manual", status_code=status.HTTP_204_NO_CONTENT)
@@ -269,6 +364,7 @@ def listar_marcados_manual(claims: dict = Depends(get_current_claims),
             dte_id=m["dte_id"], proveedor_rut=d.get('issuer_rut') or '', proveedor_nombre=d.get('issuer_name') or '',
             folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'),
             marcado_en=m["marcado_en"], factura_vinculada=m.get("factura_id_vinculada") is not None,
+            stock_cargado=m.get("stock_cargado") or False,
         ))
     return resultado
 
@@ -1405,19 +1501,39 @@ def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: 
                              proveedor_nombre: str, proveedor_rut: str, odoo_partner_id: int,
                              uom_nombre_por_producto: dict[int, str], order_lines: list,
                              cantidades_bodega: list[float]) -> None:
-    """Suma automaticamente a bodega_movimientos el ingreso de cada linea de
-    la factura recien creada -- pedido explicito del usuario, para no tener
-    que cargar el stock a mano cada vez que se ingresa una factura.
+    """Wrapper de _creditar_stock_bodega para el flujo de creacion automatica
+    de factura (_ejecutar_creacion) -- arma `lineas` a partir de order_lines
+    (formato Odoo (0,0,dict), solo tiene sentido para ese flujo) + la lista
+    paralela de cantidades corregidas por "Cantidad recibida" en Revisar.
+    Ver _creditar_stock_bodega para el resto del comportamiento."""
+    lineas = [
+        {'product_id': linea_oc['product_id'], 'name': linea_oc['name'], 'price_unit': linea_oc.get('price_unit'),
+         'product_uom': linea_oc.get('product_uom'), 'cantidad_facturada': linea_oc['product_qty'],
+         'cantidad_bodega': cantidad_bodega}
+        for (_, _, linea_oc), cantidad_bodega in zip(order_lines, cantidades_bodega)
+    ]
+    _creditar_stock_bodega(db, cliente, company_id, dte_id, move_id, invoice_name, proveedor_nombre,
+                            proveedor_rut, odoo_partner_id, uom_nombre_por_producto, lineas, origen="factura_odoo")
 
-    La cantidad de cada linea (linea_oc['product_qty']) ya viene con el
-    factor de conversion aplicado (ver order_lines en _ejecutar_creacion),
-    asi que es directamente la cantidad real a sumar -- EXCEPTO cuando el
-    admin corrigio la "Cantidad recibida" de esa linea (factura mal
-    despachada): en ese caso cantidades_bodega (mismo orden que order_lines,
-    armada en _ejecutar_creacion) trae la cantidad real recibida en vez de
-    la facturada, y es esa la que se usa para el stock. El historial de
-    precios sigue usando linea_oc['product_qty'] (lo facturado) a
-    proposito -- ese historial es de PRECIOS, no de cantidad fisica.
+
+def _creditar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: int, invoice_name: str,
+                            proveedor_nombre: str, proveedor_rut: str, odoo_partner_id: int,
+                            uom_nombre_por_producto: dict[int, str], lineas: list[dict], origen: str) -> None:
+    """Suma automaticamente a bodega_movimientos el ingreso de cada linea de
+    una factura -- pedido explicito del usuario, para no tener que cargar el
+    stock a mano cada vez que se ingresa una factura. Generica: la usan
+    tanto _alimentar_stock_bodega (factura creada por este sistema, ver
+    _ejecutar_creacion) como cargar_stock_manual (factura creada a mano
+    directo en Odoo, vinculada via "Ingresada Manualmente") -- cada una arma
+    `lineas` a su manera, pero ambas terminan aca. `origen` distingue el
+    rastro en bodega_movimientos ('factura_odoo' vs 'factura_manual').
+
+    cada `linea` trae 'cantidad_facturada' (lo que declara la factura real)
+    y 'cantidad_bodega' (lo que se acredita a Bodega -- igual a la
+    facturada salvo que el admin haya corregido "Cantidad recibida" por una
+    factura mal despachada). El historial de precios siempre usa
+    'cantidad_facturada' a proposito -- ese historial es de PRECIOS, no de
+    cantidad fisica.
 
     Si el local (por la empresa de Odoo) o el insumo (por el producto de
     Odoo, via odoo_mapping) todavia no se pueden resolver, la linea queda
@@ -1443,7 +1559,7 @@ def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: 
     locales = db.table("locales").select("id").eq("odoo_company_id", company_id).execute().data
     local_id = locales[0]["id"] if locales else None
 
-    product_ids = list({linea_oc["product_id"] for _, _, linea_oc in order_lines})
+    product_ids = list({linea["product_id"] for linea in lineas})
     mapeos = db.table("odoo_mapping").select("odoo_id,ingrediente_key,proveedor_id,precio_negociado") \
         .in_("odoo_id", product_ids).execute().data or []
     mapeo_por_producto = {m["odoo_id"]: m for m in mapeos}
@@ -1483,25 +1599,26 @@ def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: 
         pass
 
     ahora = datetime.now(timezone.utc).isoformat()
-    for (_, _, linea_oc), cantidad_bodega in zip(order_lines, cantidades_bodega):
-        pid = linea_oc["product_id"]
+    for linea in lineas:
+        pid = linea["product_id"]
+        cantidad_bodega = linea["cantidad_bodega"]
         mapeo = mapeo_por_producto.get(pid)
         ingrediente_key = mapeo["ingrediente_key"] if mapeo else None
         if not local_id or not ingrediente_key:
             db.table("bodega_stock_pendiente").insert({
                 "dte_id": dte_id, "invoice_id": move_id, "invoice_name": invoice_name,
                 "odoo_company_id": company_id, "local_id": local_id, "odoo_product_id": pid,
-                "producto_nombre": linea_oc["name"], "cantidad": cantidad_bodega,
+                "producto_nombre": linea["name"], "cantidad": cantidad_bodega,
                 "proveedor_nombre": proveedor_nombre, "motivo": "sin_local" if not local_id else "sin_insumo",
                 "proveedor_rut": proveedor_rut, "odoo_partner_id": odoo_partner_id,
-                "precio": linea_oc.get("price_unit"), "uom_odoo_id": linea_oc.get("product_uom") or None,
+                "precio": linea.get("price_unit"), "uom_odoo_id": linea.get("product_uom") or None,
                 "uom_odoo_nombre": uom_nombre_por_producto.get(pid),
-                "unidad_sugerida": unidad_por_uom_id.get(linea_oc.get("product_uom")),
+                "unidad_sugerida": unidad_por_uom_id.get(linea.get("product_uom")),
             }).execute()
             continue
         db.table("bodega_movimientos").insert({
             "local_id": local_id, "ingrediente_key": ingrediente_key, "tipo": "ingreso",
-            "cantidad": cantidad_bodega, "origen": "factura_odoo", "ref": invoice_name,
+            "cantidad": cantidad_bodega, "origen": origen, "ref": invoice_name,
             "nota": f"Factura Odoo {invoice_name} ({proveedor_nombre})", "fecha": ahora,
         }).execute()
 
@@ -1512,10 +1629,10 @@ def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: 
         # un fallo aca cortaba el loop entero, dejando esas lineas sin
         # sumar stock ni quedar pendientes -- se perdian sin rastro).
         try:
-            precio_real = linea_oc.get("price_unit")
+            precio_real = linea.get("price_unit")
             db.table("historial_precios_compra").insert({
                 "ingrediente_key": ingrediente_key, "proveedor_id": mapeo.get("proveedor_id"),
-                "precio": precio_real, "cantidad": linea_oc["product_qty"],
+                "precio": precio_real, "cantidad": linea["cantidad_facturada"],
                 "invoice_name": invoice_name, "dte_id": dte_id, "fecha": ahora,
             }).execute()
 

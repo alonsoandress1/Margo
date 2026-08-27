@@ -2932,11 +2932,14 @@ function bindDteResultadosBotones() {
       const errorEl = document.getElementById('dte-error');
       errorEl.textContent = '';
       try {
-        await api(`/facturas-dte/${dteId}/marcar-manual`, { method: 'POST' });
+        const resp = await api(`/facturas-dte/${dteId}/marcar-manual`, { method: 'POST' });
         state.dteLista = state.dteLista.filter(d => d.id !== dteId);
         document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
         bindDteResultadosBotones();
         _actualizarContadorDte();
+        if (resp.factura_vinculada && resp.lineas.length) {
+          showCargarStockManualModal(dteId, resp.invoice_name, resp.lineas);
+        }
       } catch (err) {
         errorEl.textContent = err.message;
       }
@@ -3025,6 +3028,53 @@ async function showNotaCreditoModal(dteId) {
   }
 }
 
+function showCargarStockManualModal(dteId, invoiceName, lineas) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box" style="width:640px">
+      <h3>Factura ${escapeHtml(invoiceName || '')} vinculada</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Confirma cuánto llegó realmente de cada producto -- si difiere de lo facturado, corrígelo. Esto no cambia la factura en Odoo, solo lo que se suma a tu Stock de Bodega. Si prefieres cargarlo a mano después, cierra sin confirmar (Registrar movimiento en Inventario sigue disponible).</p>
+      <table>
+        <thead><tr><th>Producto</th><th>Cant. facturada</th><th>Cant. recibida</th></tr></thead>
+        <tbody>
+          ${lineas.map(l => `
+            <tr>
+              <td>${escapeHtml(l.product_name)}</td>
+              <td>${l.cantidad}</td>
+              <td><input type="number" class="field" data-recibido-manual="${l.product_id}" min="0" step="any" style="width:80px" value="${l.cantidad}"></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <p class="error-msg" id="cargar-stock-manual-error" style="margin-top:.5rem"></p>
+      <div style="margin-top:1.25rem;display:flex;gap:.5rem">
+        <button type="button" class="btn btn-primary" id="cargar-stock-manual-confirmar">Confirmar y cargar a Bodega</button>
+        <button type="button" class="btn" id="cargar-stock-manual-cerrar">Cerrar sin cargar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#cargar-stock-manual-cerrar').onclick = () => overlay.remove();
+  overlay.querySelector('#cargar-stock-manual-confirmar').addEventListener('click', async (e) => {
+    const errorEl = overlay.querySelector('#cargar-stock-manual-error');
+    errorEl.textContent = '';
+    const cuerpo = {
+      lineas: Array.from(overlay.querySelectorAll('[data-recibido-manual]')).map(input => ({
+        product_id: parseInt(input.dataset.recibidoManual, 10),
+        cantidad_recibida: parseFloat(input.value) || 0,
+      })),
+    };
+    e.target.disabled = true;
+    try {
+      await api(`/facturas-dte/${dteId}/marcar-manual/cargar-stock`, { method: 'POST', body: JSON.stringify(cuerpo) });
+      overlay.remove();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      e.target.disabled = false;
+    }
+  });
+}
+
 async function showMarcadosManualModal() {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -3042,7 +3092,7 @@ async function showMarcadosManualModal() {
           <tbody>
             ${marcados.map(m => `
               <tr>
-                <td>${escapeHtml(m.proveedor_nombre)}${m.factura_vinculada ? ' <span class="placeholder" title="Se encontró y vinculó una factura real en Odoo">✓ vinculada</span>' : ''}</td>
+                <td>${escapeHtml(m.proveedor_nombre)}${m.factura_vinculada ? ' <span class="placeholder" title="Se encontró y vinculó una factura real en Odoo">✓ vinculada</span>' : ''}${m.stock_cargado ? ' <span class="placeholder" title="Ya se cargó a Bodega desde esta factura">✓ stock cargado</span>' : ''}</td>
                 <td>${escapeHtml(m.folio)}</td>
                 <td>${(m.fecha || '').slice(0, 10)}</td>
                 <td>${esAdmin() ? `<button type="button" class="btn" data-desmarcar-manual="${m.dte_id}">Desmarcar</button>` : ''}</td>
@@ -3152,7 +3202,7 @@ async function actualizarColaPanel() {
       if (!confirm('¿Vincular la factura que ya existe en Odoo para este folio? Si corresponde, también se agrega a Planilla de Compras.')) return;
       btn.disabled = true;
       try {
-        await api(`/facturas-dte/${dteId}/marcar-manual`, { method: 'POST' });
+        const resp = await api(`/facturas-dte/${dteId}/marcar-manual`, { method: 'POST' });
         await api(`/facturas-dte/cola/${btn.dataset.vincularCola}`, { method: 'DELETE' });
         if (state.dteLista) {
           state.dteLista = state.dteLista.filter(d => d.id !== dteId);
@@ -3164,6 +3214,9 @@ async function actualizarColaPanel() {
           _actualizarContadorDte();
         }
         actualizarColaPanel();
+        if (resp.factura_vinculada && resp.lineas.length) {
+          showCargarStockManualModal(dteId, resp.invoice_name, resp.lineas);
+        }
       } catch (err) {
         btn.disabled = false;
         alert(err.message);
