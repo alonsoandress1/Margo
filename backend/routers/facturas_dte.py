@@ -36,7 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from odoo_connector import OdooClient  # noqa: E402
 
-from ..schemas import (ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
+from ..schemas import (CantidadRecibidaIn, ColaFacturaOut, CompararOut, CompararLineaOut, DescuentoLineaIn,
                        DteDetalleOut, DteLineaOut, DteLineaSimpleOut, DteMarcadoManualOut, DteMatchLineaIn,
                        DteNotaCreditoDetalleOut, DteOut, DteProductoOut,
                        FactorConversionIn, HistoricoFacturaOut, HistoricoLineaOut,
@@ -393,6 +393,23 @@ def fijar_descuento_linea(linea_id: int, body: DescuentoLineaIn, claims: dict = 
     }, on_conflict="dte_linea_id").execute()
 
 
+@router.put("/lineas/{linea_id}/cantidad-recibida", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_cantidad_recibida(linea_id: int, body: CantidadRecibidaIn, claims: dict = Depends(get_current_claims)):
+    """Guarda cuanto REALMENTE llego de esta linea, cuando difiere de lo
+    facturado (factura mal despachada -- vienen menos unidades, o la mitad
+    de un item). No cambia la factura/OC real en Odoo (eso siempre debe
+    reflejar lo que el proveedor facturo, para contabilidad/SII) -- solo
+    corrige cuanto se suma a nuestro Stock de Bodega interno cuando la
+    factura se crea (ver _ejecutar_creacion / _alimentar_stock_bodega). Sin
+    guardar nada acá, se usa la cantidad facturada tal cual, como siempre."""
+    _require_admin(claims)
+    db = get_db()
+    db.table("facturas_dte_linea_recibido").upsert({
+        "dte_linea_id": linea_id, "cantidad_recibida": body.cantidad_recibida,
+        "actualizado_por": claims["sub"], "actualizado_en": datetime.now(timezone.utc).isoformat(),
+    }, on_conflict="dte_linea_id").execute()
+
+
 @router.post("/{dte_id}/lineas-manuales", status_code=status.HTTP_204_NO_CONTENT)
 def agregar_linea_manual(dte_id: int, body: LineaManualIn, claims: dict = Depends(get_current_claims)):
     """Agrega una linea a mano para este DTE -- para un producto/cargo que el
@@ -669,6 +686,10 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
         .in_("dte_linea_id", linea_ids).execute().data or [] if linea_ids else []
     descuento_por_linea = {d["dte_linea_id"]: d["descuento_pct"] for d in descuentos}
 
+    recibidos = db.table("facturas_dte_linea_recibido").select("dte_linea_id,cantidad_recibida") \
+        .in_("dte_linea_id", linea_ids).execute().data or [] if linea_ids else []
+    recibido_por_linea = {r["dte_linea_id"]: r["cantidad_recibida"] for r in recibidos}
+
     # Historial de descuento por producto para ESTE proveedor puntual -- una
     # sola consulta (ordenada por mas reciente), se toma la primera
     # ocurrencia por producto en Python. Se usa para PRE-COMPLETAR (y dejar
@@ -760,6 +781,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
             descuento_pct=descuento_pct or 0, descuento_sugerido=descuento_sugerido,
             impuesto_nombres=nombres_por_producto.get(product_id, []) if product_id else [],
             factor_conversion=factor_conversion,
+            cantidad_recibida=recibido_por_linea.get(l['id'], l.get('qty') or 0),
         ))
 
     # Lineas agregadas a mano (facturas_dte_linea_manual) -- id NEGATIVO a
@@ -775,6 +797,7 @@ def detalle(dte_id: int, claims: dict = Depends(get_current_claims),
             product_id=lm['odoo_product_id'], product_name=lm['odoo_product_name'], sugerido=False,
             descuento_pct=lm.get('descuento_pct') or 0, es_manual=True,
             impuesto_nombres=nombres_por_producto.get(lm['odoo_product_id'], []),
+            cantidad_recibida=lm['qty'],
         ))
 
     return DteDetalleOut(
@@ -1166,17 +1189,29 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         .in_("dte_linea_id", linea_ids).execute().data or []
     descuento_por_linea = {f["dte_linea_id"]: f["descuento_pct"] for f in filas_descuento}
 
+    # Cantidad REAL recibida por linea -- cuando difiere de lo facturado
+    # (factura mal despachada), esto es lo que se le acredita al Stock de
+    # Bodega interno. La OC/factura real en Odoo (order_lines, mas abajo)
+    # SIEMPRE usa lo facturado -- nunca se toca, es el documento contable/SII.
+    # Se arma en paralelo a order_lines (cantidades_bodega, mismo orden) y
+    # solo se usa mas abajo, dentro de _alimentar_stock_bodega.
+    filas_recibido = db.table("facturas_dte_linea_recibido").select("dte_linea_id,cantidad_recibida") \
+        .in_("dte_linea_id", linea_ids).execute().data or []
+    recibido_por_linea = {f["dte_linea_id"]: f["cantidad_recibida"] for f in filas_recibido}
+
     fecha_dte = f"{doc['date']} 12:00:00"
     order_lines = []
+    cantidades_bodega = []
     for l in lineas:
         pid = l['product_id'][0]
         prod = info_por_producto[pid]
         factor_conversion = _factor_de_linea(l)
         precio_real = (float(l.get('item_price') or 0) / factor_conversion) if factor_conversion else float(l.get('item_price') or 0)
+        product_qty = (l.get('qty') or 0) * factor_conversion
         linea_oc = {
             'product_id': pid,
             'name': prod['display_name'],
-            'product_qty': (l.get('qty') or 0) * factor_conversion,
+            'product_qty': product_qty,
             'price_unit': round(precio_real, 2),
             'discount': descuento_por_linea.get(l['id'], 0),
             'product_uom': prod['uom_id'][0] if prod.get('uom_id') else False,
@@ -1185,9 +1220,13 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         if nombres_impuestos:
             linea_oc['taxes_id'] = [(6, 0, [tax_id_por_nombre[n] for n in nombres_impuestos])]
         order_lines.append((0, 0, linea_oc))
+        recibido = recibido_por_linea.get(l['id'])
+        cantidades_bodega.append(recibido * factor_conversion if recibido is not None else product_qty)
 
     # Lineas agregadas a mano -- mismo armado que las reales del DTE, sin
-    # factor de conversion (no tienen codigo de proveedor asociado).
+    # factor de conversion (no tienen codigo de proveedor asociado). No
+    # tienen "cantidad recibida" propia -- lo que se tipeo a mano ya es lo
+    # que se quiere acreditar.
     for lm in lineas_manuales:
         pid = lm['odoo_product_id']
         prod = info_por_producto[pid]
@@ -1203,6 +1242,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
         if nombres_impuestos:
             linea_oc['taxes_id'] = [(6, 0, [tax_id_por_nombre[n] for n in nombres_impuestos])]
         order_lines.append((0, 0, linea_oc))
+        cantidades_bodega.append(lm['qty'])
 
     es_sofia = doc['issuer_rut'] == RUT_DONA_SOFIA
     oc_reusada = False
@@ -1354,7 +1394,7 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     uom_nombre_por_producto = {pid: p['uom_id'][1] for pid, p in info_por_producto.items() if p.get('uom_id')}
     try:
         _alimentar_stock_bodega(db, cliente, company_id, dte_id, move_id, move['name'], proveedor_nombre,
-                                 doc['issuer_rut'], partner_id, uom_nombre_por_producto, order_lines)
+                                 doc['issuer_rut'], partner_id, uom_nombre_por_producto, order_lines, cantidades_bodega)
     except Exception:
         pass
 
@@ -1363,14 +1403,21 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
 
 def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: int, invoice_name: str,
                              proveedor_nombre: str, proveedor_rut: str, odoo_partner_id: int,
-                             uom_nombre_por_producto: dict[int, str], order_lines: list) -> None:
+                             uom_nombre_por_producto: dict[int, str], order_lines: list,
+                             cantidades_bodega: list[float]) -> None:
     """Suma automaticamente a bodega_movimientos el ingreso de cada linea de
     la factura recien creada -- pedido explicito del usuario, para no tener
     que cargar el stock a mano cada vez que se ingresa una factura.
 
     La cantidad de cada linea (linea_oc['product_qty']) ya viene con el
     factor de conversion aplicado (ver order_lines en _ejecutar_creacion),
-    asi que es directamente la cantidad real a sumar.
+    asi que es directamente la cantidad real a sumar -- EXCEPTO cuando el
+    admin corrigio la "Cantidad recibida" de esa linea (factura mal
+    despachada): en ese caso cantidades_bodega (mismo orden que order_lines,
+    armada en _ejecutar_creacion) trae la cantidad real recibida en vez de
+    la facturada, y es esa la que se usa para el stock. El historial de
+    precios sigue usando linea_oc['product_qty'] (lo facturado) a
+    proposito -- ese historial es de PRECIOS, no de cantidad fisica.
 
     Si el local (por la empresa de Odoo) o el insumo (por el producto de
     Odoo, via odoo_mapping) todavia no se pueden resolver, la linea queda
@@ -1436,7 +1483,7 @@ def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: 
         pass
 
     ahora = datetime.now(timezone.utc).isoformat()
-    for _, _, linea_oc in order_lines:
+    for (_, _, linea_oc), cantidad_bodega in zip(order_lines, cantidades_bodega):
         pid = linea_oc["product_id"]
         mapeo = mapeo_por_producto.get(pid)
         ingrediente_key = mapeo["ingrediente_key"] if mapeo else None
@@ -1444,7 +1491,7 @@ def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: 
             db.table("bodega_stock_pendiente").insert({
                 "dte_id": dte_id, "invoice_id": move_id, "invoice_name": invoice_name,
                 "odoo_company_id": company_id, "local_id": local_id, "odoo_product_id": pid,
-                "producto_nombre": linea_oc["name"], "cantidad": linea_oc["product_qty"],
+                "producto_nombre": linea_oc["name"], "cantidad": cantidad_bodega,
                 "proveedor_nombre": proveedor_nombre, "motivo": "sin_local" if not local_id else "sin_insumo",
                 "proveedor_rut": proveedor_rut, "odoo_partner_id": odoo_partner_id,
                 "precio": linea_oc.get("price_unit"), "uom_odoo_id": linea_oc.get("product_uom") or None,
@@ -1454,7 +1501,7 @@ def _alimentar_stock_bodega(db, cliente, company_id: int, dte_id: int, move_id: 
             continue
         db.table("bodega_movimientos").insert({
             "local_id": local_id, "ingrediente_key": ingrediente_key, "tipo": "ingreso",
-            "cantidad": linea_oc["product_qty"], "origen": "factura_odoo", "ref": invoice_name,
+            "cantidad": cantidad_bodega, "origen": "factura_odoo", "ref": invoice_name,
             "nota": f"Factura Odoo {invoice_name} ({proveedor_nombre})", "fecha": ahora,
         }).execute()
 

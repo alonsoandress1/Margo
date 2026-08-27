@@ -3212,12 +3212,17 @@ async function showDteModal(dteId) {
       <p class="placeholder" style="margin-bottom:1rem">${dte.fecha || '—'}</p>
       <div style="overflow-x:auto">
       <table>
-        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Cant. real</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Impuestos</th><th>Producto en Odoo</th><th></th></tr></thead>
+        <thead><tr><th>Detalle factura</th><th>Cantidad</th><th>Cant. recibida</th><th>Cant. real</th><th>Precio artículo</th><th>Desc. %</th><th>Precio artículo c/desc.</th><th>Impuestos</th><th>Producto en Odoo</th><th></th></tr></thead>
         <tbody>
           ${dte.lineas.map(l => `
             <tr data-linea="${l.id}">
               <td>${escapeHtml(l.item_name)}${l.es_manual ? ' <span class="placeholder" title="Agregada a mano -- no vino como línea propia en el DTE">(manual)</span>' : ''}</td>
               <td>${l.qty}</td>
+              <td>${l.product_id && !l.es_manual ? (editable ? `
+                <input type="number" class="field dte-recibido-inline" data-linea-recibido-inline="${l.id}" min="0" step="any" style="width:70px" value="${l.cantidad_recibida}" title="Cantidad que realmente llegó -- si difiere de lo facturado, corrígela acá. No cambia la factura en Odoo, solo lo que se suma a tu Stock de Bodega.">
+                <span class="placeholder" data-recibido-estado="${l.id}" style="font-size:.7rem"></span>`
+                : `${l.cantidad_recibida}`)
+                : '<span class="placeholder">—</span>'}</td>
               <td>${l.product_id && l.codigo_tipo ? (editable ? `
                 <input type="number" class="field dte-factor-inline" data-linea-factor-inline="${l.id}" min="0.0001" step="any" style="width:70px" value="${l.factor_conversion || 1}" title="¿Cuántas unidades reales vienen en cada una declarada? (ej. si '1 azúcar' son en realidad 10 kg, coloca 10). Se guarda para este proveedor + este código, se aplica solo en toda factura futura igual.">
                 <span class="placeholder" data-factor-estado="${l.id}" style="font-size:.7rem"></span>`
@@ -3254,7 +3259,7 @@ async function showDteModal(dteId) {
                 ${editable && l.product_id ? ` <button type="button" class="btn" data-otros-impuestos-linea="${l.id}" title="Buscar un impuesto que no esté entre los de uso frecuente">Otros impuestos</button>` : ''}</td>
             </tr>
             ${editable ? `
-            <tr data-buscador="${l.id}" style="display:none"><td colspan="9">
+            <tr data-buscador="${l.id}" style="display:none"><td colspan="10">
               <div class="item-row">
                 <input type="text" class="field dte-buscar-input" data-linea-buscar="${l.id}" placeholder="Buscar por nombre o código..." style="flex:1">
                 <button type="button" class="btn" data-ejecutar-busqueda="${l.id}">Buscar</button>
@@ -3262,7 +3267,7 @@ async function showDteModal(dteId) {
               <div data-resultados="${l.id}" style="margin-top:.5rem"></div>
             </td></tr>
             ${l.product_id ? `
-            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="9">
+            <tr data-impuestos-fila="${l.id}" style="display:none"><td colspan="10">
               <p class="placeholder" style="margin-bottom:.5rem">Buscar un impuesto de <strong>${escapeHtml(l.product_name)}</strong> que no esté entre los de uso frecuente (máx. 3 en total, aplica y guarda al elegirlo).</p>
               <div class="item-row">
                 <input type="text" class="field dte-impuesto-buscar-otro" data-linea-buscar-impuesto="${l.id}" placeholder="Buscar otro impuesto..." style="flex:1;max-width:260px">
@@ -3440,6 +3445,36 @@ async function showDteModal(dteId) {
           estadoEl.className = 'placeholder';
           setTimeout(() => { if (estadoEl.textContent === '✓ guardado') estadoEl.textContent = ''; }, 1500);
           cargarResumen();
+        } catch (err) {
+          estadoEl.textContent = err.message;
+          estadoEl.className = 'error-msg';
+        }
+      });
+    });
+
+    overlay.querySelectorAll('.dte-recibido-inline').forEach(input => {
+      const lineaId = input.dataset.lineaRecibidoInline;
+      const linea = dte.lineas.find(x => String(x.id) === String(lineaId));
+      const estadoEl = overlay.querySelector(`[data-recibido-estado="${lineaId}"]`);
+
+      input.addEventListener('change', async () => {
+        const valor = parseFloat(input.value);
+        if (isNaN(valor) || valor < 0) {
+          estadoEl.textContent = 'Debe ser 0 o más.';
+          estadoEl.className = 'error-msg';
+          return;
+        }
+        if (valor === linea.cantidad_recibida) return;  // sin cambios, no guardar de nuevo
+        estadoEl.textContent = 'Guardando…';
+        estadoEl.className = 'placeholder';
+        try {
+          await api(`/facturas-dte/lineas/${lineaId}/cantidad-recibida`, {
+            method: 'PUT', body: JSON.stringify({ cantidad_recibida: valor }),
+          });
+          linea.cantidad_recibida = valor;
+          estadoEl.textContent = '✓ guardado';
+          estadoEl.className = 'placeholder';
+          setTimeout(() => { if (estadoEl.textContent === '✓ guardado') estadoEl.textContent = ''; }, 1500);
         } catch (err) {
           estadoEl.textContent = err.message;
           estadoEl.className = 'error-msg';

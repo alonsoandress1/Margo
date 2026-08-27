@@ -472,6 +472,7 @@ class DteLineaOut(BaseModel):
     es_manual: bool = False  # True si la agrego un admin a mano -- no existe como linea propia en el DTE
     impuesto_nombres: list[str] = []  # override guardado o el default del producto en Odoo -- para mostrar chips ya marcados sin tener que abrir nada
     factor_conversion: float = 1  # guardado en facturas_producto_mapa (proveedor+codigo) -- 1 = sin conversion
+    cantidad_recibida: float = 0  # lo realmente llegado -- default = qty facturada si nunca se corrigio. No afecta la factura/OC en Odoo, solo el Stock de Bodega interno.
 
 
 class DteOut(BaseModel):
@@ -554,6 +555,10 @@ class DescuentoLineaIn(BaseModel):
     # facturas_dte.py).
     proveedor_rut: str | None = None
     odoo_product_id: int | None = None
+
+
+class CantidadRecibidaIn(BaseModel):
+    cantidad_recibida: float = Field(ge=0)
 
 
 class LineaManualIn(BaseModel):
