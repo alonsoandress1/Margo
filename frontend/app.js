@@ -2216,6 +2216,7 @@ async function renderMermas(el, s) {
         <button type="button" id="mermas-reporte-pdf-ver" class="btn">Ver Reporte de Ventas</button>
         <button type="button" id="mermas-reporte-pdf" class="btn">Descargar PDF</button>
         ${editable ? `<button type="button" id="mermas-vincular-insumos" class="btn" title="Conecta cada insumo de Mermas con su equivalente de Compras/Odoo -- sin esto, tus entregas a cocina no alimentan el pronóstico de consumo de la sugerencia de compra">Vincular insumos</button>` : ''}
+        ${editable ? `<button type="button" id="mermas-vincular-platos" class="btn" title="Conecta cada plato vendido con los insumos de Compras/Odoo que consume -- sin esto, un insumo que no se vende como plato propio (ej. una salsa base) nunca alimenta el pronóstico de consumo">Vincular platos</button>` : ''}
       </div>
     </div>
     <h3 style="margin:1rem 0 .5rem">${etiquetaSemana(fecha)}</h3>
@@ -2454,6 +2455,7 @@ async function renderMermas(el, s) {
   });
 
   document.getElementById('mermas-vincular-insumos')?.addEventListener('click', () => showVincularInsumosModal(localId));
+  document.getElementById('mermas-vincular-platos')?.addEventListener('click', () => showVincularPlatosModal(localId));
 
   async function guardarControlStock() {
     const filas = Array.from(document.querySelectorAll('tr[data-stock-row-key]'));
@@ -2683,6 +2685,139 @@ async function showVincularInsumosModal(localId) {
         } catch (err) {
           estadoEl.textContent = err.message;
           estadoEl.className = 'error-msg';
+        }
+      });
+    });
+  }
+
+  render();
+}
+
+async function showVincularPlatosModal(localId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:820px;max-width:96vw"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  const [platos, compras] = await Promise.all([
+    api(`/mermas/recetas-venta?local_id=${localId}`),
+    api(`/par-stock?local_id=${localId}`),
+  ]);
+
+  let filtroTexto = '';
+  let soloSinReceta = false;
+  const abiertos = new Set();
+
+  function render() {
+    let filas = platos;
+    if (soloSinReceta) filas = filas.filter(p => !p.lineas.length);
+    if (filtroTexto) {
+      const t = filtroTexto.toLowerCase();
+      filas = filas.filter(p => p.plato_nombre.toLowerCase().includes(t) || p.plato_sku.toLowerCase().includes(t));
+    }
+
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Vincular platos</h3>
+      <p class="placeholder" style="margin-bottom:.75rem">Conecta cada plato vendido con los insumos de Compras/Odoo que consume por unidad vendida -- sin esto, un insumo que no se vende como plato propio (una salsa base repartida entre varios platos) nunca alimenta el pronóstico de consumo.</p>
+      <div class="item-row" style="margin-bottom:.75rem">
+        <input type="text" id="platos-filtro-texto" class="field" placeholder="Buscar plato por nombre o SKU..." style="flex:1" value="${escapeHtml(filtroTexto)}">
+      </div>
+      <label class="item-row" style="margin-bottom:.75rem;cursor:pointer">
+        <input type="checkbox" id="platos-solo-sin-receta" ${soloSinReceta ? 'checked' : ''}>
+        Solo mostrar sin insumos vinculados (${platos.filter(p => !p.lineas.length).length} de ${platos.length})
+      </label>
+      <div style="max-height:60vh;overflow-y:auto">
+        ${filas.map(p => `
+          <details style="margin-bottom:.5rem" ${abiertos.has(p.plato_sku) ? 'open' : ''} data-plato-details="${encodeURIComponent(p.plato_sku)}">
+            <summary style="cursor:pointer">${escapeHtml(p.plato_nombre)} <span class="placeholder">(${escapeHtml(p.plato_sku)}) -- ${p.lineas.length ? `${p.lineas.length} insumo(s) vinculado(s)` : 'sin vincular'}</span></summary>
+            <div style="padding:.5rem 0 .5rem 1rem">
+              ${p.lineas.length ? `
+              <table>
+                <thead><tr><th>Insumo</th><th>Cantidad por unidad vendida</th><th></th></tr></thead>
+                <tbody>
+                  ${p.lineas.map(l => `
+                    <tr>
+                      <td>${escapeHtml(l.ingrediente_nombre)}</td>
+                      <td>${l.cantidad} ${escapeHtml(l.ingrediente_key.split('||')[1] || '')}</td>
+                      <td><button type="button" class="btn btn-reject" data-quitar-linea="${encodeURIComponent(p.plato_sku)}|${encodeURIComponent(l.ingrediente_key)}">Quitar</button></td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>` : '<p class="placeholder" style="margin-bottom:.5rem">Sin insumos vinculados todavía.</p>'}
+              <div class="item-row" style="margin-top:.5rem">
+                <select class="field plato-add-insumo" data-plato="${encodeURIComponent(p.plato_sku)}" style="flex:2">
+                  <option value="">Elegir insumo...</option>
+                  ${compras.map(c => `<option value="${encodeURIComponent(c.ingrediente_key)}">${escapeHtml(c.nombre)} (${formatUnidad(c.unidad)})</option>`).join('')}
+                </select>
+                <input type="number" class="field plato-add-cantidad" data-plato="${encodeURIComponent(p.plato_sku)}" min="0.0001" step="any" placeholder="Cantidad" style="flex:1">
+                <button type="button" class="btn" data-agregar-linea="${encodeURIComponent(p.plato_sku)}">Agregar</button>
+              </div>
+              <p class="error-msg" data-plato-error="${encodeURIComponent(p.plato_sku)}" style="margin-top:.3rem"></p>
+            </div>
+          </details>`).join('') || '<p class="placeholder">Ningún plato coincide con el filtro.</p>'}
+      </div>
+      <div style="margin-top:1.25rem">
+        <button type="button" class="btn" id="platos-cerrar">Cerrar</button>
+      </div>`;
+
+    overlay.querySelector('#platos-cerrar').onclick = () => overlay.remove();
+    overlay.querySelector('#platos-filtro-texto').addEventListener('input', (e) => {
+      filtroTexto = e.target.value;
+      render();
+      const nuevoInput = overlay.querySelector('#platos-filtro-texto');
+      nuevoInput.focus();
+      nuevoInput.setSelectionRange(filtroTexto.length, filtroTexto.length);
+    });
+    overlay.querySelector('#platos-solo-sin-receta').addEventListener('change', (e) => {
+      soloSinReceta = e.target.checked;
+      render();
+    });
+    overlay.querySelectorAll('[data-plato-details]').forEach(det => {
+      det.addEventListener('toggle', () => {
+        const sku = decodeURIComponent(det.dataset.platoDetails);
+        if (det.open) abiertos.add(sku); else abiertos.delete(sku);
+      });
+    });
+
+    overlay.querySelectorAll('[data-quitar-linea]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const [skuEnc, keyEnc] = btn.dataset.quitarLinea.split('|');
+        const plato_sku = decodeURIComponent(skuEnc);
+        const ingrediente_key = decodeURIComponent(keyEnc);
+        try {
+          await api(`/mermas/recetas-venta?local_id=${localId}&plato_sku=${encodeURIComponent(plato_sku)}&ingrediente_key=${encodeURIComponent(ingrediente_key)}`, { method: 'DELETE' });
+          const p = platos.find(x => x.plato_sku === plato_sku);
+          p.lineas = p.lineas.filter(l => l.ingrediente_key !== ingrediente_key);
+          render();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+
+    overlay.querySelectorAll('[data-agregar-linea]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const plato_sku = decodeURIComponent(btn.dataset.agregarLinea);
+        const select = overlay.querySelector(`.plato-add-insumo[data-plato="${encodeURIComponent(plato_sku)}"]`);
+        const input = overlay.querySelector(`.plato-add-cantidad[data-plato="${encodeURIComponent(plato_sku)}"]`);
+        const errorEl = overlay.querySelector(`[data-plato-error="${encodeURIComponent(plato_sku)}"]`);
+        errorEl.textContent = '';
+        const ingrediente_key = select.value ? decodeURIComponent(select.value) : '';
+        const cantidad = parseFloat(input.value);
+        if (!ingrediente_key) { errorEl.textContent = 'Elige un insumo.'; return; }
+        if (isNaN(cantidad) || cantidad <= 0) { errorEl.textContent = 'Cantidad debe ser mayor a 0.'; return; }
+        try {
+          await api('/mermas/recetas-venta', {
+            method: 'PUT',
+            body: JSON.stringify({ local_id: localId, plato_sku, ingrediente_key, cantidad }),
+          });
+          const p = platos.find(x => x.plato_sku === plato_sku);
+          const nombre = compras.find(c => c.ingrediente_key === ingrediente_key)?.nombre || ingrediente_key.split('||')[0];
+          p.lineas = p.lineas.filter(l => l.ingrediente_key !== ingrediente_key);
+          p.lineas.push({ ingrediente_key, ingrediente_nombre: nombre, cantidad });
+          abiertos.add(plato_sku);
+          render();
+        } catch (err) {
+          errorEl.textContent = err.message;
         }
       });
     });

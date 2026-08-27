@@ -355,6 +355,25 @@ class VinculoIn(BaseModel):
     compras_ingrediente_key: str
 
 
+class RecetaVentaLineaOut(BaseModel):
+    ingrediente_key: str
+    ingrediente_nombre: str
+    cantidad: float
+
+
+class PlatoVentaOut(BaseModel):
+    plato_sku: str
+    plato_nombre: str
+    lineas: list[RecetaVentaLineaOut] = []
+
+
+class RecetaVentaIn(BaseModel):
+    local_id: str
+    plato_sku: str
+    ingrediente_key: str
+    cantidad: float = Field(gt=0)
+
+
 class ParStockItem(BaseModel):
     ingrediente_key: str
     nombre: str

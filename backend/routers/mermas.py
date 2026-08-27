@@ -10,8 +10,9 @@ from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..excel_exporter import exportar_dia
 from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, MermaItem, MermaSeguimientoIn, PasteleriaIn,
-                       PasteleriaOut, ProteinaProduccionIn, ProteinaProduccionOut, ResumenDiferenciaItem,
-                       StockCocinaIn, VinculoIn, VinculoOut)
+                       PasteleriaOut, PlatoVentaOut, ProteinaProduccionIn, ProteinaProduccionOut,
+                       RecetaVentaIn, RecetaVentaLineaOut, ResumenDiferenciaItem, StockCocinaIn,
+                       VinculoIn, VinculoOut)
 
 router = APIRouter(prefix="/mermas", tags=["mermas"])
 
@@ -335,6 +336,69 @@ def quitar_vinculo(local_id: str, mermas_ingrediente_key: str, claims: dict = De
     db = get_db()
     db.table("mermas_compras_vinculo").delete() \
         .eq("local_id", local_id).eq("mermas_ingrediente_key", mermas_ingrediente_key).execute()
+
+
+@router.get("/recetas-venta", response_model=list[PlatoVentaOut])
+def listar_recetas_venta(local_id: str, claims: dict = Depends(get_current_claims)):
+    """Cada plato realmente vendido (de ventas_historial, ultimos ~120 dias
+    para no traer platos descontinuados) junto con sus lineas actuales de
+    ventas_recetas -- la tabla que de verdad alimenta bodega_movimientos
+    (ver _ventas_por_insumo) y por lo tanto el pronostico de consumo. Un
+    plato sin ninguna linea igual aparece (lineas=[]) para poder verlo como
+    pendiente en "Vincular platos". Distinto del otro sistema de recetas
+    (recetas.py/platos.py, ingrediente en texto libre, sin relacion con el
+    consumo real -- no confundir)."""
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    desde = (date.today() - timedelta(days=120)).isoformat()
+    ventas = db.table("ventas_historial").select("plato_sku,plato_nombre") \
+        .eq("local_id", local_id).gte("fecha", desde).execute().data or []
+    nombre_por_sku: dict[str, str] = {}
+    for v in ventas:
+        nombre_por_sku.setdefault(v["plato_sku"], v["plato_nombre"])
+
+    recetas = db.table("ventas_recetas").select("plato_sku,ingrediente_key,cantidad") \
+        .eq("local_id", local_id).execute().data or []
+    lineas_por_plato: dict[str, list[RecetaVentaLineaOut]] = {}
+    for r in recetas:
+        lineas_por_plato.setdefault(r["plato_sku"], []).append(RecetaVentaLineaOut(
+            ingrediente_key=r["ingrediente_key"], ingrediente_nombre=r["ingrediente_key"].split("||")[0],
+            cantidad=r["cantidad"],
+        ))
+        nombre_por_sku.setdefault(r["plato_sku"], r["plato_sku"])  # receta vieja de un plato que ya no vende recientemente
+
+    platos = [
+        PlatoVentaOut(plato_sku=sku, plato_nombre=nombre, lineas=lineas_por_plato.get(sku, []))
+        for sku, nombre in nombre_por_sku.items()
+    ]
+    return sorted(platos, key=lambda p: p.plato_nombre)
+
+
+@router.put("/recetas-venta", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_receta_venta(body: RecetaVentaIn, claims: dict = Depends(get_current_claims)):
+    """Agrega o edita cuanto de un insumo consume UNA unidad vendida de un
+    plato -- autoservicio explicito del usuario ("todo producto de la
+    planta ira enlazado a cada plato"), nunca adivinado. ingrediente_key
+    debe ser un insumo real de Compras/Odoo (el mismo picker que usa
+    "Vincular insumos", desde /par-stock) -- asi la venta descuenta directo
+    del insumo correcto."""
+    _requiere_editor(claims, "editar recetas de venta")
+    verificar_acceso_local(claims, body.local_id)
+    db = get_db()
+    db.table("ventas_recetas").upsert({
+        "local_id": body.local_id, "plato_sku": body.plato_sku,
+        "ingrediente_key": body.ingrediente_key, "cantidad": body.cantidad,
+    }, on_conflict="local_id,plato_sku,ingrediente_key").execute()
+
+
+@router.delete("/recetas-venta", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_receta_venta(local_id: str, plato_sku: str, ingrediente_key: str, claims: dict = Depends(get_current_claims)):
+    """Quita una linea de receta de venta puesta por error."""
+    _requiere_editor(claims, "editar recetas de venta")
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    db.table("ventas_recetas").delete() \
+        .eq("local_id", local_id).eq("plato_sku", plato_sku).eq("ingrediente_key", ingrediente_key).execute()
 
 
 @router.get("/proteinas", response_model=list[ProteinaProduccionOut])
