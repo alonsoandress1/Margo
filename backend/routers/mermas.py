@@ -350,34 +350,38 @@ def listar_recetas_venta(local_id: str, claims: dict = Depends(get_current_claim
     consumo real -- no confundir)."""
     verificar_acceso_local(claims, local_id)
     db = get_db()
-    desde = (date.today() - timedelta(days=120)).isoformat()
-    ventas = db.table("ventas_historial").select("plato_sku,plato_nombre") \
-        .eq("local_id", local_id).gte("fecha", desde).execute().data or []
-    nombre_por_sku: dict[str, str] = {}
-    for v in ventas:
-        nombre_por_sku.setdefault(v["plato_sku"], v.get("plato_nombre") or v["plato_sku"])
+    try:
+        desde = (date.today() - timedelta(days=120)).isoformat()
+        ventas = db.table("ventas_historial").select("plato_sku,plato_nombre") \
+            .eq("local_id", local_id).gte("fecha", desde).execute().data or []
+        nombre_por_sku: dict[str, str] = {}
+        for v in ventas:
+            nombre_por_sku.setdefault(v["plato_sku"], v.get("plato_nombre") or v["plato_sku"])
 
-    recetas = db.table("ventas_recetas").select("plato_sku,ingrediente_key,cantidad") \
-        .eq("local_id", local_id).execute().data or []
-    lineas_por_plato: dict[str, list[RecetaVentaLineaOut]] = {}
-    for r in recetas:
-        # ingrediente_key puede venir nulo -- lineas sembradas del Excel
-        # para un insumo que todavia no estaba en el seguimiento de Mermas
-        # (mismo caso ya documentado en planilla.py::importar_ventas_tcpos).
-        # No se puede editar/mostrar sin un insumo real, se omiten aca.
-        if not r.get("ingrediente_key"):
-            continue
-        lineas_por_plato.setdefault(r["plato_sku"], []).append(RecetaVentaLineaOut(
-            ingrediente_key=r["ingrediente_key"], ingrediente_nombre=r["ingrediente_key"].split("||")[0],
-            cantidad=r["cantidad"],
-        ))
-        nombre_por_sku.setdefault(r["plato_sku"], r["plato_sku"])  # receta vieja de un plato que ya no vende recientemente
+        recetas = db.table("ventas_recetas").select("plato_sku,ingrediente_key,cantidad") \
+            .eq("local_id", local_id).execute().data or []
+        lineas_por_plato: dict[str, list[RecetaVentaLineaOut]] = {}
+        for r in recetas:
+            # ingrediente_key puede venir nulo -- lineas sembradas del Excel
+            # para un insumo que todavia no estaba en el seguimiento de Mermas
+            # (mismo caso ya documentado en planilla.py::importar_ventas_tcpos).
+            # No se puede editar/mostrar sin un insumo real, se omiten aca.
+            # cantidad tambien se resguarda por si vino nula en la siembra original.
+            if not r.get("ingrediente_key") or r.get("cantidad") is None:
+                continue
+            lineas_por_plato.setdefault(r["plato_sku"], []).append(RecetaVentaLineaOut(
+                ingrediente_key=r["ingrediente_key"], ingrediente_nombre=r["ingrediente_key"].split("||")[0],
+                cantidad=r["cantidad"],
+            ))
+            nombre_por_sku.setdefault(r["plato_sku"], r["plato_sku"])  # receta vieja de un plato que ya no vende recientemente
 
-    platos = [
-        PlatoVentaOut(plato_sku=sku, plato_nombre=nombre, lineas=lineas_por_plato.get(sku, []))
-        for sku, nombre in nombre_por_sku.items()
-    ]
-    return sorted(platos, key=lambda p: p.plato_nombre)
+        platos = [
+            PlatoVentaOut(plato_sku=sku, plato_nombre=nombre, lineas=lineas_por_plato.get(sku, []))
+            for sku, nombre in nombre_por_sku.items()
+        ]
+        return sorted(platos, key=lambda p: p.plato_nombre)
+    except Exception as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"No se pudo cargar recetas de venta: {e}")
 
 
 @router.put("/recetas-venta", status_code=status.HTTP_204_NO_CONTENT)
