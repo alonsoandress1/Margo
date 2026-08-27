@@ -62,6 +62,15 @@ class MovimientoOut(BaseModel):
     created_by: str | None = None
 
 
+class MovimientoHistorialOut(BaseModel):
+    fecha: str
+    tipo: str
+    cantidad: float
+    origen: str | None = None
+    ref: str | None = None
+    nota: str | None = None
+
+
 class InventarioItem(BaseModel):
     ingrediente_key: str
     nombre: str

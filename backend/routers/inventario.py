@@ -7,8 +7,8 @@ from ..bodega_service import stock_bodega_por_insumo
 from ..catalogo import _producto_de
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
-from ..schemas import (InventarioItem, MovimientoIn, MovimientoOut, ProductoOut, StockPendienteOut,
-                       StockPendienteReprocesarOut, VincularPendienteIn)
+from ..schemas import (InventarioItem, MovimientoHistorialOut, MovimientoIn, MovimientoOut, ProductoOut,
+                       StockPendienteOut, StockPendienteReprocesarOut, VincularPendienteIn)
 
 router = APIRouter(prefix="/inventario", tags=["inventario"])
 
@@ -36,6 +36,22 @@ def listar_inventario(local_id: str, claims: dict = Depends(get_current_claims))
         )
         for r in par_rows
     ]
+
+
+@router.get("/historial-movimientos", response_model=list[MovimientoHistorialOut])
+def historial_movimientos(local_id: str, ingrediente_key: str, desde: str, hasta: str,
+                           claims: dict = Depends(get_current_claims)):
+    """Movimientos reales de bodega_movimientos para un insumo en un rango de
+    fechas (desde/hasta, formato AAAA-MM-DD) -- solo lectura, para poder
+    verificar a mano el consumo real detras del pronostico de la sugerencia
+    de compra (ver bodega_service.py::consumo_promedio_por_dia_semana)."""
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    rows = db.table("bodega_movimientos").select("fecha,tipo,cantidad,origen,ref,nota") \
+        .eq("local_id", local_id).eq("ingrediente_key", ingrediente_key) \
+        .gte("fecha", f"{desde}T00:00:00+00:00").lte("fecha", f"{hasta}T23:59:59.999999+00:00") \
+        .order("fecha").execute().data or []
+    return rows
 
 
 @router.post("/movimiento", response_model=MovimientoOut, status_code=status.HTTP_201_CREATED)
