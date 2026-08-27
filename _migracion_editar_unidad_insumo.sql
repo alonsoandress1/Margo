@@ -8,6 +8,11 @@
 -- dentro de una sola funcion (una sola transaccion): si algo choca (ya
 -- existe otro insumo con el nombre+unidad nuevo en alguna de esas tablas),
 -- se aborta completo y no queda nada a medio migrar.
+--
+-- Actualizada para tambien renombrar mermas_compras_vinculo.compras_ingrediente_key
+-- -- esa tabla no existia cuando se escribio la version original de esta
+-- funcion, asi que un cambio de unidad dejaba el vinculo apuntando a una
+-- clave que ya no existia en ningun lado.
 
 create or replace function renombrar_unidad_insumo(p_old_key text, p_new_key text, p_nueva_unidad text)
 returns void
@@ -39,5 +44,6 @@ begin
   update bodega_movimientos set ingrediente_key = p_new_key where ingrediente_key = p_old_key;
   update stock_cocina set ingrediente_key = p_new_key where ingrediente_key = p_old_key;
   update ventas_recetas set ingrediente_key = p_new_key where ingrediente_key = p_old_key;
+  update mermas_compras_vinculo set compras_ingrediente_key = p_new_key where compras_ingrediente_key = p_old_key;
 end;
 $$;
