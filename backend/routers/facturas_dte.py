@@ -1013,8 +1013,8 @@ def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[
             taxes = cliente._call('account.tax', 'read', [tax_ids_defecto], {'fields': ['name']})
             nombre_por_tax_id = {t['id']: t['name'] for t in taxes}
         for p in productos_tax:
-            nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in (p.get('supplier_taxes_id') or [])
-                                              if t in nombre_por_tax_id]
+            ids_unicos = list(dict.fromkeys(p.get('supplier_taxes_id') or []))
+            nombres_por_producto[p['id']] = [nombre_por_tax_id[t] for t in ids_unicos if t in nombre_por_tax_id]
     return nombres_por_producto
 
 
