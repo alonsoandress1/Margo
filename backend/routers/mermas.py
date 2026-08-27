@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
@@ -9,7 +9,8 @@ from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..excel_exporter import exportar_dia
 from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, MermaItem, PasteleriaIn, PasteleriaOut,
-                       ProteinaProduccionIn, ProteinaProduccionOut, ResumenDiferenciaItem, StockCocinaIn)
+                       ProteinaProduccionIn, ProteinaProduccionOut, ResumenDiferenciaItem, StockCocinaIn,
+                       VinculoIn, VinculoOut)
 
 router = APIRouter(prefix="/mermas", tags=["mermas"])
 
@@ -235,6 +236,60 @@ def registrar_entrega(body: EntregaIn, claims: dict = Depends(get_current_claims
 def _requiere_editor(claims: dict, accion: str):
     if claims["rol"] == "observador":
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"El rol observador no puede {accion}")
+
+
+@router.get("/vinculos", response_model=list[VinculoOut])
+def listar_vinculos(local_id: str, claims: dict = Depends(get_current_claims)):
+    """Cada insumo de Mermas (catalogo fijo, mermas_seguimiento) junto con su
+    vinculo actual a un insumo de Compras/Odoo, si ya se vinculo -- para la
+    pantalla "Vincular insumos". Mermas y Compras son catalogos
+    independientes (Mermas viene del Excel, Compras de Odoo/par_stock) --
+    sin este vinculo, las entregas a cocina que se registran bajo la clave
+    de Mermas nunca alimentan el pronostico de consumo de la sugerencia de
+    compra (ver bodega_service.py::consumo_promedio_por_dia_semana)."""
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    seguimiento = db.table("mermas_seguimiento").select("ingrediente_key,unidad").eq("local_id", local_id).execute().data or []
+    if not seguimiento:
+        return []
+    vinculos = db.table("mermas_compras_vinculo").select("mermas_ingrediente_key,compras_ingrediente_key") \
+        .eq("local_id", local_id).execute().data or []
+    compras_por_mermas = {v["mermas_ingrediente_key"]: v["compras_ingrediente_key"] for v in vinculos}
+    return [
+        VinculoOut(
+            mermas_ingrediente_key=r["ingrediente_key"], mermas_nombre=r["ingrediente_key"].split("||")[0],
+            mermas_unidad=r["unidad"], compras_ingrediente_key=compras_por_mermas.get(r["ingrediente_key"]),
+            compras_nombre=(compras_por_mermas[r["ingrediente_key"]].split("||")[0]
+                            if r["ingrediente_key"] in compras_por_mermas else None),
+        )
+        for r in seguimiento
+    ]
+
+
+@router.put("/vinculos", status_code=status.HTTP_204_NO_CONTENT)
+def fijar_vinculo(body: VinculoIn, claims: dict = Depends(get_current_claims)):
+    """Vincula un insumo de Mermas con su equivalente en Compras/Odoo --
+    autoservicio explicito del usuario (no adivinado por nombre), para no
+    depender de una migracion cada vez que agregan un producto nuevo."""
+    _requiere_editor(claims, "vincular insumos")
+    verificar_acceso_local(claims, body.local_id)
+    db = get_db()
+    db.table("mermas_compras_vinculo").upsert({
+        "local_id": body.local_id, "mermas_ingrediente_key": body.mermas_ingrediente_key,
+        "compras_ingrediente_key": body.compras_ingrediente_key, "vinculado_por": claims["sub"],
+        "vinculado_en": datetime.now(timezone.utc).isoformat(),
+    }, on_conflict="local_id,mermas_ingrediente_key").execute()
+
+
+@router.delete("/vinculos", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_vinculo(local_id: str, mermas_ingrediente_key: str, claims: dict = Depends(get_current_claims)):
+    """Quita un vinculo puesto por error -- el insumo de Mermas vuelve a
+    quedar sin vincular, no borra ningun dato historico de Mermas."""
+    _requiere_editor(claims, "vincular insumos")
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    db.table("mermas_compras_vinculo").delete() \
+        .eq("local_id", local_id).eq("mermas_ingrediente_key", mermas_ingrediente_key).execute()
 
 
 @router.get("/proteinas", response_model=list[ProteinaProduccionOut])

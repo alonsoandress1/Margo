@@ -334,6 +334,20 @@ class AccionCompra(BaseModel):
     aviso: str | None = None  # ej. advertencia si el PDF de la OC no se pudo enviar
 
 
+class VinculoOut(BaseModel):
+    mermas_ingrediente_key: str
+    mermas_nombre: str
+    mermas_unidad: str
+    compras_ingrediente_key: str | None = None
+    compras_nombre: str | None = None
+
+
+class VinculoIn(BaseModel):
+    local_id: str
+    mermas_ingrediente_key: str
+    compras_ingrediente_key: str
+
+
 class ParStockItem(BaseModel):
     ingrediente_key: str
     nombre: str

@@ -2184,6 +2184,7 @@ async function renderMermas(el, s) {
         <button type="button" id="mermas-exportar" class="btn">Exportar Excel</button>
         <button type="button" id="mermas-reporte-pdf-ver" class="btn">Ver Reporte de Ventas</button>
         <button type="button" id="mermas-reporte-pdf" class="btn">Descargar PDF</button>
+        ${editable ? `<button type="button" id="mermas-vincular-insumos" class="btn" title="Conecta cada insumo de Mermas con su equivalente de Compras/Odoo -- sin esto, tus entregas a cocina no alimentan el pronóstico de consumo de la sugerencia de compra">Vincular insumos</button>` : ''}
       </div>
     </div>
     <h3 style="margin:1rem 0 .5rem">${etiquetaSemana(fecha)}</h3>
@@ -2421,6 +2422,8 @@ async function renderMermas(el, s) {
     }
   });
 
+  document.getElementById('mermas-vincular-insumos')?.addEventListener('click', () => showVincularInsumosModal(localId));
+
   async function guardarControlStock() {
     const filas = Array.from(document.querySelectorAll('tr[data-stock-row-key]'));
     for (const fila of filas) {
@@ -2528,6 +2531,89 @@ async function renderMermas(el, s) {
       }
     });
   }
+}
+
+async function showVincularInsumosModal(localId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:820px;max-width:96vw"><p class="placeholder">Cargando…</p></div>';
+  document.body.appendChild(overlay);
+
+  const [vinculos, compras] = await Promise.all([
+    api(`/mermas/vinculos?local_id=${localId}`),
+    api(`/par-stock?local_id=${localId}`),
+  ]);
+
+  let soloSinVincular = false;
+
+  function render() {
+    const filas = soloSinVincular ? vinculos.filter(v => !v.compras_ingrediente_key) : vinculos;
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Vincular insumos</h3>
+      <p class="placeholder" style="margin-bottom:.75rem">Conecta cada insumo de Mermas con su equivalente real de Compras/Odoo -- son dos catálogos independientes, sin este vínculo tus entregas a cocina no alimentan el pronóstico de consumo de la sugerencia de compra. Ningún insumo se vincula solo -- confírmalos uno por uno, aunque el nombre se vea igual.</p>
+      <label class="item-row" style="margin-bottom:.75rem;cursor:pointer">
+        <input type="checkbox" id="vinculos-solo-sin-vincular" ${soloSinVincular ? 'checked' : ''}>
+        Solo mostrar sin vincular (${vinculos.filter(v => !v.compras_ingrediente_key).length} de ${vinculos.length})
+      </label>
+      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+      <table>
+        <thead><tr><th>Insumo (Mermas)</th><th>Vincular con (Compras/Odoo)</th><th></th></tr></thead>
+        <tbody>
+          ${filas.map(v => `
+            <tr>
+              <td>${escapeHtml(v.mermas_nombre)} <span class="placeholder">(${formatUnidad(v.mermas_unidad)})</span></td>
+              <td>
+                <select class="field vinculo-select" data-mermas-key="${encodeURIComponent(v.mermas_ingrediente_key)}" style="width:100%">
+                  <option value="">Sin vincular</option>
+                  ${compras.map(c => `<option value="${encodeURIComponent(c.ingrediente_key)}" ${c.ingrediente_key === v.compras_ingrediente_key ? 'selected' : ''}>${escapeHtml(c.nombre)} (${formatUnidad(c.unidad)})</option>`).join('')}
+                </select>
+              </td>
+              <td><span class="placeholder" data-vinculo-estado="${encodeURIComponent(v.mermas_ingrediente_key)}" style="font-size:.75rem"></span></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+      <div style="margin-top:1.25rem">
+        <button type="button" class="btn" id="vinculos-cerrar">Cerrar</button>
+      </div>`;
+
+    overlay.querySelector('#vinculos-cerrar').onclick = () => overlay.remove();
+    overlay.querySelector('#vinculos-solo-sin-vincular').addEventListener('change', (e) => {
+      soloSinVincular = e.target.checked;
+      render();
+    });
+
+    overlay.querySelectorAll('.vinculo-select').forEach(select => {
+      select.addEventListener('change', async () => {
+        const mermasKey = decodeURIComponent(select.dataset.mermasKey);
+        const comprasKey = select.value ? decodeURIComponent(select.value) : '';
+        const estadoEl = overlay.querySelector(`[data-vinculo-estado="${encodeURIComponent(mermasKey)}"]`);
+        estadoEl.textContent = 'Guardando…';
+        estadoEl.className = 'placeholder';
+        try {
+          if (comprasKey) {
+            await api('/mermas/vinculos', {
+              method: 'PUT',
+              body: JSON.stringify({ local_id: localId, mermas_ingrediente_key: mermasKey, compras_ingrediente_key: comprasKey }),
+            });
+          } else {
+            await api(`/mermas/vinculos?local_id=${localId}&mermas_ingrediente_key=${encodeURIComponent(mermasKey)}`, { method: 'DELETE' });
+          }
+          const v = vinculos.find(x => x.mermas_ingrediente_key === mermasKey);
+          v.compras_ingrediente_key = comprasKey || null;
+          v.compras_nombre = comprasKey ? (compras.find(c => c.ingrediente_key === comprasKey)?.nombre || null) : null;
+          estadoEl.textContent = '✓ guardado';
+          estadoEl.className = 'placeholder';
+          setTimeout(() => { if (estadoEl.textContent === '✓ guardado') estadoEl.textContent = ''; }, 1500);
+        } catch (err) {
+          estadoEl.textContent = err.message;
+          estadoEl.className = 'error-msg';
+        }
+      });
+    });
+  }
+
+  render();
 }
 
 function showDetalleModal(pedido, nombreLocal) {

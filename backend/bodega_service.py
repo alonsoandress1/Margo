@@ -25,17 +25,33 @@ def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[
     caer en este fallback por ahora, y va a mejorar solo con el tiempo. Un
     insumo sin ninguna muestra en absoluto no aparece en el resultado -- el
     llamador debe tratar eso como 0 (mismo comportamiento que antes de este
-    pronostico)."""
+    pronostico).
+
+    Mermas (catalogo separado, sembrado del Excel) y Compras/Odoo (par_stock,
+    `keys` acá) son catalogos independientes -- las entregas a cocina de la
+    mayoria de los insumos quedan grabadas bajo la clave de MERMAS, no la de
+    Compras (confirmado con datos reales: de 48 insumos en Mermas y 41 en
+    Compras, solo 1 coincide). mermas_compras_vinculo (pantalla "Vincular
+    insumos", autoservicio del usuario -- nunca adivinado por nombre) dice
+    que clave de Mermas corresponde a que clave de Compras; se trae aca y se
+    usa para traducir cada fila ANTES de agrupar, asi el historial de Mermas
+    cae en el bucket correcto del insumo de Compras."""
     if not keys:
         return {}
+    vinculos = db.table("mermas_compras_vinculo").select("mermas_ingrediente_key,compras_ingrediente_key") \
+        .eq("local_id", local_id).in_("compras_ingrediente_key", keys).execute().data or []
+    mermas_a_compras = {v["mermas_ingrediente_key"]: v["compras_ingrediente_key"] for v in vinculos}
+    keys_a_consultar = list(set(keys) | set(mermas_a_compras.keys()))
+
     desde = (date.today() - timedelta(days=DIAS_HISTORIAL_PRONOSTICO)).isoformat()
     rows = db.table("bodega_movimientos").select("ingrediente_key,cantidad,fecha") \
-        .eq("local_id", local_id).eq("tipo", "egreso").in_("ingrediente_key", keys) \
+        .eq("local_id", local_id).eq("tipo", "egreso").in_("ingrediente_key", keys_a_consultar) \
         .gte("fecha", f"{desde}T00:00:00+00:00").execute().data or []
 
     por_dia: dict[tuple[str, str], float] = {}
     for r in rows:
-        k = (r["ingrediente_key"], r["fecha"][:10])
+        key = mermas_a_compras.get(r["ingrediente_key"], r["ingrediente_key"])
+        k = (key, r["fecha"][:10])
         por_dia[k] = por_dia.get(k, 0) + r["cantidad"]
 
     suma_por_dow: dict[str, dict[int, float]] = {}
