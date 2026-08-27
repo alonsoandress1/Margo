@@ -593,6 +593,37 @@ document.getElementById('pw-form').addEventListener('submit', async (e) => {
   }
 });
 
+// ---------- Boton "X" para cerrar modales ----------
+// Todos los modales dinamicos (showXxxModal) arman su propio <div
+// class="modal-overlay"><div class="modal-box">...</div></div> de forma
+// independiente, muchos re-renderizando el innerHTML de .modal-box varias
+// veces (ej. showVincularInsumosModal) -- en vez de tocar cada uno de los
+// ~20 modales a mano, un solo observer global le agrega la "X" a
+// cualquier .modal-box que aparezca o se re-renderice, sin que cada
+// funcion tenga que preocuparse de esto. pw-modal (el unico modal
+// ESTATICO del HTML, nunca se crea/destruye) es la unica excepcion --
+// tiene id fijo, asi que la X lo oculta con hidden en vez de removerlo
+// del DOM (removerlo lo dejaria inutilizable la proxima vez que se abra).
+function _asegurarBotonCerrarModales() {
+  document.querySelectorAll('.modal-box').forEach(box => {
+    if (box.querySelector(':scope > .modal-close-x')) return;
+    const overlay = box.closest('.modal-overlay');
+    if (!overlay) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'modal-close-x';
+    btn.setAttribute('aria-label', 'Cerrar');
+    btn.textContent = '×';
+    btn.addEventListener('click', () => {
+      if (overlay.id) overlay.hidden = true;
+      else overlay.remove();
+    });
+    box.prepend(btn);
+  });
+}
+_asegurarBotonCerrarModales();
+new MutationObserver(_asegurarBotonCerrarModales).observe(document.body, { childList: true, subtree: true });
+
 // ---------- Generar OC ----------
 // Usa la cuenta de servicio de Odoo configurada en el servidor -- ya no
 // pide credenciales al usuario (mismo patrón que Ingreso de Facturas).
