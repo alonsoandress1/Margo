@@ -3060,9 +3060,11 @@ async function renderFacturasDte(el, s) {
     <div style="margin-bottom:1rem">
       <button type="button" class="btn" id="dte-proveedores-ocultos">Proveedores ocultos</button>
       <button type="button" class="btn" id="dte-marcados-manual">Ingresadas manualmente</button>
+      <button type="button" class="btn" id="dte-revisar-ya-facturadas">Revisar ya facturadas</button>
     </div>
     <div id="dte-alertas-precio"></div>
     <p id="dte-error" class="error-msg"></p>
+    <div id="dte-auditoria-panel"></div>
     <div id="dte-cola-panel"></div>
     <div id="dte-resultados">${renderDteResultados(state.dteLista, state.dteFiltroFolio)}</div>`;
 
@@ -3077,6 +3079,7 @@ async function renderFacturasDte(el, s) {
 
   document.getElementById('dte-proveedores-ocultos').addEventListener('click', () => showProveedoresOcultosModal());
   document.getElementById('dte-marcados-manual').addEventListener('click', () => showMarcadosManualModal());
+  document.getElementById('dte-revisar-ya-facturadas').addEventListener('click', () => revisarYaFacturadas());
 
   document.getElementById('dte-buscar').addEventListener('click', async () => {
     const errorEl = document.getElementById('dte-error');
@@ -3530,6 +3533,91 @@ function iniciarPollingCola() {
     await actualizarColaPanel();
     iniciarPollingCola();
   }, 3000);
+}
+
+async function revisarYaFacturadas() {
+  const panel = document.getElementById('dte-auditoria-panel');
+  const errorEl = document.getElementById('dte-error');
+  errorEl.textContent = '';
+  panel.innerHTML = '<div class="card"><p class="placeholder">Revisando…</p></div>';
+  try {
+    state.dteAuditoria = await api(`/facturas-dte/auditoria/ya-facturadas?desde=${state.dteDesde}&hasta=${state.dteHasta}`);
+    state.dteLimpiezaJob = null;
+    renderAuditoriaPanel();
+  } catch (err) {
+    panel.innerHTML = '';
+    errorEl.textContent = err.message;
+  }
+}
+
+function renderAuditoriaPanel() {
+  const panel = document.getElementById('dte-auditoria-panel');
+  if (!panel) return;
+  const auditoria = state.dteAuditoria;
+  if (!auditoria) { panel.innerHTML = ''; return; }
+  const job = state.dteLimpiezaJob;
+  panel.innerHTML = `
+    <div class="card" style="margin-bottom:1rem">
+      <h3>Ya facturadas por otro camino (${auditoria.length})</h3>
+      ${auditoria.length ? `
+        <p class="placeholder" style="margin-bottom:.75rem">Estos DTE aparecen como pendientes pero ya tienen una factura real en Odoo (mismo RUT + folio), creada por fuera de esta pantalla.</p>
+        ${esAdmin() ? `<button type="button" class="btn btn-primary" id="dte-limpiar-masivo" ${job && job.estado === 'procesando' ? 'disabled' : ''}>Limpiar automáticamente</button>` : ''}
+        ${job ? `
+          <div style="margin-top:.75rem">
+            ${job.estado === 'procesando' ? `<p class="placeholder">Procesando… ${job.procesados} / ${job.total}</p>` : ''}
+            ${job.estado === 'completado' ? `<p>Listo — ${job.vinculados} vinculada${job.vinculados === 1 ? '' : 's'}${job.ambiguos ? `, ${job.ambiguos} ambigua${job.ambiguos === 1 ? '' : 's'} (revisar a mano)` : ''}${job.errores ? `, ${job.errores} con error` : ''}.</p>` : ''}
+            ${job.estado === 'error' ? `<p class="error-msg">Error: ${escapeHtml(job.error_mensaje || '')}</p>` : ''}
+          </div>` : ''}
+        <table style="margin-top:.75rem">
+          <thead><tr><th>Proveedor</th><th>Folio</th><th>Fecha</th><th>Factura real en Odoo</th></tr></thead>
+          <tbody>
+            ${auditoria.slice(0, 50).map(a => `
+              <tr>
+                <td>${escapeHtml(a.proveedor_nombre)}</td>
+                <td>${escapeHtml(a.folio)}</td>
+                <td>${a.fecha || '—'}</td>
+                <td>${escapeHtml(a.factura_encontrada)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${auditoria.length > 50 ? `<p class="placeholder" style="margin-top:.5rem">Mostrando los primeros 50 de ${auditoria.length}.</p>` : ''}
+      ` : `<p class="placeholder">No se encontró ninguno -- todos los pendientes son realmente nuevos.</p>`}
+    </div>`;
+
+  document.getElementById('dte-limpiar-masivo')?.addEventListener('click', async () => {
+    try {
+      state.dteLimpiezaJob = await api(`/facturas-dte/auditoria/limpiar-ya-facturadas?desde=${state.dteDesde}&hasta=${state.dteHasta}`, { method: 'POST' });
+      renderAuditoriaPanel();
+      pollLimpiezaMasiva();
+    } catch (err) {
+      document.getElementById('dte-error').textContent = err.message;
+    }
+  });
+}
+
+function pollLimpiezaMasiva() {
+  if (state.dteLimpiezaTimer) clearTimeout(state.dteLimpiezaTimer);
+  const job = state.dteLimpiezaJob;
+  if (!job || job.estado !== 'procesando') return;
+  state.dteLimpiezaTimer = setTimeout(async () => {
+    if (state.section !== 'facturas-dte') return;
+    try {
+      state.dteLimpiezaJob = await api(`/facturas-dte/auditoria/limpieza/${job.id}`);
+    } catch (err) {
+      return;
+    }
+    renderAuditoriaPanel();
+    if (state.dteLimpiezaJob.estado === 'procesando') {
+      pollLimpiezaMasiva();
+    } else if (state.dteLimpiezaJob.estado === 'completado') {
+      try {
+        state.dteLista = await api(`/facturas-dte?desde=${state.dteDesde}&hasta=${state.dteHasta}`);
+        document.getElementById('dte-resultados').innerHTML = renderDteResultados(state.dteLista, state.dteFiltroFolio);
+        bindDteResultadosBotones();
+        _actualizarContadorDte();
+      } catch (err) { /* no interrumpe */ }
+    }
+  }, 2000);
 }
 
 async function showDteModal(dteId) {

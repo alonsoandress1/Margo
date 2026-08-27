@@ -39,7 +39,7 @@ from odoo_connector import OdooClient  # noqa: E402
 from ..schemas import (CantidadRecibidaIn, CargarStockManualIn, ColaFacturaOut, CompararOut, CompararLineaOut,
                        DescuentoLineaIn, DteDetalleOut, DteLineaOut, DteLineaSimpleOut, DteMarcadoManualOut,
                        DteMatchLineaIn, DteNotaCreditoDetalleOut, DteOut, DteProductoOut, DteYaFacturadoOut,
-                       FactorConversionIn, HistoricoFacturaOut, HistoricoLineaOut,
+                       FactorConversionIn, HistoricoFacturaOut, HistoricoLineaOut, LimpiezaMasivaOut,
                        ImpuestoOut, LineaManualIn, MarcarManualOut, MarcarManualLineaOut, ProductoImpuestosIn,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
 
@@ -239,6 +239,121 @@ def auditar_ya_facturadas(desde: str, hasta: str, claims: dict = Depends(get_cur
                 folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'), factura_encontrada=factura,
             ))
     return resultado
+
+
+@router.post("/auditoria/limpiar-ya-facturadas", response_model=LimpiezaMasivaOut, status_code=status.HTTP_202_ACCEPTED)
+def limpiar_ya_facturadas(desde: str, hasta: str, background_tasks: BackgroundTasks,
+                           claims: dict = Depends(get_current_claims),
+                           odoo_creds: tuple[str, str] = Depends(get_odoo_credentials),
+                           x_odoo_company_id: str | None = Header(default=None)):
+    """Version masiva de 'Ingresada Manualmente' (ver marcar_ingresada_manual)
+    -- para cuando la auditoria (GET .../ya-facturadas) encuentra muchos DTE
+    pendientes que en realidad ya tienen su factura real en Odoo (caso real:
+    Doña Estela, 2.782 de 3.167). Aplicar eso a mano uno por uno no es
+    viable, asi que corre en segundo plano (ver _ejecutar_limpieza_masiva)
+    y deja registro en facturas_dte_limpieza_masiva -- se consulta el
+    avance con GET .../limpieza/{id}.
+
+    A diferencia del boton individual, ACA no se cargan las lineas de
+    Bodega automaticamente (paso 3 de marcar_ingresada_manual) -- son
+    facturas historicas, cargar Bodega con eso de golpe corromperia el
+    stock actual con movimientos viejos. Solo se hace lo seguro: vincular
+    invoice_id + agregar a la Planilla si corresponde. Solo se resuelven
+    los DTE con EXACTAMENTE una factura candidata (mismo RUT + folio) --
+    0 o 2+ candidatas se cuentan aparte y quedan para revisar a mano."""
+    _require_admin(claims)
+    if not x_odoo_company_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Falta elegir la empresa (X-Odoo-Company-Id)")
+    try:
+        company_id = int(x_odoo_company_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Odoo-Company-Id invalido")
+
+    db = get_db()
+    fila = db.table("facturas_dte_limpieza_masiva").insert({
+        "odoo_company_id": company_id, "desde": desde, "hasta": hasta, "creado_por": claims["sub"],
+    }).execute().data[0]
+
+    background_tasks.add_task(_ejecutar_limpieza_masiva, fila["id"], company_id, desde, hasta, odoo_creds, claims["sub"])
+    return LimpiezaMasivaOut(**fila)
+
+
+@router.get("/auditoria/limpieza/{job_id}", response_model=LimpiezaMasivaOut)
+def estado_limpieza_masiva(job_id: str, claims: dict = Depends(get_current_claims)):
+    _require_lectura(claims)
+    db = get_db()
+    filas = db.table("facturas_dte_limpieza_masiva").select("*").eq("id", job_id).execute().data
+    if not filas:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job no encontrado")
+    return LimpiezaMasivaOut(**filas[0])
+
+
+def _ejecutar_limpieza_masiva(job_id: str, company_id: int, desde: str, hasta: str,
+                               odoo_creds: tuple[str, str], sub: str) -> None:
+    db = get_db()
+    try:
+        cliente = _odoo(odoo_creds)
+        ocultos = {f["proveedor_rut"] for f in (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
+        marcados_manual = {f["dte_id"] for f in (db.table("facturas_dte_ingresado_manual").select("dte_id").execute().data or [])}
+        domain = [['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False], ['company_id', '=', company_id]]
+        pendientes = cliente._call('l10n_cl.supplier.xml', 'search_read', [domain],
+            {'fields': ['id', 'issuer_rut', 'l10n_latam_document_number', 'l10n_latam_document_type_id_code']})
+        pendientes = [d for d in pendientes if d.get('l10n_latam_document_type_id_code') in ('33', '61')
+                      and (d.get('issuer_rut') or '') not in ocultos and d['id'] not in marcados_manual]
+
+        moves = cliente._call('account.move', 'search_read',
+            [[['company_id', '=', company_id], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+            {'fields': ['id', 'name', 'partner_id', 'l10n_latam_document_number', 'invoice_origin', 'invoice_date']})
+        partner_ids = list({m['partner_id'][0] for m in moves if m.get('partner_id')})
+        partners = cliente._call('res.partner', 'read', [partner_ids], {'fields': ['vat']}) if partner_ids else []
+        vat_por_partner = {p['id']: p.get('vat') for p in partners}
+
+        candidatas_por_rut_folio: dict[tuple[str, str], list[dict]] = {}
+        for m in moves:
+            vat = vat_por_partner.get(m['partner_id'][0]) if m.get('partner_id') else None
+            folio = _normalizar_folio(m.get('l10n_latam_document_number'))
+            if vat and folio:
+                candidatas_por_rut_folio.setdefault((vat, folio), []).append(m)
+
+        total = len(pendientes)
+        db.table("facturas_dte_limpieza_masiva").update({"total": total}).eq("id", job_id).execute()
+
+        procesados = vinculados = ambiguos = errores = 0
+        for d in pendientes:
+            try:
+                folio = _normalizar_folio(d.get('l10n_latam_document_number'))
+                rut = d.get('issuer_rut') or ''
+                candidatas = candidatas_por_rut_folio.get((rut, folio), [])
+                if len(candidatas) == 1:
+                    factura = candidatas[0]
+                    cliente._call('l10n_cl.supplier.xml', 'write', [[d['id']], {'invoice_id': factura['id']}])
+                    if not factura.get('invoice_origin'):
+                        db.table("planilla_compras_factura_manual").upsert({
+                            "factura_id": factura['id'], "agregado_por": sub,
+                            "invoice_date": factura.get('invoice_date') or None,
+                        }).execute()
+                    db.table("facturas_dte_ingresado_manual").upsert({
+                        "dte_id": d['id'], "marcado_por": sub, "factura_id_vinculada": factura['id'],
+                    }, on_conflict="dte_id").execute()
+                    vinculados += 1
+                elif len(candidatas) > 1:
+                    ambiguos += 1
+            except Exception:
+                errores += 1
+            procesados += 1
+            if procesados % 25 == 0 or procesados == total:
+                db.table("facturas_dte_limpieza_masiva").update({
+                    "procesados": procesados, "vinculados": vinculados, "ambiguos": ambiguos, "errores": errores,
+                    "actualizado_en": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", job_id).execute()
+
+        db.table("facturas_dte_limpieza_masiva").update({
+            "estado": "completado", "actualizado_en": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", job_id).execute()
+    except Exception as e:
+        db.table("facturas_dte_limpieza_masiva").update({
+            "estado": "error", "error_mensaje": str(e), "actualizado_en": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", job_id).execute()
 
 
 @router.post("/{dte_id}/marcar-manual", response_model=MarcarManualOut)

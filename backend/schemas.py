@@ -520,6 +520,18 @@ class DteYaFacturadoOut(BaseModel):
     factura_encontrada: str  # nombre (name) de la account.move real que ya existe
 
 
+class LimpiezaMasivaOut(BaseModel):
+    id: str
+    estado: str
+    total: int
+    procesados: int
+    vinculados: int
+    ambiguos: int
+    errores: int
+    error_mensaje: str | None = None
+    creado_en: str
+
+
 class DteDetalleOut(DteOut):
     lineas: list[DteLineaOut]
 
