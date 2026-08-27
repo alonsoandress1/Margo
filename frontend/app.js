@@ -19,7 +19,8 @@ const SECCIONES = [
   { id: 'inventario', label: 'Inventario',          grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'mermas',    label: 'Mermas',                grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador', 'solicitante'] },
   { id: 'parstock',  label: 'Par Stock',             grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
-  { id: 'recetas',   label: 'Recetas',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'recetario', label: 'Recetario',             grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
+  { id: 'excesos',   label: 'Excesos',               grupo: 'Operación diaria', roles: ['administrador', 'solicitante', 'observador'], editRoles: [] },
   { id: 'proveedores', label: 'Proveedores',         grupo: 'Compras', roles: ['administrador', 'solicitante', 'observador'], editRoles: ['administrador'] },
   { id: 'facturas-dte', label: 'Facturas Odoo',         grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
   { id: 'planilla-compras', label: 'Planilla de Compras', grupo: 'Compras', roles: ['administrador', 'observador'], editRoles: ['administrador'] },
@@ -719,7 +720,8 @@ function _despacharVista(el, s) {
   if (state.section === 'mermas') return renderMermas(el, s);
   if (state.section === 'parstock') return renderParStock(el, s);
   if (state.section === 'proveedores') return renderProveedores(el, s);
-  if (state.section === 'recetas') return renderRecetas(el, s);
+  if (state.section === 'recetario') return renderRecetario(el, s);
+  if (state.section === 'excesos') return renderExcesos(el, s);
   if (state.section === 'usuarios') return renderUsuarios(el, s);
   if (state.section === 'facturas-dte') return renderFacturasDte(el, s);
   if (state.section === 'planilla-compras') return renderPlanillaCompras(el, s);
@@ -1247,109 +1249,6 @@ async function renderProveedores(el, s) {
         alert(`${ids.length - fallidos.length} eliminado(s). ${fallidos.length} no se pudieron eliminar (probablemente están en Par Stock de algún local):\n\n` +
           fallidos.map(r => r.reason.message).join('\n'));
       }
-    });
-  }
-}
-
-async function renderRecetas(el, s) {
-  const locales = await api('/locales');
-  if (!locales.length) {
-    el.innerHTML = '<h2>Recetas</h2><div class="card"><p class="placeholder">No tienes locales asignados.</p></div>';
-    return;
-  }
-  const editable = puedeEditar(s);
-  const localId = state.recetasLocal && locales.some(l => l.id === state.recetasLocal) ? state.recetasLocal : locales[0].id;
-  state.recetasLocal = localId;
-
-  const todosPlatos = await api(`/platos?local_id=${localId}`);
-  const lineas = await api(`/recetas?local_id=${localId}`);
-  const porPlato = {};
-  lineas.forEach(l => {
-    (porPlato[l.plato_id] ??= { sku: l.plato_sku, nombre: l.plato_nombre, lineas: [] }).lineas.push(l);
-  });
-  const etiqueta = (p) => `${escapeHtml(p.nombre)} (${escapeHtml(p.sku)})`;
-
-  el.innerHTML = `
-    <h2>Recetas</h2>
-    <label class="field-label">Local</label>
-    <select id="rec-local" class="field" style="margin-bottom:1.25rem;width:100%;max-width:280px">
-      ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${escapeHtml(l.nombre)}</option>`).join('')}
-    </select>
-    ${!editable ? '<div class="readonly-note">Modo solo lectura para tu rol.</div>' : ''}
-    ${editable ? `
-      <div class="card">
-        <h3>Agregar insumo a una receta</h3>
-        <p class="placeholder" style="margin-bottom:1rem">${todosPlatos.length} platos en el catálogo (importados del reporte de ventas).</p>
-        <form id="rec-form">
-          <input class="field" id="rec-plato-search" list="platos-datalist" placeholder="Buscar plato por nombre..." style="width:100%;margin-bottom:.75rem" required autocomplete="off">
-          <datalist id="platos-datalist">
-            ${todosPlatos.map(p => `<option value="${etiqueta(p)}">`).join('')}
-          </datalist>
-          <div class="item-row">
-            <input class="field" id="rec-ingrediente" placeholder="Insumo" style="flex:2" required>
-            <input class="field" id="rec-cantidad" type="number" step="0.01" placeholder="Cantidad" required>
-            <input class="field" id="rec-unidad" placeholder="Unidad (g/kg/un)" required>
-          </div>
-          <button type="submit" class="btn btn-primary">Agregar</button>
-          <p id="rec-error" class="error-msg"></p>
-        </form>
-      </div>` : ''}
-    ${Object.keys(porPlato).length ? Object.entries(porPlato).map(([platoId, p]) => `
-      <div class="card">
-        <h3>${escapeHtml(p.nombre)} <span class="placeholder">(${escapeHtml(p.sku)})</span></h3>
-        <table>
-          <thead><tr><th>Insumo</th><th>Cantidad</th><th>Unidad</th>${editable ? '<th></th>' : ''}</tr></thead>
-          <tbody>
-            ${p.lineas.map(l => `
-              <tr>
-                <td>${escapeHtml(l.ingrediente)}</td><td>${l.cantidad}</td><td>${escapeHtml(l.unidad)}</td>
-                ${editable ? `<td><button class="btn btn-reject" data-del-linea="${l.id}">Eliminar</button></td>` : ''}
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`).join('') : '<div class="card"><p class="placeholder">Sin recetas cargadas para este local todavía.</p></div>'}`;
-
-  document.getElementById('rec-local').addEventListener('change', (e) => {
-    state.recetasLocal = e.target.value;
-    renderView();
-  });
-
-  if (editable) {
-    document.getElementById('rec-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('rec-error');
-      const texto = document.getElementById('rec-plato-search').value.trim();
-      const plato = todosPlatos.find(p => etiqueta(p) === texto);
-      if (!plato) {
-        errorEl.textContent = 'Selecciona un plato válido de la lista (no uno escrito a mano).';
-        return;
-      }
-      try {
-        await api('/recetas', {
-          method: 'POST',
-          body: JSON.stringify({
-            plato_id: plato.id,
-            ingrediente: document.getElementById('rec-ingrediente').value.trim(),
-            cantidad: parseFloat(document.getElementById('rec-cantidad').value) || 0,
-            unidad: document.getElementById('rec-unidad').value.trim(),
-          }),
-        });
-        renderView();
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    });
-
-    el.querySelectorAll('button[data-del-linea]').forEach(btn => {
-      btn.onclick = async () => {
-        if (!confirm('¿Eliminar esta línea de la receta?')) return;
-        try {
-          await api(`/recetas/${btn.dataset.delLinea}`, { method: 'DELETE' });
-          renderView();
-        } catch (err) {
-          alert(err.message);
-        }
-      };
     });
   }
 }
@@ -2215,8 +2114,6 @@ async function renderMermas(el, s) {
         <button type="button" id="mermas-exportar" class="btn">Exportar Excel</button>
         <button type="button" id="mermas-reporte-pdf-ver" class="btn">Ver Reporte de Ventas</button>
         <button type="button" id="mermas-reporte-pdf" class="btn">Descargar PDF</button>
-        ${editable ? `<button type="button" id="mermas-vincular-insumos" class="btn" title="Conecta cada insumo de Mermas con su equivalente de Compras/Odoo -- sin esto, tus entregas a cocina no alimentan el pronóstico de consumo de la sugerencia de compra">Vincular insumos</button>` : ''}
-        ${editable ? `<button type="button" id="mermas-vincular-platos" class="btn" title="Conecta cada plato vendido con los insumos de Compras/Odoo que consume -- sin esto, un insumo que no se vende como plato propio (ej. una salsa base) nunca alimenta el pronóstico de consumo">Vincular platos</button>` : ''}
       </div>
     </div>
     <h3 style="margin:1rem 0 .5rem">${etiquetaSemana(fecha)}</h3>
@@ -2454,9 +2351,6 @@ async function renderMermas(el, s) {
     }
   });
 
-  document.getElementById('mermas-vincular-insumos')?.addEventListener('click', () => showVincularInsumosModal(localId));
-  document.getElementById('mermas-vincular-platos')?.addEventListener('click', () => showVincularPlatosModal(localId));
-
   async function guardarControlStock() {
     const filas = Array.from(document.querySelectorAll('tr[data-stock-row-key]'));
     for (const fila of filas) {
@@ -2566,12 +2460,53 @@ async function renderMermas(el, s) {
   }
 }
 
-async function showVincularInsumosModal(localId) {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = '<div class="modal-box" style="width:820px;max-width:96vw"><p class="placeholder">Cargando…</p></div>';
-  document.body.appendChild(overlay);
+async function renderRecetario(el, s) {
+  const locales = await api('/locales');
+  if (!locales.length) {
+    el.innerHTML = '<h2>Recetario</h2><div class="card"><p class="placeholder">No tienes locales asignados.</p></div>';
+    return;
+  }
+  const localId = state.recetarioLocal && locales.some(l => l.id === state.recetarioLocal) ? state.recetarioLocal : locales[0].id;
+  state.recetarioLocal = localId;
+  const tab = state.recetarioTab || 'insumos';
+  state.recetarioTab = tab;
 
+  el.innerHTML = `
+    <h2>Recetario</h2>
+    <p class="placeholder" style="margin-bottom:1rem">Conecta Mermas y Ventas con los insumos reales de Compras/Odoo -- sin esto, la sugerencia de compra no ve tu consumo real.</p>
+    <div class="item-row" style="max-width:280px;margin-bottom:1rem">
+      <div style="flex:1">
+        <label class="field-label">Local</label>
+        <select id="rec-local" class="field" style="width:100%">
+          ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${escapeHtml(l.nombre)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="item-row" style="margin-bottom:1.25rem">
+      <button type="button" class="btn ${tab === 'insumos' ? 'btn-primary' : ''}" id="recetario-tab-insumos">Insumos (Mermas ↔ Compras)</button>
+      <button type="button" class="btn ${tab === 'platos' ? 'btn-primary' : ''}" id="recetario-tab-platos">Platos (Ventas ↔ Compras)</button>
+    </div>
+    <div id="recetario-contenido"><p class="placeholder">Cargando…</p></div>`;
+
+  document.getElementById('rec-local').addEventListener('change', (e) => {
+    state.recetarioLocal = e.target.value;
+    renderView();
+  });
+  document.getElementById('recetario-tab-insumos').addEventListener('click', () => {
+    state.recetarioTab = 'insumos';
+    renderView();
+  });
+  document.getElementById('recetario-tab-platos').addEventListener('click', () => {
+    state.recetarioTab = 'platos';
+    renderView();
+  });
+
+  const contenido = document.getElementById('recetario-contenido');
+  if (tab === 'platos') await _renderRecetarioPlatos(contenido, localId);
+  else await _renderRecetarioInsumos(contenido, localId);
+}
+
+async function _renderRecetarioInsumos(contenido, localId) {
   const [vinculos, compras] = await Promise.all([
     api(`/mermas/vinculos?local_id=${localId}`),
     api(`/par-stock?local_id=${localId}`),
@@ -2582,8 +2517,7 @@ async function showVincularInsumosModal(localId) {
 
   function render() {
     const filas = soloSinVincular ? vinculos.filter(v => !v.compras_ingrediente_key) : vinculos;
-    overlay.querySelector('.modal-box').innerHTML = `
-      <h3>Vincular insumos</h3>
+    contenido.innerHTML = `
       <p class="placeholder" style="margin-bottom:.75rem">Conecta cada insumo de Mermas con su equivalente real de Compras/Odoo -- son dos catálogos independientes, sin este vínculo tus entregas a cocina no alimentan el pronóstico de consumo de la sugerencia de compra. Ningún insumo se vincula solo -- confírmalos uno por uno, aunque el nombre se vea igual.</p>
 
       <details style="margin-bottom:1rem" ${agregarAbierto ? 'open' : ''}>
@@ -2605,7 +2539,7 @@ async function showVincularInsumosModal(localId) {
         <input type="checkbox" id="vinculos-solo-sin-vincular" ${soloSinVincular ? 'checked' : ''}>
         Solo mostrar sin vincular (${vinculos.filter(v => !v.compras_ingrediente_key).length} de ${vinculos.length})
       </label>
-      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+      <div style="overflow-x:auto">
       <table>
         <thead><tr><th>Insumo (Mermas)</th><th>Vincular con (Compras/Odoo)</th><th></th></tr></thead>
         <tbody>
@@ -2622,24 +2556,20 @@ async function showVincularInsumosModal(localId) {
             </tr>`).join('')}
         </tbody>
       </table>
-      </div>
-      <div style="margin-top:1.25rem">
-        <button type="button" class="btn" id="vinculos-cerrar">Cerrar</button>
       </div>`;
 
-    overlay.querySelector('#vinculos-cerrar').onclick = () => overlay.remove();
-    overlay.querySelector('#vinculos-solo-sin-vincular').addEventListener('change', (e) => {
+    contenido.querySelector('#vinculos-solo-sin-vincular').addEventListener('change', (e) => {
       soloSinVincular = e.target.checked;
       render();
     });
-    overlay.querySelector('details').addEventListener('toggle', (e) => { agregarAbierto = e.target.open; });
+    contenido.querySelector('details').addEventListener('toggle', (e) => { agregarAbierto = e.target.open; });
 
-    overlay.querySelector('#seguimiento-agregar').addEventListener('click', async () => {
-      const errorEl = overlay.querySelector('#seguimiento-error');
+    contenido.querySelector('#seguimiento-agregar').addEventListener('click', async () => {
+      const errorEl = contenido.querySelector('#seguimiento-error');
       errorEl.textContent = '';
-      const nombre = overlay.querySelector('#seguimiento-nombre').value.trim();
-      const unidad = overlay.querySelector('#seguimiento-unidad').value;
-      const tramo = overlay.querySelector('#seguimiento-tramo').value;
+      const nombre = contenido.querySelector('#seguimiento-nombre').value.trim();
+      const unidad = contenido.querySelector('#seguimiento-unidad').value;
+      const tramo = contenido.querySelector('#seguimiento-tramo').value;
       if (!nombre) {
         errorEl.textContent = 'Escribe un nombre.';
         return;
@@ -2660,11 +2590,11 @@ async function showVincularInsumosModal(localId) {
       }
     });
 
-    overlay.querySelectorAll('.vinculo-select').forEach(select => {
+    contenido.querySelectorAll('.vinculo-select').forEach(select => {
       select.addEventListener('change', async () => {
         const mermasKey = decodeURIComponent(select.dataset.mermasKey);
         const comprasKey = select.value ? decodeURIComponent(select.value) : '';
-        const estadoEl = overlay.querySelector(`[data-vinculo-estado="${encodeURIComponent(mermasKey)}"]`);
+        const estadoEl = contenido.querySelector(`[data-vinculo-estado="${encodeURIComponent(mermasKey)}"]`);
         estadoEl.textContent = 'Guardando…';
         estadoEl.className = 'placeholder';
         try {
@@ -2693,12 +2623,7 @@ async function showVincularInsumosModal(localId) {
   render();
 }
 
-async function showVincularPlatosModal(localId) {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = '<div class="modal-box" style="width:820px;max-width:96vw"><p class="placeholder">Cargando…</p></div>';
-  document.body.appendChild(overlay);
-
+async function _renderRecetarioPlatos(contenido, localId) {
   const [platos, compras] = await Promise.all([
     api(`/mermas/recetas-venta?local_id=${localId}`),
     api(`/par-stock?local_id=${localId}`),
@@ -2716,8 +2641,7 @@ async function showVincularPlatosModal(localId) {
       filas = filas.filter(p => p.plato_nombre.toLowerCase().includes(t) || p.plato_sku.toLowerCase().includes(t));
     }
 
-    overlay.querySelector('.modal-box').innerHTML = `
-      <h3>Vincular platos</h3>
+    contenido.innerHTML = `
       <p class="placeholder" style="margin-bottom:.75rem">Conecta cada plato vendido con los insumos de Compras/Odoo que consume por unidad vendida -- sin esto, un insumo que no se vende como plato propio (una salsa base repartida entre varios platos) nunca alimenta el pronóstico de consumo.</p>
       <div class="item-row" style="margin-bottom:.75rem">
         <input type="text" id="platos-filtro-texto" class="field" placeholder="Buscar plato por nombre o SKU..." style="flex:1" value="${escapeHtml(filtroTexto)}">
@@ -2726,7 +2650,7 @@ async function showVincularPlatosModal(localId) {
         <input type="checkbox" id="platos-solo-sin-receta" ${soloSinReceta ? 'checked' : ''}>
         Solo mostrar sin insumos vinculados (${platos.filter(p => !p.lineas.length).length} de ${platos.length})
       </label>
-      <div style="max-height:60vh;overflow-y:auto">
+      <div>
         ${filas.map(p => `
           <details style="margin-bottom:.5rem" ${abiertos.has(p.plato_sku) ? 'open' : ''} data-plato-details="${encodeURIComponent(p.plato_sku)}">
             <summary style="cursor:pointer">${escapeHtml(p.plato_nombre)} <span class="placeholder">(${escapeHtml(p.plato_sku)}) -- ${p.lineas.length ? `${p.lineas.length} insumo(s) vinculado(s)` : 'sin vincular'}</span></summary>
@@ -2754,31 +2678,27 @@ async function showVincularPlatosModal(localId) {
               <p class="error-msg" data-plato-error="${encodeURIComponent(p.plato_sku)}" style="margin-top:.3rem"></p>
             </div>
           </details>`).join('') || '<p class="placeholder">Ningún plato coincide con el filtro.</p>'}
-      </div>
-      <div style="margin-top:1.25rem">
-        <button type="button" class="btn" id="platos-cerrar">Cerrar</button>
       </div>`;
 
-    overlay.querySelector('#platos-cerrar').onclick = () => overlay.remove();
-    overlay.querySelector('#platos-filtro-texto').addEventListener('input', (e) => {
+    contenido.querySelector('#platos-filtro-texto').addEventListener('input', (e) => {
       filtroTexto = e.target.value;
       render();
-      const nuevoInput = overlay.querySelector('#platos-filtro-texto');
+      const nuevoInput = contenido.querySelector('#platos-filtro-texto');
       nuevoInput.focus();
       nuevoInput.setSelectionRange(filtroTexto.length, filtroTexto.length);
     });
-    overlay.querySelector('#platos-solo-sin-receta').addEventListener('change', (e) => {
+    contenido.querySelector('#platos-solo-sin-receta').addEventListener('change', (e) => {
       soloSinReceta = e.target.checked;
       render();
     });
-    overlay.querySelectorAll('[data-plato-details]').forEach(det => {
+    contenido.querySelectorAll('[data-plato-details]').forEach(det => {
       det.addEventListener('toggle', () => {
         const sku = decodeURIComponent(det.dataset.platoDetails);
         if (det.open) abiertos.add(sku); else abiertos.delete(sku);
       });
     });
 
-    overlay.querySelectorAll('[data-quitar-linea]').forEach(btn => {
+    contenido.querySelectorAll('[data-quitar-linea]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const [skuEnc, keyEnc] = btn.dataset.quitarLinea.split('|');
         const plato_sku = decodeURIComponent(skuEnc);
@@ -2794,12 +2714,12 @@ async function showVincularPlatosModal(localId) {
       });
     });
 
-    overlay.querySelectorAll('[data-agregar-linea]').forEach(btn => {
+    contenido.querySelectorAll('[data-agregar-linea]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const plato_sku = decodeURIComponent(btn.dataset.agregarLinea);
-        const select = overlay.querySelector(`.plato-add-insumo[data-plato="${encodeURIComponent(plato_sku)}"]`);
-        const input = overlay.querySelector(`.plato-add-cantidad[data-plato="${encodeURIComponent(plato_sku)}"]`);
-        const errorEl = overlay.querySelector(`[data-plato-error="${encodeURIComponent(plato_sku)}"]`);
+        const select = contenido.querySelector(`.plato-add-insumo[data-plato="${encodeURIComponent(plato_sku)}"]`);
+        const input = contenido.querySelector(`.plato-add-cantidad[data-plato="${encodeURIComponent(plato_sku)}"]`);
+        const errorEl = contenido.querySelector(`[data-plato-error="${encodeURIComponent(plato_sku)}"]`);
         errorEl.textContent = '';
         const ingrediente_key = select.value ? decodeURIComponent(select.value) : '';
         const cantidad = parseFloat(input.value);
@@ -2824,6 +2744,78 @@ async function showVincularPlatosModal(localId) {
   }
 
   render();
+}
+
+async function renderExcesos(el, s) {
+  const locales = await api('/locales');
+  if (!locales.length) {
+    el.innerHTML = '<h2>Excesos</h2><div class="card"><p class="placeholder">No tienes locales asignados.</p></div>';
+    return;
+  }
+  const localId = state.excesosLocal && locales.some(l => l.id === state.excesosLocal) ? state.excesosLocal : locales[0].id;
+  state.excesosLocal = localId;
+
+  const hoyIso = new Date().toISOString().slice(0, 10);
+  const hace30 = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+  const desde = state.excesosDesde || hace30;
+  const hasta = state.excesosHasta || hoyIso;
+  state.excesosDesde = desde;
+  state.excesosHasta = hasta;
+
+  const filas = await api(`/mermas/excesos-bodega?local_id=${localId}&desde=${desde}&hasta=${hasta}`);
+  const excesos = filas.filter(f => f.cantidad < 0);
+  const totalPerdido = excesos.reduce((a, f) => a + Math.abs(f.monto), 0);
+
+  el.innerHTML = `
+    <h2>Excesos de Bodega</h2>
+    <p class="placeholder" style="margin-bottom:1rem">Cada Conteo Físico (Inventario) que salió negativo -- se contó menos de lo que el sistema esperaba según compras y ventas. Eso es consumo real por encima de lo que dice la receta: exceso, merma o robo de Bodega. Necesita que los insumos estén vinculados en el Recetario para ser confiable.</p>
+    <div class="item-row" style="max-width:640px;margin-bottom:1.25rem">
+      <div style="flex:1">
+        <label class="field-label">Local</label>
+        <select id="exc-local" class="field" style="width:100%">
+          ${locales.map(l => `<option value="${l.id}" ${l.id === localId ? 'selected' : ''}>${escapeHtml(l.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:1">
+        <label class="field-label">Desde</label>
+        <input type="date" id="exc-desde" class="field" style="width:100%" value="${desde}">
+      </div>
+      <div style="flex:1">
+        <label class="field-label">Hasta</label>
+        <input type="date" id="exc-hasta" class="field" style="width:100%" value="${hasta}">
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:1.25rem;max-width:320px">
+      <div class="resumen-card-sub">$ estimado en excesos del período</div>
+      <div style="font-size:1.4rem;font-weight:600;color:${totalPerdido > 0 ? 'var(--danger)' : 'var(--t1)'}">${_fmtMonto(totalPerdido)}</div>
+    </div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Insumo</th><th>Fecha del conteo</th><th>Ajuste</th><th>$ estimado</th></tr></thead>
+      <tbody>
+        ${filas.map(f => `
+          <tr>
+            <td>${escapeHtml(f.nombre)}</td>
+            <td>${f.fecha}</td>
+            <td style="color:${f.cantidad < 0 ? 'var(--danger)' : 'var(--t2)'}">${f.cantidad > 0 ? '+' : ''}${f.cantidad}</td>
+            <td style="color:${f.cantidad < 0 ? 'var(--danger)' : 'var(--t2)'}">${f.cantidad < 0 ? _fmtMonto(Math.abs(f.monto)) : '—'}</td>
+          </tr>`).join('') || '<tr><td colspan="4"><p class="placeholder">Sin conteos físicos en este período.</p></td></tr>'}
+      </tbody>
+    </table>
+    </div>`;
+
+  document.getElementById('exc-local').addEventListener('change', (e) => {
+    state.excesosLocal = e.target.value;
+    renderView();
+  });
+  document.getElementById('exc-desde').addEventListener('change', (e) => {
+    state.excesosDesde = e.target.value;
+    renderView();
+  });
+  document.getElementById('exc-hasta').addEventListener('change', (e) => {
+    state.excesosHasta = e.target.value;
+    renderView();
+  });
 }
 
 function showDetalleModal(pedido, nombreLocal) {

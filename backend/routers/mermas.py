@@ -9,8 +9,8 @@ from ..catalogo import productos_mas_baratos
 from ..db import get_db
 from ..deps import get_current_claims, verificar_acceso_local
 from ..excel_exporter import exportar_dia
-from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, MermaItem, MermaSeguimientoIn, PasteleriaIn,
-                       PasteleriaOut, PlatoVentaOut, ProteinaProduccionIn, ProteinaProduccionOut,
+from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, ExcesoBodegaOut, MermaItem, MermaSeguimientoIn,
+                       PasteleriaIn, PasteleriaOut, PlatoVentaOut, ProteinaProduccionIn, ProteinaProduccionOut,
                        RecetaVentaIn, RecetaVentaLineaOut, ResumenDiferenciaItem, StockCocinaIn,
                        VinculoIn, VinculoOut)
 
@@ -409,6 +409,34 @@ def quitar_receta_venta(local_id: str, plato_sku: str, ingrediente_key: str, cla
     db = get_db()
     db.table("ventas_recetas").delete() \
         .eq("local_id", local_id).eq("plato_sku", plato_sku).eq("ingrediente_key", ingrediente_key).execute()
+
+
+@router.get("/excesos-bodega", response_model=list[ExcesoBodegaOut])
+def listar_excesos_bodega(local_id: str, desde: str, hasta: str, claims: dict = Depends(get_current_claims)):
+    """Cada Conteo Fisico (ajuste, ver Inventario) en el rango de fechas,
+    por insumo -- un ajuste NEGATIVO (se conto menos de lo que el sistema
+    esperaba segun compras/ventas) es la señal real de exceso/merma de
+    Bodega: se esta gastando mas de lo que dice la receta. Requiere que
+    el insumo este vinculado (ver "Vincular platos") para que el modelo
+    teorico sea confiable -- sin eso, un ajuste negativo puede ser solo
+    porque falta receta, no porque haya exceso real."""
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    rows = db.table("bodega_movimientos").select("ingrediente_key,cantidad,fecha") \
+        .eq("local_id", local_id).eq("tipo", "ajuste") \
+        .gte("fecha", f"{desde}T00:00:00+00:00").lte("fecha", f"{hasta}T23:59:59.999999+00:00") \
+        .execute().data or []
+    keys = list({r["ingrediente_key"] for r in rows})
+    precios = productos_mas_baratos(db, keys)
+    resultado = [
+        ExcesoBodegaOut(
+            ingrediente_key=r["ingrediente_key"], nombre=r["ingrediente_key"].split("||")[0],
+            fecha=r["fecha"][:10], cantidad=r["cantidad"],
+            monto=round(r["cantidad"] * precios.get(r["ingrediente_key"], {}).get("price", 0), 2),
+        )
+        for r in rows
+    ]
+    return sorted(resultado, key=lambda e: e.fecha, reverse=True)
 
 
 @router.get("/proteinas", response_model=list[ProteinaProduccionOut])

@@ -374,6 +374,14 @@ class RecetaVentaIn(BaseModel):
     cantidad: float = Field(gt=0)
 
 
+class ExcesoBodegaOut(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    fecha: str
+    cantidad: float
+    monto: float
+
+
 class ParStockItem(BaseModel):
     ingrediente_key: str
     nombre: str
@@ -399,38 +407,6 @@ class ParStockUpdateIn(BaseModel):
     local_id: str
     ingrediente_key: str
     par_cantidad: float
-
-
-class PlatoOut(BaseModel):
-    id: str
-    local_id: str
-    sku: str
-    nombre: str
-
-
-class PlatoIn(BaseModel):
-    local_id: str
-    sku: str
-    nombre: str
-
-
-class RecetaLineaOut(BaseModel):
-    id: str
-    plato_id: str
-    plato_sku: str
-    plato_nombre: str
-    ingrediente_key: str | None = None
-    ingrediente: str
-    cantidad: float
-    unidad: str
-
-
-class RecetaLineaIn(BaseModel):
-    plato_id: str
-    ingrediente_key: str | None = None
-    ingrediente: str
-    cantidad: float
-    unidad: str
 
 
 class UsuarioAdminOut(BaseModel):

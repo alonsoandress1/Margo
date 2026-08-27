@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .routers import (auth, configuracion, facturas_dte, inventario, locales, mermas, odoo, parstock,
-                      pedidos, planilla, planilla_compras, platos, proveedores, recetas, usuarios)
+                      pedidos, planilla, planilla_compras, proveedores, usuarios)
 
 app = FastAPI(title="Margo · Compras — API")
 
@@ -27,8 +27,6 @@ app.include_router(inventario.router)
 app.include_router(mermas.router)
 app.include_router(parstock.router)
 app.include_router(proveedores.router)
-app.include_router(platos.router)
-app.include_router(recetas.router)
 app.include_router(usuarios.router)
 app.include_router(configuracion.router)
 app.include_router(facturas_dte.router)
