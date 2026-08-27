@@ -431,7 +431,7 @@ def listar_excesos_bodega(local_id: str, desde: str, hasta: str, claims: dict = 
     resultado = [
         ExcesoBodegaOut(
             ingrediente_key=r["ingrediente_key"], nombre=r["ingrediente_key"].split("||")[0],
-            fecha=r["fecha"][:10], cantidad=r["cantidad"],
+            fecha=r["fecha"][:10], cantidad=round(r["cantidad"], 3),
             monto=round(r["cantidad"] * precios.get(r["ingrediente_key"], {}).get("price", 0), 2),
         )
         for r in rows
