@@ -95,19 +95,43 @@ def stock_bodega_por_insumo(db, local_id: str, keys: list[str]) -> dict[str, flo
     Elaborada") aunque sea una clave distinta. Sin esto, el vinculo solo
     alimentaba el pronostico de consumo pero el Stock de Bodega mostrado en
     Inventario/Par Stock seguia sin verlo -- bug real encontrado por el
-    usuario (entrego "Pastelera" y no se descontaba de "Pastelera Elaborada")."""
+    usuario (entrego "Pastelera" y no se descontaba de "Pastelera Elaborada").
+
+    Un Conteo Fisico ("ajuste") es una foto real de lo que hay HOY -- tiene
+    que resetear el saldo a esa fecha, no sumarse como un movimiento mas
+    encima de TODO el historial anterior. Sin esto, vincular un insumo con
+    historial previo (ventas/entregas de Mermas de antes del conteo, recien
+    visibles gracias al vinculo) resta ese historial igual, aunque el
+    conteo ya deberia haber sido la foto real de ese momento -- bug real
+    encontrado por el usuario (Stock de Bodega en negativo justo despues de
+    vincular insumos con historial). Por insumo, se busca la fecha del
+    ajuste mas reciente entre TODAS sus claves vinculadas y se suma solo
+    desde ahi (el ajuste mismo incluido) -- sin ningun ajuste previo, se
+    comporta igual que antes (suma todo). Redondeado a 3 decimales (el
+    ruido de precision flotante al sumar muchos decimales, ej.
+    -19.259999999999998, tambien lo reporto el usuario) y nunca negativo --
+    stock fisico real no puede serlo, un negativo aca es señal de que hace
+    falta un conteo nuevo, no un numero para mostrar tal cual."""
     if not keys:
         return {}
     mermas_a_compras = _mermas_a_compras(db, local_id, keys)
     keys_a_consultar = list(set(keys) | set(mermas_a_compras.keys()))
 
-    rows = db.table("bodega_movimientos").select("ingrediente_key,tipo,cantidad") \
+    rows = db.table("bodega_movimientos").select("ingrediente_key,tipo,cantidad,fecha") \
         .eq("local_id", local_id).in_("ingrediente_key", keys_a_consultar).execute().data or []
-    stock: dict[str, float] = {}
+    por_key: dict[str, list[dict]] = {}
     for m in rows:
         key = mermas_a_compras.get(m["ingrediente_key"], m["ingrediente_key"])
-        signo = -1 if m["tipo"] == "egreso" else 1
-        stock[key] = stock.get(key, 0) + signo * m["cantidad"]
+        por_key.setdefault(key, []).append(m)
+
+    stock: dict[str, float] = {}
+    for key, movimientos in por_key.items():
+        desde = max((m["fecha"] for m in movimientos if m["tipo"] == "ajuste"), default=None)
+        total = sum(
+            (-1 if m["tipo"] == "egreso" else 1) * m["cantidad"]
+            for m in movimientos if not desde or m["fecha"] >= desde
+        )
+        stock[key] = max(0.0, round(total, 3))
     return stock
 
 
