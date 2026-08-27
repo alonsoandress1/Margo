@@ -26,25 +26,40 @@ def _mermas_a_compras(db, local_id: str, keys: list[str]) -> dict[str, str]:
 
 
 def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[str, dict[int, float]]:
-    """Para cada insumo, promedio de egresos de bodega_movimientos (entrega_cocina
-    + venta_tcpos, cualquier origen -- son las mismas fuentes que ya restan del
-    Stock de Bodega calculado, ver stock_bodega_por_insumo) agrupado por dia de
-    la semana (0=Lunes..6=Domingo, misma convencion que date.weekday() ya usada
-    en mermas.py). Usado para sumar consumo proyectado a la sugerencia de
+    """Para cada insumo, promedio de egresos 'venta_tcpos' de bodega_movimientos
+    (SOLO ventas, ver mas abajo por que) agrupado por dia de la semana
+    (0=Lunes..6=Domingo, misma convencion que date.weekday() ya usada en
+    mermas.py). Usado para sumar consumo proyectado a la sugerencia de
     compra mientras llega un pedido (ver dias_entrega en proveedores).
 
-    Si varios egresos caen el mismo dia para el mismo insumo (ej.
-    entrega_cocina Y venta_tcpos el mismo dia), se suman antes de promediar --
-    un dia con dos origenes cuenta como UNA muestra, no dos.
+    Solo cuenta como consumo lo que se VENDE (origen='venta_tcpos') -- una
+    entrega de Bodega a Cocina (origen='entrega_cocina') NO es consumo real
+    todavia, es solo un traslado interno: el insumo sigue en el local (en
+    Cocina en vez de en Bodega), no se ha ido a ningun lado. Pedido
+    explicito del usuario: "lo que entrego a cocina es parte de mi stock".
+    Contar ambos origenes duplicaria el mismo kilo -- una vez cuando sale
+    de bodega, otra vez cuando el plato se vende. stock_bodega_por_insumo
+    (funcion aparte) SI sigue restando entrega_cocina -- ese calculo es
+    especifico de la bodega como ubicacion fisica, no de "todo el local"
+    como este pronostico.
+
+    Consecuencia aceptada: un insumo que nunca se vende como plato propio
+    (ej. una salsa base repartida entre varios platos, sin receta 1 a 1 en
+    ventas_recetas) va a mostrar 0 aca hasta que se le arme su receta de
+    ventas -- el usuario confirmo que ese es el plan (vincular cada
+    producto de la planta a los platos que lo usan), no agregar entregas a
+    cocina como respaldo.
+
+    Si varios egresos de venta caen el mismo dia para el mismo insumo, se
+    suman antes de promediar -- un dia cuenta como UNA muestra.
 
     Si un dia de la semana puntual no tiene ninguna muestra, se usa el
     promedio general del insumo (todas las muestras, cualquier dia) en vez de
     0 -- con solo 1-2 semanas de historial real (venta_tcpos empezo el
-    2026-08-18, entrega_cocina el 2026-08-11), la mayoria de los dias van a
-    caer en este fallback por ahora, y va a mejorar solo con el tiempo. Un
-    insumo sin ninguna muestra en absoluto no aparece en el resultado -- el
-    llamador debe tratar eso como 0 (mismo comportamiento que antes de este
-    pronostico).
+    2026-08-18), la mayoria de los dias van a caer en este fallback por
+    ahora, y va a mejorar solo con el tiempo. Un insumo sin ninguna muestra
+    en absoluto no aparece en el resultado -- el llamador debe tratar eso
+    como 0 (mismo comportamiento que antes de este pronostico).
 
     Ver _mermas_a_compras -- se usa aca para traducir cada fila ANTES de
     agrupar, asi el historial de Mermas cae en el bucket correcto del
@@ -56,7 +71,8 @@ def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[
 
     desde = (date.today() - timedelta(days=DIAS_HISTORIAL_PRONOSTICO)).isoformat()
     rows = db.table("bodega_movimientos").select("ingrediente_key,cantidad,fecha") \
-        .eq("local_id", local_id).eq("tipo", "egreso").in_("ingrediente_key", keys_a_consultar) \
+        .eq("local_id", local_id).eq("tipo", "egreso").eq("origen", "venta_tcpos") \
+        .in_("ingrediente_key", keys_a_consultar) \
         .gte("fecha", f"{desde}T00:00:00+00:00").execute().data or []
 
     por_dia: dict[tuple[str, str], float] = {}
