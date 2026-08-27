@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
+from postgrest.exceptions import APIError
 
 from ..bodega_service import registrar_entrega_cocina
 from ..catalogo import productos_mas_baratos
@@ -262,10 +263,13 @@ def agregar_seguimiento(body: MermaSeguimientoIn, claims: dict = Depends(get_cur
         .eq("local_id", body.local_id).eq("ingrediente_key", ingrediente_key).execute().data
     if existente:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ese insumo ya existe en el catálogo de Mermas")
-    db.table("mermas_seguimiento").insert({
-        "local_id": body.local_id, "ingrediente_key": ingrediente_key, "unidad": body.unidad,
-        "tramo": body.tramo, "categoria": body.categoria,
-    }).execute()
+    try:
+        db.table("mermas_seguimiento").insert({
+            "local_id": body.local_id, "ingrediente_key": ingrediente_key, "nombre": body.nombre,
+            "unidad": body.unidad, "tramo": body.tramo,
+        }).execute()
+    except APIError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No se pudo agregar: {e.message}")
     return {"ok": True}
 
 

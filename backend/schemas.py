@@ -162,7 +162,6 @@ class MermaSeguimientoIn(BaseModel):
     nombre: str
     unidad: str
     tramo: str = "kg"  # 'kg' (tiene Reutilizar) o 'unidades' (no tiene) -- igual que el Excel
-    categoria: str | None = None
 
 
 class ResumenDiferenciaItem(BaseModel):
