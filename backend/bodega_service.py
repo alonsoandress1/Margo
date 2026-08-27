@@ -6,6 +6,25 @@ from postgrest.exceptions import APIError
 DIAS_HISTORIAL_PRONOSTICO = 84  # ~12 semanas -- acota la consulta a medida que crece el historial
 
 
+def _mermas_a_compras(db, local_id: str, keys: list[str]) -> dict[str, str]:
+    """mermas_compras_vinculo (pantalla "Vincular insumos", autoservicio del
+    usuario -- nunca adivinado por nombre) dice que clave de Mermas
+    corresponde a que clave de Compras/Odoo. Mermas (catalogo separado,
+    sembrado del Excel) y Compras/Odoo (par_stock) son catalogos
+    independientes -- las entregas a cocina de la mayoria de los insumos
+    quedan grabadas bajo la clave de MERMAS, no la de Compras (confirmado
+    con datos reales: de 48 insumos en Mermas y 41 en Compras, solo 1
+    coincidia). Devuelve {clave_mermas: clave_compras} para los insumos de
+    `keys` que ya tengan vinculo -- usado tanto por el pronostico de
+    consumo como por el Stock de Bodega real, para que ambos vean las
+    entregas de Mermas sin importar bajo que clave quedaron grabadas."""
+    if not keys:
+        return {}
+    vinculos = db.table("mermas_compras_vinculo").select("mermas_ingrediente_key,compras_ingrediente_key") \
+        .eq("local_id", local_id).in_("compras_ingrediente_key", keys).execute().data or []
+    return {v["mermas_ingrediente_key"]: v["compras_ingrediente_key"] for v in vinculos}
+
+
 def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[str, dict[int, float]]:
     """Para cada insumo, promedio de egresos de bodega_movimientos (entrega_cocina
     + venta_tcpos, cualquier origen -- son las mismas fuentes que ya restan del
@@ -27,20 +46,12 @@ def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[
     llamador debe tratar eso como 0 (mismo comportamiento que antes de este
     pronostico).
 
-    Mermas (catalogo separado, sembrado del Excel) y Compras/Odoo (par_stock,
-    `keys` acá) son catalogos independientes -- las entregas a cocina de la
-    mayoria de los insumos quedan grabadas bajo la clave de MERMAS, no la de
-    Compras (confirmado con datos reales: de 48 insumos en Mermas y 41 en
-    Compras, solo 1 coincide). mermas_compras_vinculo (pantalla "Vincular
-    insumos", autoservicio del usuario -- nunca adivinado por nombre) dice
-    que clave de Mermas corresponde a que clave de Compras; se trae aca y se
-    usa para traducir cada fila ANTES de agrupar, asi el historial de Mermas
-    cae en el bucket correcto del insumo de Compras."""
+    Ver _mermas_a_compras -- se usa aca para traducir cada fila ANTES de
+    agrupar, asi el historial de Mermas cae en el bucket correcto del
+    insumo de Compras."""
     if not keys:
         return {}
-    vinculos = db.table("mermas_compras_vinculo").select("mermas_ingrediente_key,compras_ingrediente_key") \
-        .eq("local_id", local_id).in_("compras_ingrediente_key", keys).execute().data or []
-    mermas_a_compras = {v["mermas_ingrediente_key"]: v["compras_ingrediente_key"] for v in vinculos}
+    mermas_a_compras = _mermas_a_compras(db, local_id, keys)
     keys_a_consultar = list(set(keys) | set(mermas_a_compras.keys()))
 
     desde = (date.today() - timedelta(days=DIAS_HISTORIAL_PRONOSTICO)).isoformat()
@@ -76,15 +87,27 @@ def stock_bodega_por_insumo(db, local_id: str, keys: list[str]) -> dict[str, flo
     """Stock actual de Bodega por insumo -- suma del ledger completo de
     bodega_movimientos (ingreso +, egreso -). Logica centralizada aca porque
     tanto Inventario como la sugerencia de compra de Pedidos la necesitan
-    igual; antes estaba duplicada en los dos routers."""
+    igual; antes estaba duplicada en los dos routers.
+
+    Ver _mermas_a_compras -- traduce cada fila ANTES de sumar, para que un
+    egreso registrado en Entregas a Cocina bajo la clave de Mermas (ej.
+    "Pastelera") descuente del insumo de Compras correcto (ej. "Pastelera
+    Elaborada") aunque sea una clave distinta. Sin esto, el vinculo solo
+    alimentaba el pronostico de consumo pero el Stock de Bodega mostrado en
+    Inventario/Par Stock seguia sin verlo -- bug real encontrado por el
+    usuario (entrego "Pastelera" y no se descontaba de "Pastelera Elaborada")."""
     if not keys:
         return {}
+    mermas_a_compras = _mermas_a_compras(db, local_id, keys)
+    keys_a_consultar = list(set(keys) | set(mermas_a_compras.keys()))
+
     rows = db.table("bodega_movimientos").select("ingrediente_key,tipo,cantidad") \
-        .eq("local_id", local_id).in_("ingrediente_key", keys).execute().data or []
+        .eq("local_id", local_id).in_("ingrediente_key", keys_a_consultar).execute().data or []
     stock: dict[str, float] = {}
     for m in rows:
+        key = mermas_a_compras.get(m["ingrediente_key"], m["ingrediente_key"])
         signo = -1 if m["tipo"] == "egreso" else 1
-        stock[m["ingrediente_key"]] = stock.get(m["ingrediente_key"], 0) + signo * m["cantidad"]
+        stock[key] = stock.get(key, 0) + signo * m["cantidad"]
     return stock
 
 
