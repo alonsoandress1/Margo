@@ -998,6 +998,7 @@ def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[
     nombres_por_producto: dict[int, list[str]] = {}
     if not product_ids:
         return nombres_por_producto
+    raise HTTPException(500, "DEDUP_FIX_MARKER_V2_ACTIVE")
     filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
         .in_("odoo_product_id", product_ids).execute().data or []
     for f in filas_impuestos:
