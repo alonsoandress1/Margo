@@ -998,7 +998,6 @@ def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[
     nombres_por_producto: dict[int, list[str]] = {}
     if not product_ids:
         return nombres_por_producto
-    raise HTTPException(500, "DEDUP_FIX_MARKER_V2_ACTIVE")
     filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
         .in_("odoo_product_id", product_ids).execute().data or []
     for f in filas_impuestos:
@@ -1006,6 +1005,8 @@ def _impuestos_actuales_por_producto(cliente: OdooClient, db, product_ids: list[
         if f["impuesto_nombre"] not in lista:
             lista.append(f["impuesto_nombre"])
     sin_override = [pid for pid in product_ids if pid not in nombres_por_producto]
+    if 13272 in product_ids or 13891 in product_ids:
+        raise HTTPException(500, f"DEBUG filas_impuestos={filas_impuestos} sin_override={sin_override} nombres_por_producto={nombres_por_producto}")
     if sin_override:
         productos_tax = cliente._call('product.product', 'read', [sin_override], {'fields': ['supplier_taxes_id']})
         tax_ids_defecto = list({t for p in productos_tax for t in (p.get('supplier_taxes_id') or [])})
