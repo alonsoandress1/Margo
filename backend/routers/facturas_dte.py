@@ -38,7 +38,7 @@ from odoo_connector import OdooClient  # noqa: E402
 
 from ..schemas import (CantidadRecibidaIn, CargarStockManualIn, ColaFacturaOut, CompararOut, CompararLineaOut,
                        DescuentoLineaIn, DteDetalleOut, DteLineaOut, DteLineaSimpleOut, DteMarcadoManualOut,
-                       DteMatchLineaIn, DteNotaCreditoDetalleOut, DteOut, DteProductoOut,
+                       DteMatchLineaIn, DteNotaCreditoDetalleOut, DteOut, DteProductoOut, DteYaFacturadoOut,
                        FactorConversionIn, HistoricoFacturaOut, HistoricoLineaOut,
                        ImpuestoOut, LineaManualIn, MarcarManualOut, MarcarManualLineaOut, ProductoImpuestosIn,
                        ProveedorOcultarIn, ProveedorOcultoOut, SimularImpuestoOut, SimularOut)
@@ -171,6 +171,74 @@ def listar_pendientes(desde: str, hasta: str, claims: dict = Depends(get_current
         if d.get('l10n_latam_document_type_id_code') in ('33', '61')
         and (d.get('issuer_rut') or '') not in ocultos and d['id'] not in marcados_manual
     ]
+
+
+@router.get("/auditoria/ya-facturadas", response_model=list[DteYaFacturadoOut])
+def auditar_ya_facturadas(desde: str, hasta: str, claims: dict = Depends(get_current_claims),
+                           odoo_creds: tuple[str, str] = Depends(get_odoo_credentials),
+                           x_odoo_company_id: str | None = Header(default=None)):
+    """Solo lectura -- de los DTE que HOY aparecen como pendientes (mismo
+    dominio que listar_pendientes), cuales YA tienen una factura real
+    (account.move) en Odoo, creada por otro camino sin quedar vinculada al
+    DTE. Mismo chequeo de duplicados que hace _ejecutar_creacion antes de
+    crear una factura (por RUT + folio, ver _normalizar_folio), pero hecho
+    de una sola vez para TODOS los pendientes en vez de uno a la vez --
+    pensado para poder revisar la lista antes de intentar crear cada una,
+    no durante la creacion misma.
+
+    Match por (RUT del emisor, folio normalizado) -- NO por partner_id,
+    porque el mismo RUT puede tener varios res.partner en Odoo (ver el
+    comentario en _ejecutar_creacion) y no vale la pena resolver el
+    "ganador" solo para leer, con el folio ya alcanza para descartar
+    coincidencias reales."""
+    _require_lectura(claims)
+    db = get_db()
+    cliente = _odoo(odoo_creds)
+
+    ocultos = {f["proveedor_rut"] for f in (db.table("facturas_proveedor_oculto").select("proveedor_rut").execute().data or [])}
+    marcados_manual = {f["dte_id"] for f in (db.table("facturas_dte_ingresado_manual").select("dte_id").execute().data or [])}
+    domain = [['date', '>=', desde], ['date', '<=', hasta], ['invoice_id', '=', False]]
+    if x_odoo_company_id:
+        try:
+            company_id = int(x_odoo_company_id)
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Odoo-Company-Id invalido")
+        domain.append(['company_id', '=', company_id])
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Falta elegir la empresa (X-Odoo-Company-Id)")
+    pendientes = cliente._call('l10n_cl.supplier.xml', 'search_read', [domain],
+        {'fields': ['id', 'issuer_rut', 'issuer_name', 'l10n_latam_document_number', 'date',
+                    'l10n_latam_document_type_id_code']})
+    pendientes = [d for d in pendientes if d.get('l10n_latam_document_type_id_code') in ('33', '61')
+                  and (d.get('issuer_rut') or '') not in ocultos and d['id'] not in marcados_manual]
+    if not pendientes:
+        return []
+
+    moves = cliente._call('account.move', 'search_read',
+        [[['company_id', '=', company_id], ['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']]],
+        {'fields': ['id', 'name', 'partner_id', 'l10n_latam_document_number']})
+    partner_ids = list({m['partner_id'][0] for m in moves if m.get('partner_id')})
+    partners = cliente._call('res.partner', 'read', [partner_ids], {'fields': ['vat']}) if partner_ids else []
+    vat_por_partner = {p['id']: p.get('vat') for p in partners}
+
+    factura_por_rut_folio: dict[tuple[str, str], str] = {}
+    for m in moves:
+        vat = vat_por_partner.get(m['partner_id'][0]) if m.get('partner_id') else None
+        folio = _normalizar_folio(m.get('l10n_latam_document_number'))
+        if vat and folio:
+            factura_por_rut_folio.setdefault((vat, folio), m['name'])
+
+    resultado = []
+    for d in pendientes:
+        folio = _normalizar_folio(d.get('l10n_latam_document_number'))
+        rut = d.get('issuer_rut') or ''
+        factura = factura_por_rut_folio.get((rut, folio))
+        if factura:
+            resultado.append(DteYaFacturadoOut(
+                dte_id=d['id'], proveedor_rut=rut, proveedor_nombre=d.get('issuer_name') or '',
+                folio=d.get('l10n_latam_document_number') or '', fecha=d.get('date'), factura_encontrada=factura,
+            ))
+    return resultado
 
 
 @router.post("/{dte_id}/marcar-manual", response_model=MarcarManualOut)

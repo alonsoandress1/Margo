@@ -511,6 +511,15 @@ class DteOut(BaseModel):
     es_nota_credito: bool = False  # tipo SII 61 -- solo visualizacion por ahora, ver listar_pendientes
 
 
+class DteYaFacturadoOut(BaseModel):
+    dte_id: int
+    proveedor_rut: str
+    proveedor_nombre: str
+    folio: str
+    fecha: str | None = None
+    factura_encontrada: str  # nombre (name) de la account.move real que ya existe
+
+
 class DteDetalleOut(DteOut):
     lineas: list[DteLineaOut]
 
