@@ -22,7 +22,7 @@ def listar_inventario(local_id: str, claims: dict = Depends(get_current_claims))
     verificar_acceso_local(claims, local_id)
     db = get_db()
 
-    par_rows = db.table("par_stock").select("*").eq("local_id", local_id).execute().data or []
+    par_rows = db.table("par_stock").select("*").eq("local_id", local_id).order("ingrediente_key").execute().data or []
     if not par_rows:
         return []
     keys = [r["ingrediente_key"] for r in par_rows]

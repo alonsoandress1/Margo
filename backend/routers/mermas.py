@@ -145,7 +145,7 @@ def listar_mermas(local_id: str, fecha: str | None = None, claims: dict = Depend
 
     # Lista fija: copia identica de la planilla, no depende de si el insumo
     # ya esta registrado como producto de compra en Proveedores/Par Stock.
-    seguimiento = db.table("mermas_seguimiento").select("*").eq("local_id", local_id).execute().data or []
+    seguimiento = db.table("mermas_seguimiento").select("*").eq("local_id", local_id).order("ingrediente_key").execute().data or []
     if not seguimiento:
         return []
     keys = [r["ingrediente_key"] for r in seguimiento]
@@ -249,7 +249,7 @@ def listar_vinculos(local_id: str, claims: dict = Depends(get_current_claims)):
     compra (ver bodega_service.py::consumo_promedio_por_dia_semana)."""
     verificar_acceso_local(claims, local_id)
     db = get_db()
-    seguimiento = db.table("mermas_seguimiento").select("ingrediente_key,unidad").eq("local_id", local_id).execute().data or []
+    seguimiento = db.table("mermas_seguimiento").select("ingrediente_key,unidad").eq("local_id", local_id).order("ingrediente_key").execute().data or []
     if not seguimiento:
         return []
     vinculos = db.table("mermas_compras_vinculo").select("mermas_ingrediente_key,compras_ingrediente_key") \
@@ -599,7 +599,7 @@ def resumen_semana(local_id: str, fecha: str | None = None, claims: dict = Depen
     fecha = fecha or (date.today() - timedelta(days=1)).isoformat()
     db = get_db()
 
-    seguimiento = db.table("mermas_seguimiento").select("*").eq("local_id", local_id).execute().data or []
+    seguimiento = db.table("mermas_seguimiento").select("*").eq("local_id", local_id).order("ingrediente_key").execute().data or []
     if not seguimiento:
         return []
     keys = [r["ingrediente_key"] for r in seguimiento]

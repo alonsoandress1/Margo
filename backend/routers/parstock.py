@@ -31,14 +31,14 @@ def listar_todos_productos(claims: dict = Depends(get_current_claims)):
     db = get_db()
     keys = list({r["ingrediente_key"] for r in db.table("odoo_mapping").select("ingrediente_key").execute().data or []})
     mejor = productos_mas_baratos(db, keys)
-    return [_producto_de(r) for r in mejor.values()]
+    return sorted((_producto_de(r) for r in mejor.values()), key=lambda p: p.nombre)
 
 
 @router.get("/par-stock", response_model=list[ParStockItem])
 def listar(local_id: str, claims: dict = Depends(get_current_claims)):
     verificar_acceso_local(claims, local_id)
     db = get_db()
-    par_rows = db.table("par_stock").select("*").eq("local_id", local_id).execute().data or []
+    par_rows = db.table("par_stock").select("*").eq("local_id", local_id).order("ingrediente_key").execute().data or []
     keys = [r["ingrediente_key"] for r in par_rows]
     mapping = productos_mas_baratos(db, keys)
     return [_item_de(r, mapping) for r in par_rows]
