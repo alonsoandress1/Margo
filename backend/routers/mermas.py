@@ -418,17 +418,27 @@ def fijar_receta_venta(body: RecetaVentaIn, claims: dict = Depends(get_current_c
     planta ira enlazado a cada plato"), nunca adivinado. ingrediente_key
     debe ser un insumo real de Compras/Odoo (el mismo picker que usa
     "Vincular insumos", desde /par-stock) -- asi la venta descuenta directo
-    del insumo correcto."""
+    del insumo correcto.
+
+    plato_nombre es NOT NULL en ventas_recetas pero listar_recetas_venta
+    (GET) nunca lo lee -- resuelve el nombre siempre desde ventas_historial
+    en vivo, la misma fuente real. Por eso este PUT lo resuelve igual (con
+    plato_sku como respaldo si el plato no tiene ventas registradas
+    todavia) solo para satisfacer la columna, nunca se muestra desde aca.
+    Bug real encontrado en vivo: el PUT nunca habia llenado esta columna,
+    asi que CUALQUIER linea nueva (no una edicion de una ya sembrada del
+    Excel original) tiraba 500 -- explicaria por que casi ningun plato
+    tenia receta de venta cargada todavia."""
     _requiere_editor(claims, "editar recetas de venta")
     verificar_acceso_local(claims, body.local_id)
     db = get_db()
-    try:
-        db.table("ventas_recetas").upsert({
-            "local_id": body.local_id, "plato_sku": body.plato_sku,
-            "ingrediente_key": body.ingrediente_key, "cantidad": body.cantidad,
-        }, on_conflict="local_id,plato_sku,ingrediente_key").execute()
-    except Exception as e:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"DEBUG: {type(e).__name__}: {e}")
+    ventas = db.table("ventas_historial").select("plato_nombre") \
+        .eq("local_id", body.local_id).eq("plato_sku", body.plato_sku).limit(1).execute().data
+    plato_nombre = (ventas[0].get("plato_nombre") if ventas else None) or body.plato_sku
+    db.table("ventas_recetas").upsert({
+        "local_id": body.local_id, "plato_sku": body.plato_sku, "plato_nombre": plato_nombre,
+        "ingrediente_key": body.ingrediente_key, "cantidad": body.cantidad,
+    }, on_conflict="local_id,plato_sku,ingrediente_key").execute()
 
 
 @router.delete("/recetas-venta", status_code=status.HTTP_204_NO_CONTENT)
