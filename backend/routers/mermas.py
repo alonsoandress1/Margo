@@ -543,7 +543,14 @@ def auditoria_verificar_odoo(local_id: str, claims: dict = Depends(get_current_c
     if not keys:
         return []
     mejor = productos_mas_baratos(db, keys)
-    odoo_id_por_key = {k: v["odoo_id"] for k, v in mejor.items() if v.get("odoo_id")}
+    # Si ya hay un override unidad_odoo puesto a mano (ver pedidos.py --
+    # fuerza la UoM real de la OC sin importar como quedo configurado el
+    # producto en Odoo), un desajuste contra el default de Odoo ya esta
+    # resuelto a proposito y no debe volver a salir como discrepancia
+    # (caso real: "Filete para Churrascos" con override 'kg' porque Odoo
+    # trae 'un' -- sin este filtro volvia a aparecer como si el fix
+    # anterior nunca se hubiera aplicado).
+    odoo_id_por_key = {k: v["odoo_id"] for k, v in mejor.items() if v.get("odoo_id") and not v.get("unidad_odoo")}
     if not odoo_id_por_key:
         return []
 

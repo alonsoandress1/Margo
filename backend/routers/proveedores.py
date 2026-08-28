@@ -161,7 +161,7 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
         # odoo_mapping no tiene columna "unidad" propia -- vive en el sufijo
         # del ingrediente_key ("nombre||unidad", mismo formato que usa todo
         # el resto del sistema, ver par_stock).
-        productos = db.table("odoo_mapping").select("ingrediente_key,odoo_id") \
+        productos = db.table("odoo_mapping").select("ingrediente_key,odoo_id,unidad_odoo") \
             .eq("proveedor_id", proveedor_id).execute().data or []
         if not productos:
             return []
@@ -194,6 +194,16 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
 
         discrepancias = []
         for p in productos:
+            if p.get("unidad_odoo"):
+                # Ya hay un override explicito (ver pedidos.py::generar_oc --
+                # unidad_odoo fuerza la UoM real de la linea de la OC sin
+                # importar como haya quedado configurado el producto en
+                # Odoo) -- un desajuste aca ya esta resuelto a proposito, no
+                # es un problema por corregir. Sin este filtro, un producto
+                # como "Filete para Churrascos" (override 'kg' puesto a
+                # mano justamente porque Odoo trae 'un') salia marcado como
+                # discrepancia de nuevo, cuando ya se habia arreglado.
+                continue
             nombre, _, unidad_actual = p["ingrediente_key"].partition("||")
             unidad_real = unidad_real_por_odoo_id.get(p["odoo_id"])
             if unidad_real and unidad_real != unidad_actual:
