@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 
-from ..catalogo import _producto_de
+from ..catalogo import _producto_de, adivinar_unidad_odoo
 from ..db import get_db
 from ..deps import get_current_claims, get_odoo_credentials
 
@@ -185,18 +185,10 @@ def verificar_unidades(proveedor_id: str, claims: dict = Depends(get_current_cla
         # alcanza para adivinar kg/un por texto, sin necesitar leer
         # ir.model.data (modelo tecnico que exige permiso de Administracion,
         # confirmado en vivo: la cuenta de compras normal no lo tiene).
-        # Mismo criterio ya usado en _adivinarUnidadOdoo (frontend) y en
-        # buscar_producto (facturas_dte.py).
-        def _adivinar_unidad(nombre_uom: str | None) -> str | None:
-            n = (nombre_uom or '').lower()
-            if 'kg' in n or 'kilo' in n:
-                return 'kg'
-            if 'unid' in n:
-                return 'un'
-            return None
-
+        # adivinar_unidad_odoo (catalogo.py) centraliza este criterio para
+        # que no diverja entre este endpoint y la auditoria de mermas.py.
         unidad_real_por_odoo_id = {
-            p['id']: _adivinar_unidad(p['uom_po_id'][1]) if p.get('uom_po_id') else None
+            p['id']: adivinar_unidad_odoo(p['uom_po_id'][1]) if p.get('uom_po_id') else None
             for p in productos_odoo
         }
 

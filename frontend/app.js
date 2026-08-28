@@ -2485,6 +2485,7 @@ async function renderRecetario(el, s) {
     <div class="item-row" style="margin-bottom:1.25rem">
       <button type="button" class="btn ${tab === 'insumos' ? 'btn-primary' : ''}" id="recetario-tab-insumos">Insumos (Mermas ↔ Compras)</button>
       <button type="button" class="btn ${tab === 'platos' ? 'btn-primary' : ''}" id="recetario-tab-platos">Platos (Ventas ↔ Compras)</button>
+      <button type="button" class="btn ${tab === 'auditoria' ? 'btn-primary' : ''}" id="recetario-tab-auditoria">Auditoría</button>
     </div>
     <div id="recetario-contenido"><p class="placeholder">Cargando…</p></div>`;
 
@@ -2500,9 +2501,14 @@ async function renderRecetario(el, s) {
     state.recetarioTab = 'platos';
     renderView();
   });
+  document.getElementById('recetario-tab-auditoria').addEventListener('click', () => {
+    state.recetarioTab = 'auditoria';
+    renderView();
+  });
 
   const contenido = document.getElementById('recetario-contenido');
   if (tab === 'platos') await _renderRecetarioPlatos(contenido, localId);
+  else if (tab === 'auditoria') await _renderRecetarioAuditoria(contenido, localId);
   else await _renderRecetarioInsumos(contenido, localId);
 }
 
@@ -2744,6 +2750,102 @@ async function _renderRecetarioPlatos(contenido, localId) {
   }
 
   render();
+}
+
+async function _renderRecetarioAuditoria(contenido, localId) {
+  const filas = await api(`/mermas/auditoria?local_id=${localId}`);
+  let filtro = null; // 'sin_vincular' | 'sin_receta_venta' | 'unidad_conflicto' | null
+
+  function render() {
+    const visibles = filtro ? filas.filter(f => f.problemas.includes(filtro)) : filas;
+    const sinVincular = filas.filter(f => f.problemas.includes('sin_vincular')).length;
+    const sinReceta = filas.filter(f => f.problemas.includes('sin_receta_venta')).length;
+    const conConflicto = filas.filter(f => f.problemas.includes('unidad_conflicto')).length;
+
+    const tarjeta = (id, label, valor, sub) => `
+      <div class="card" data-filtro-card="${id}" style="cursor:pointer;min-width:200px;${filtro === id ? 'border-color:var(--gold)' : ''}">
+        <div class="resumen-card-sub">${label}</div>
+        <div style="font-size:1.4rem;font-weight:600;color:${valor > 0 ? 'var(--danger)' : 'var(--t1)'}">${id === 'unidad_conflicto' ? valor : `${valor} de ${filas.length}`}</div>
+        ${sub ? `<div class="resumen-card-sub" style="margin-top:.2rem">${sub}</div>` : ''}
+      </div>`;
+
+    contenido.innerHTML = `
+      <p class="placeholder" style="margin-bottom:.75rem">De los insumos con Par Stock configurado en este local, cuáles tienen algún problema que puede desviar la sugerencia de compra automática -- sin vincular, sin receta de venta (consumo proyectado queda en 0), o con la unidad en conflicto entre Mermas y Compras. Haz clic en una tarjeta para filtrar.</p>
+      <div class="item-row" style="margin-bottom:1.25rem;gap:.75rem;flex-wrap:wrap">
+        ${tarjeta('sin_vincular', 'Sin vincular a Compras', sinVincular)}
+        ${tarjeta('sin_receta_venta', 'Sin receta de venta', sinReceta, 'consumo proyectado en 0')}
+        ${tarjeta('unidad_conflicto', 'Con conflicto de unidad', conConflicto)}
+      </div>
+      ${puedeLeerAvanzado() ? '<button type="button" class="btn" id="auditoria-verificar-odoo" style="margin-bottom:1rem">Verificar unidades reales en Odoo</button>' : ''}
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Insumo</th><th>Categoría</th><th>Vinculado a (Mermas)</th><th>Recetas de venta</th></tr></thead>
+        <tbody>
+          ${visibles.map(f => `
+            <tr>
+              <td>${escapeHtml(f.nombre)} (${formatUnidad(f.unidad)})</td>
+              <td>${f.categoria ? escapeHtml(f.categoria) : '—'}</td>
+              <td>${f.vinculado
+                  ? (f.unidad_conflicto
+                      ? `<span style="color:var(--danger)">⚠ ${escapeHtml(f.mermas_nombre)} -- unidad distinta (${formatUnidad(f.unidad_mermas)})</span>`
+                      : escapeHtml(f.mermas_nombre))
+                  : `<span style="color:var(--danger)">Sin vincular</span> <button type="button" class="btn" data-ir-insumos>Vincular →</button>`}</td>
+              <td>${f.tiene_receta_venta
+                  ? '<span style="color:var(--success,#2e8b57)">Sí</span>'
+                  : `<span style="color:var(--danger)">No -- consumo quedará en 0</span> <button type="button" class="btn" data-ir-platos>Configurar receta →</button>`}</td>
+            </tr>`).join('') || '<tr><td colspan="4"><p class="placeholder">Sin insumos con Par Stock configurado en este local.</p></td></tr>'}
+        </tbody>
+      </table>
+      </div>`;
+
+    contenido.querySelectorAll('[data-filtro-card]').forEach(card => {
+      card.addEventListener('click', () => {
+        const f = card.dataset.filtroCard;
+        filtro = filtro === f ? null : f;
+        render();
+      });
+    });
+    contenido.querySelectorAll('[data-ir-insumos]').forEach(btn => {
+      btn.addEventListener('click', () => { state.recetarioTab = 'insumos'; renderView(); });
+    });
+    contenido.querySelectorAll('[data-ir-platos]').forEach(btn => {
+      btn.addEventListener('click', () => { state.recetarioTab = 'platos'; renderView(); });
+    });
+    contenido.querySelector('#auditoria-verificar-odoo')?.addEventListener('click', () => showVerificarUnidadesAuditoriaModal(localId));
+  }
+
+  render();
+}
+
+async function showVerificarUnidadesAuditoriaModal(localId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal-box" style="width:640px;max-width:96vw"><p class="placeholder">Comparando contra Odoo…</p></div>';
+  document.body.appendChild(overlay);
+
+  try {
+    const discrepancias = await api(`/mermas/auditoria/verificar-odoo?local_id=${localId}`);
+    overlay.querySelector('.modal-box').innerHTML = `
+      <h3>Verificar unidades reales en Odoo</h3>
+      <p class="placeholder" style="margin-bottom:1rem">Compara la unidad guardada de cada insumo con Par Stock contra la unidad de compra real que tiene configurada en Odoo -- no cambia nada solo, la corrección se hace a mano en Proveedores.</p>
+      ${discrepancias.length ? `
+        <table>
+          <thead><tr><th>Insumo</th><th>Unidad guardada</th><th>Unidad real en Odoo</th></tr></thead>
+          <tbody>
+            ${discrepancias.map(d => `
+              <tr>
+                <td>${escapeHtml(d.nombre)}</td>
+                <td>${formatUnidad(d.unidad_actual)}</td>
+                <td><strong>${formatUnidad(d.unidad_real_odoo)}</strong></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="placeholder">No encontré diferencias -- todo lo que Odoo tiene configurado calza con lo guardado acá.</p>'}
+      <div style="margin-top:1rem"><button type="button" class="btn" id="verif-unidades-auditoria-cerrar">Cerrar</button></div>`;
+    overlay.querySelector('#verif-unidades-auditoria-cerrar').onclick = () => overlay.remove();
+  } catch (err) {
+    overlay.querySelector('.modal-box').innerHTML = `<p class="error-msg">${escapeHtml(err.message)}</p><button type="button" class="btn" id="verif-unidades-auditoria-cerrar-error">Cerrar</button>`;
+    overlay.querySelector('#verif-unidades-auditoria-cerrar-error').onclick = () => overlay.remove();
+  }
 }
 
 async function renderExcesos(el, s) {

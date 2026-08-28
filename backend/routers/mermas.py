@@ -1,20 +1,47 @@
+import os
+import sys
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from postgrest.exceptions import APIError
 
-from ..bodega_service import registrar_entrega_cocina
-from ..catalogo import productos_mas_baratos
+from ..bodega_service import mermas_a_compras, registrar_entrega_cocina
+from ..catalogo import adivinar_unidad_odoo, productos_mas_baratos
 from ..db import get_db
-from ..deps import get_current_claims, verificar_acceso_local
+from ..deps import get_current_claims, get_odoo_credentials, verificar_acceso_local
 from ..excel_exporter import exportar_dia
-from ..schemas import (ChocolateIn, ChocolateOut, EntregaIn, ExcesoBodegaOut, MermaItem, MermaSeguimientoIn,
+from ..schemas import (AuditoriaInsumoOut, AuditoriaUnidadOdooOut, ChocolateIn, ChocolateOut, EntregaIn,
+                       ExcesoBodegaOut, MermaItem, MermaSeguimientoIn,
                        PasteleriaIn, PasteleriaOut, PlatoVentaOut, ProteinaProduccionIn, ProteinaProduccionOut,
                        RecetaVentaIn, RecetaVentaLineaOut, ResumenDiferenciaItem, StockCocinaIn,
                        VinculoIn, VinculoOut)
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from odoo_connector import OdooClient  # noqa: E402
+
 router = APIRouter(prefix="/mermas", tags=["mermas"])
+
+
+def _odoo(odoo_creds: tuple[str, str]) -> OdooClient:
+    """Conecta con las credenciales de Odoo de la persona que esta usando el
+    sistema en este momento -- nunca una cuenta compartida. Mismo patron
+    que proveedores.py/facturas_dte.py (cada router define su propio
+    _odoo(), no hay factory compartido en este repo)."""
+    usuario, password = odoo_creds
+    try:
+        cliente = OdooClient(os.environ["ODOO_URL"], os.environ["ODOO_DB"], usuario, password)
+    except KeyError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Falta configurar la variable de entorno {e}")
+    ok, msg = cliente.connect()
+    if not ok:
+        if "credenciales incorrectas" in msg.lower():
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, f"Odoo: {msg}")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo conectar a Odoo: {msg}")
+    return cliente
 
 
 def _dia_anterior(fecha: str) -> str:
@@ -437,6 +464,119 @@ def listar_excesos_bodega(local_id: str, desde: str, hasta: str, claims: dict = 
         for r in rows
     ]
     return sorted(resultado, key=lambda e: e.fecha, reverse=True)
+
+
+@router.get("/auditoria", response_model=list[AuditoriaInsumoOut])
+def auditoria_consumo(local_id: str, claims: dict = Depends(get_current_claims)):
+    """Para cada insumo con Par Stock configurado en este local (lo que de
+    verdad alimenta la sugerencia de compra de Pedidos), de una sola
+    pasada: si esta vinculado a Mermas (mermas_compras_vinculo), si esa
+    unidad vinculada calza con la de Compras -- generaliza a mano el bug
+    real encontrado con "Filete para Churrascos" (vinculado en 'un' cuando
+    su clave real de Compras era 'kg', lo que inflaba mal la sugerencia) --
+    y si tiene al menos una linea en ventas_recetas -- sin eso,
+    consumo_proyectado (ver bodega_service.py) queda en 0 en silencio.
+    Solo lectura, sin Odoo -- ver /auditoria/verificar-odoo para el cruce
+    contra la unidad de compra REAL en Odoo (mas lento, opt-in), que
+    ademas detecta el caso que esta comparacion barata no puede: Mermas y
+    Compras vinculados de acuerdo pero los dos con la unidad equivocada
+    frente a Odoo real."""
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    par_rows = db.table("par_stock").select("ingrediente_key,categoria,par_cantidad") \
+        .eq("local_id", local_id).order("ingrediente_key").execute().data or []
+    if not par_rows:
+        return []
+    keys = [r["ingrediente_key"] for r in par_rows]
+
+    vinculo = mermas_a_compras(db, local_id, keys)  # {mermas_key: compras_key}
+    compras_a_mermas: dict[str, str] = {}
+    for mermas_key, compras_key in vinculo.items():
+        compras_a_mermas.setdefault(compras_key, mermas_key)
+
+    con_receta = {
+        r["ingrediente_key"]
+        for r in db.table("ventas_recetas").select("ingrediente_key")
+            .eq("local_id", local_id).in_("ingrediente_key", keys).execute().data or []
+    }
+
+    resultado = []
+    for r in par_rows:
+        key = r["ingrediente_key"]
+        nombre, _, unidad = key.partition("||")
+        mermas_key = compras_a_mermas.get(key)
+        unidad_mermas = mermas_key.split("||")[1] if mermas_key and "||" in mermas_key else None
+        conflicto = bool(mermas_key) and unidad_mermas is not None and unidad_mermas != unidad
+
+        problemas = []
+        if not mermas_key:
+            problemas.append("sin_vincular")
+        if key not in con_receta:
+            problemas.append("sin_receta_venta")
+        if conflicto:
+            problemas.append("unidad_conflicto")
+
+        resultado.append(AuditoriaInsumoOut(
+            ingrediente_key=key, nombre=nombre, unidad=unidad, categoria=r.get("categoria"),
+            par_cantidad=r["par_cantidad"], vinculado=bool(mermas_key),
+            mermas_ingrediente_key=mermas_key,
+            mermas_nombre=mermas_key.split("||")[0] if mermas_key else None,
+            unidad_mermas=unidad_mermas, unidad_conflicto=conflicto,
+            tiene_receta_venta=key in con_receta, problemas=problemas,
+        ))
+    return resultado
+
+
+@router.get("/auditoria/verificar-odoo", response_model=list[AuditoriaUnidadOdooOut])
+def auditoria_verificar_odoo(local_id: str, claims: dict = Depends(get_current_claims),
+                              odoo_creds: tuple[str, str] = Depends(get_odoo_credentials)):
+    """Version 'a demanda' de /auditoria -- cruza TODOS los insumos con Par
+    Stock de este local contra la unidad de compra REAL en Odoo de una
+    sola vez, en vez de repetir /proveedores/{id}/verificar-unidades
+    proveedor por proveedor. Requiere credenciales de Odoo (misma sesion
+    que el resto de la app) -- por eso vive en un endpoint aparte, el
+    frontend no lo llama automaticamente al entrar a la pantalla."""
+    verificar_acceso_local(claims, local_id)
+    db = get_db()
+    keys = [r["ingrediente_key"] for r in
+            db.table("par_stock").select("ingrediente_key").eq("local_id", local_id).execute().data or []]
+    if not keys:
+        return []
+    mejor = productos_mas_baratos(db, keys)
+    odoo_id_por_key = {k: v["odoo_id"] for k, v in mejor.items() if v.get("odoo_id")}
+    if not odoo_id_por_key:
+        return []
+
+    try:
+        cliente = _odoo(odoo_creds)
+        odoo_ids = list(set(odoo_id_por_key.values()))
+        try:
+            productos_odoo = cliente._call('product.product', 'read', [odoo_ids], {'fields': ['uom_po_id']})
+        except Exception:
+            productos_odoo = []
+            for odoo_id in odoo_ids:
+                try:
+                    productos_odoo.extend(cliente._call('product.product', 'read', [[odoo_id]], {'fields': ['uom_po_id']}))
+                except Exception:
+                    continue
+
+        unidad_real_por_odoo_id = {
+            p['id']: adivinar_unidad_odoo(p['uom_po_id'][1]) if p.get('uom_po_id') else None
+            for p in productos_odoo
+        }
+        discrepancias = []
+        for key, odoo_id in odoo_id_por_key.items():
+            nombre, _, unidad_actual = key.partition("||")
+            unidad_real = unidad_real_por_odoo_id.get(odoo_id)
+            if unidad_real and unidad_real != unidad_actual:
+                discrepancias.append(AuditoriaUnidadOdooOut(
+                    ingrediente_key=key, nombre=nombre, unidad_actual=unidad_actual, unidad_real_odoo=unidad_real))
+        return sorted(discrepancias, key=lambda d: d.nombre)
+    except HTTPException:
+        raise
+    except Exception as e:
+        detalle = getattr(e, 'faultString', None) or str(e)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"No se pudo verificar contra Odoo: {type(e).__name__}: {detalle}")
 
 
 @router.get("/proteinas", response_model=list[ProteinaProduccionOut])

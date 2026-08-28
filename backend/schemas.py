@@ -382,6 +382,28 @@ class ExcesoBodegaOut(BaseModel):
     monto: float
 
 
+class AuditoriaInsumoOut(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad: str
+    categoria: str | None = None
+    par_cantidad: float
+    vinculado: bool
+    mermas_ingrediente_key: str | None = None
+    mermas_nombre: str | None = None
+    unidad_mermas: str | None = None
+    unidad_conflicto: bool = False
+    tiene_receta_venta: bool = False
+    problemas: list[str] = []
+
+
+class AuditoriaUnidadOdooOut(BaseModel):
+    ingrediente_key: str
+    nombre: str
+    unidad_actual: str
+    unidad_real_odoo: str
+
+
 class ParStockItem(BaseModel):
     ingrediente_key: str
     nombre: str

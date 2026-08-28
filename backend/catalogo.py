@@ -7,6 +7,19 @@ opcion mas barata", para no repetirla en cada router que la necesita.
 from .schemas import ProductoOut
 
 
+def adivinar_unidad_odoo(nombre_uom: str | None) -> str | None:
+    """Adivina kg/un a partir del nombre de una unidad de medida de Odoo
+    (uom_po_id[1]) -- mismo criterio usado en proveedores.py::verificar_unidades
+    y en _adivinarUnidadOdoo del frontend, centralizado aca para que los
+    tres nunca diverjan entre si."""
+    n = (nombre_uom or '').lower()
+    if 'kg' in n or 'kilo' in n:
+        return 'kg'
+    if 'unid' in n:
+        return 'un'
+    return None
+
+
 def _producto_de(row: dict) -> ProductoOut:
     return ProductoOut(
         id=row["id"], ingrediente_key=row["ingrediente_key"], nombre=row["ingrediente_key"].split("||")[0],

@@ -6,7 +6,7 @@ from postgrest.exceptions import APIError
 DIAS_HISTORIAL_PRONOSTICO = 84  # ~12 semanas -- acota la consulta a medida que crece el historial
 
 
-def _mermas_a_compras(db, local_id: str, keys: list[str]) -> dict[str, str]:
+def mermas_a_compras(db, local_id: str, keys: list[str]) -> dict[str, str]:
     """mermas_compras_vinculo (pantalla "Vincular insumos", autoservicio del
     usuario -- nunca adivinado por nombre) dice que clave de Mermas
     corresponde a que clave de Compras/Odoo. Mermas (catalogo separado,
@@ -61,13 +61,13 @@ def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[
     en absoluto no aparece en el resultado -- el llamador debe tratar eso
     como 0 (mismo comportamiento que antes de este pronostico).
 
-    Ver _mermas_a_compras -- se usa aca para traducir cada fila ANTES de
+    Ver mermas_a_compras -- se usa aca para traducir cada fila ANTES de
     agrupar, asi el historial de Mermas cae en el bucket correcto del
     insumo de Compras."""
     if not keys:
         return {}
-    mermas_a_compras = _mermas_a_compras(db, local_id, keys)
-    keys_a_consultar = list(set(keys) | set(mermas_a_compras.keys()))
+    vinculo = mermas_a_compras(db, local_id, keys)
+    keys_a_consultar = list(set(keys) | set(vinculo.keys()))
 
     desde = (date.today() - timedelta(days=DIAS_HISTORIAL_PRONOSTICO)).isoformat()
     rows = db.table("bodega_movimientos").select("ingrediente_key,cantidad,fecha") \
@@ -77,7 +77,7 @@ def consumo_promedio_por_dia_semana(db, local_id: str, keys: list[str]) -> dict[
 
     por_dia: dict[tuple[str, str], float] = {}
     for r in rows:
-        key = mermas_a_compras.get(r["ingrediente_key"], r["ingrediente_key"])
+        key = vinculo.get(r["ingrediente_key"], r["ingrediente_key"])
         k = (key, r["fecha"][:10])
         por_dia[k] = por_dia.get(k, 0) + r["cantidad"]
 
@@ -105,7 +105,7 @@ def stock_bodega_por_insumo(db, local_id: str, keys: list[str]) -> dict[str, flo
     tanto Inventario como la sugerencia de compra de Pedidos la necesitan
     igual; antes estaba duplicada en los dos routers.
 
-    Ver _mermas_a_compras -- traduce cada fila ANTES de sumar, para que un
+    Ver mermas_a_compras -- traduce cada fila ANTES de sumar, para que un
     egreso registrado en Entregas a Cocina bajo la clave de Mermas (ej.
     "Pastelera") descuente del insumo de Compras correcto (ej. "Pastelera
     Elaborada") aunque sea una clave distinta. Sin esto, el vinculo solo
@@ -130,14 +130,14 @@ def stock_bodega_por_insumo(db, local_id: str, keys: list[str]) -> dict[str, flo
     falta un conteo nuevo, no un numero para mostrar tal cual."""
     if not keys:
         return {}
-    mermas_a_compras = _mermas_a_compras(db, local_id, keys)
-    keys_a_consultar = list(set(keys) | set(mermas_a_compras.keys()))
+    vinculo = mermas_a_compras(db, local_id, keys)
+    keys_a_consultar = list(set(keys) | set(vinculo.keys()))
 
     rows = db.table("bodega_movimientos").select("ingrediente_key,tipo,cantidad,fecha") \
         .eq("local_id", local_id).in_("ingrediente_key", keys_a_consultar).execute().data or []
     por_key: dict[str, list[dict]] = {}
     for m in rows:
-        key = mermas_a_compras.get(m["ingrediente_key"], m["ingrediente_key"])
+        key = vinculo.get(m["ingrediente_key"], m["ingrediente_key"])
         por_key.setdefault(key, []).append(m)
 
     stock: dict[str, float] = {}
