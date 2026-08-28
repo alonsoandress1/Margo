@@ -432,13 +432,16 @@ def fijar_receta_venta(body: RecetaVentaIn, claims: dict = Depends(get_current_c
     _requiere_editor(claims, "editar recetas de venta")
     verificar_acceso_local(claims, body.local_id)
     db = get_db()
-    ventas = db.table("ventas_historial").select("plato_nombre") \
-        .eq("local_id", body.local_id).eq("plato_sku", body.plato_sku).limit(1).execute().data
-    plato_nombre = (ventas[0].get("plato_nombre") if ventas else None) or body.plato_sku
-    db.table("ventas_recetas").upsert({
-        "local_id": body.local_id, "plato_sku": body.plato_sku, "plato_nombre": plato_nombre,
-        "ingrediente_key": body.ingrediente_key, "cantidad": body.cantidad,
-    }, on_conflict="local_id,plato_sku,ingrediente_key").execute()
+    try:
+        ventas = db.table("ventas_historial").select("plato_nombre") \
+            .eq("local_id", body.local_id).eq("plato_sku", body.plato_sku).limit(1).execute().data
+        plato_nombre = (ventas[0].get("plato_nombre") if ventas else None) or body.plato_sku
+        db.table("ventas_recetas").upsert({
+            "local_id": body.local_id, "plato_sku": body.plato_sku, "plato_nombre": plato_nombre,
+            "ingrediente_key": body.ingrediente_key, "cantidad": body.cantidad,
+        }, on_conflict="local_id,plato_sku,ingrediente_key").execute()
+    except Exception as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"DEBUG2: {type(e).__name__}: {e}")
 
 
 @router.delete("/recetas-venta", status_code=status.HTTP_204_NO_CONTENT)
