@@ -420,28 +420,30 @@ def fijar_receta_venta(body: RecetaVentaIn, claims: dict = Depends(get_current_c
     "Vincular insumos", desde /par-stock) -- asi la venta descuenta directo
     del insumo correcto.
 
-    plato_nombre es NOT NULL en ventas_recetas pero listar_recetas_venta
-    (GET) nunca lo lee -- resuelve el nombre siempre desde ventas_historial
-    en vivo, la misma fuente real. Por eso este PUT lo resuelve igual (con
-    plato_sku como respaldo si el plato no tiene ventas registradas
-    todavia) solo para satisfacer la columna, nunca se muestra desde aca.
-    Bug real encontrado en vivo: el PUT nunca habia llenado esta columna,
-    asi que CUALQUIER linea nueva (no una edicion de una ya sembrada del
-    Excel original) tiraba 500 -- explicaria por que casi ningun plato
-    tenia receta de venta cargada todavia."""
+    plato_nombre/ingrediente_nombre/unidad son NOT NULL en ventas_recetas
+    pero listar_recetas_venta (GET) no lee ninguna de las tres -- resuelve
+    el nombre del plato siempre desde ventas_historial en vivo y el del
+    insumo/unidad desde el propio ingrediente_key. Este PUT las llena
+    igual solo para satisfacer las columnas (plato_sku de respaldo si el
+    plato no tiene ventas registradas todavia), nunca se muestran de
+    vuelta desde aca. Bug real encontrado en vivo: el PUT nunca habia
+    llenado ninguna de las tres, asi que CUALQUIER linea nueva (no una
+    edicion de una ya sembrada del Excel original, que ya traia las tres
+    columnas pobladas) tiraba 500 -- explicaria por que casi ningun plato
+    tenia receta de venta cargada todavia pese a que la pantalla "Vincular
+    platos" existe hace tiempo."""
     _requiere_editor(claims, "editar recetas de venta")
     verificar_acceso_local(claims, body.local_id)
     db = get_db()
-    try:
-        ventas = db.table("ventas_historial").select("plato_nombre") \
-            .eq("local_id", body.local_id).eq("plato_sku", body.plato_sku).limit(1).execute().data
-        plato_nombre = (ventas[0].get("plato_nombre") if ventas else None) or body.plato_sku
-        db.table("ventas_recetas").upsert({
-            "local_id": body.local_id, "plato_sku": body.plato_sku, "plato_nombre": plato_nombre,
-            "ingrediente_key": body.ingrediente_key, "cantidad": body.cantidad,
-        }, on_conflict="local_id,plato_sku,ingrediente_key").execute()
-    except Exception as e:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"DEBUG2: {type(e).__name__}: {e}")
+    ventas = db.table("ventas_historial").select("plato_nombre") \
+        .eq("local_id", body.local_id).eq("plato_sku", body.plato_sku).limit(1).execute().data
+    plato_nombre = (ventas[0].get("plato_nombre") if ventas else None) or body.plato_sku
+    ingrediente_nombre, _, unidad = body.ingrediente_key.partition("||")
+    db.table("ventas_recetas").upsert({
+        "local_id": body.local_id, "plato_sku": body.plato_sku, "plato_nombre": plato_nombre,
+        "ingrediente_key": body.ingrediente_key, "ingrediente_nombre": ingrediente_nombre,
+        "cantidad": body.cantidad, "unidad": unidad,
+    }, on_conflict="local_id,plato_sku,ingrediente_key").execute()
 
 
 @router.delete("/recetas-venta", status_code=status.HTTP_204_NO_CONTENT)
