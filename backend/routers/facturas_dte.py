@@ -1421,18 +1421,17 @@ def _ejecutar_creacion(cliente: OdooClient, dte_id: int, doc: dict, lineas: list
     productos = cliente._call('product.product', 'read', [product_ids], {'fields': ['uom_id', 'display_name']})
     info_por_producto = {p['id']: p for p in productos}
 
-    # Impuestos guardados por producto (tabla facturas_producto_impuesto,
-    # hasta 3 por producto) -- si un producto no tiene fila aca, Odoo usa el
-    # impuesto que ya tenga configurado por defecto (el caso normal). Los
-    # impuestos son por EMPRESA en Odoo, asi que se guarda el NOMBRE y se
-    # resuelve al id real de la empresa de este DTE recien aca.
-    filas_impuestos = db.table("facturas_producto_impuesto").select("odoo_product_id,impuesto_nombre") \
-        .in_("odoo_product_id", product_ids).execute().data or []
-    nombres_por_producto: dict[int, list[str]] = {}
-    for f in filas_impuestos:
-        lista = nombres_por_producto.setdefault(f["odoo_product_id"], [])
-        if f["impuesto_nombre"] not in lista:
-            lista.append(f["impuesto_nombre"])
+    # Impuestos por producto -- override guardado (facturas_producto_impuesto)
+    # si existe, si no el default que el producto ya tiene en Odoo
+    # (supplier_taxes_id), mismo helper compartido que usa simular()/detalle()
+    # para que la OC real NUNCA le deje la decision a Odoo en silencio.
+    # Bug real encontrado en vivo: antes, sin override, esta funcion no
+    # mandaba taxes_id para nada en la linea de la OC -- Odoo terminaba
+    # calculando un impuesto distinto al que el DTE declaraba (caso real:
+    # ICB Food Service, folio 5769456, Doña Picha, $1.405 de diferencia en
+    # Impuestos) aunque "Simular" (que SI usa este fallback) no mostraba
+    # ningun problema para el mismo DTE.
+    nombres_por_producto = _impuestos_actuales_por_producto(cliente, db, product_ids)
 
     tax_id_por_nombre: dict[str, int] = {}
     if nombres_por_producto:
